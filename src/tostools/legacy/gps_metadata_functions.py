@@ -501,7 +501,7 @@ def get_radome(device_iter, date_from, date_to, loglevel=logging.WARNING):
                     antenna_radome = device["model"]
                     module_logger.warning("model: %s", antenna_radome)
         else:
-            if session_end and session_end < date_from:
+            if session_end and session_end <= date_from:
                 pass
             else:
                 if date_from >= session_start:
@@ -558,7 +558,7 @@ def get_monument_height(device_iter, date_from, date_to, loglevel=logging.WARNIN
     return monument_height
 
 
-def site_log(station_identifier, loglevel=logging.WARNING):
+def site_log(station_identifier, loglevel=logging.WARNING, report_type="UPDATE", previous_log="", modified_sections="1"):
     """"""
 
     module_logger = get_logger(name=__name__)
@@ -598,7 +598,7 @@ def site_log(station_identifier, loglevel=logging.WARNING):
     site_name = station.get("name", "")
     marker = station.get("marker", "").upper()
     iers_domes = station.get("iers_domes_number", "")
-    cdp_num = station.get("cdp_num", "")
+    cdp_num = station.get("cdp_num", "(A4)")
     monument_height = "(m)"
     monument_inscription = ""
     monument_description = ""
@@ -644,7 +644,7 @@ def site_log(station_identifier, loglevel=logging.WARNING):
             if not foundation_depth == "(m)":
                 foundation_depth = foundation_depth + " m"
 
-    marker_description = station.get("marker_description", "")
+    marker_description = station.get("marker_description", "(CHISELLED CROSS/DIVOT/BRASS NAIL/etc)")
     station_start_date = station.get("date_start", "")
     station_start_date = dt.strptime(station_start_date, "%Y-%m-%d %H:%M").strftime(
         "%Y-%m-%dT%H:%MZ"
@@ -652,8 +652,14 @@ def site_log(station_identifier, loglevel=logging.WARNING):
     geological_characteristic = station.get("geological_characteristic", "").upper()
     bedrock_type = station.get("bedrock_type", "").upper()
     bedrock_condition = station.get("bedrock_condition", "").upper()
-    fracture_spacing = station.get("fracture_spacing", "")
-    fault_zone = station.get("is_near_fault_zones", "").upper()
+    fracture_spacing = station.get("fracture_spacing", "(0 cm/1-10 cm/11-50 cm/51-200 cm/over 200 cm)")
+    fault_zone = station.get("is_near_fault_zones", "NO").upper()
+    # Translate Icelandic responses to English for IGS compliance
+    if fault_zone == "NEI":
+        fault_zone = "NO"
+    elif fault_zone in ["JÁ", "JA"]:
+        fault_zone = "YES"
+    # Keep YES/NO unchanged
 
     # NOTE: 2.   Site Location Information
     llh = (station["lat"], station["lon"], station["altitude"])
@@ -663,7 +669,31 @@ def site_log(station_identifier, loglevel=logging.WARNING):
 
     city = station.get("city", station["name"])
     state = station.get("state", "N/A")
-    country = station.get("country", "Iceland")
+    # Country name/code translation table for IGS compliance
+    country_translation = {
+        # Icelandic names
+        "Ísland": "ISL",
+        "Island": "ISL", 
+        # English names
+        "Iceland": "ISL",
+        # Nordic countries (common in region)
+        "Norge": "NOR",
+        "Norway": "NOR",
+        "Danmark": "DNK", 
+        "Denmark": "DNK",
+        "Sverige": "SWE",
+        "Sweden": "SWE",
+        "Suomi": "FIN",
+        "Finland": "FIN",
+        # Add more as needed
+    }
+    
+    raw_country = station.get("country", "Iceland")
+    # If it's already a 3-letter ISO code, use it; otherwise translate
+    if len(raw_country) == 3 and raw_country.isupper():
+        country = raw_country  # Already ISO 3166-1 alpha-3 code
+    else:
+        country = country_translation.get(raw_country, "ISL")  # Default to ISL
     tectonic_plate = station.get("tectonic_plate", "")
     if tectonic_plate == "":
         plate_name = {
@@ -673,11 +703,31 @@ def site_log(station_identifier, loglevel=logging.WARNING):
         plate_short = grep_line_aslist("./station-plate", marker)[1]
         tectonic_plate = plate_name[plate_short] if plate_short != "" else "UNKNOWN"
 
+    def decimal_to_dms(decimal_deg):
+        """Convert decimal degrees to DDMMSS.SS format"""
+        if not decimal_deg:
+            return ""
+        
+        is_negative = decimal_deg < 0
+        abs_deg = abs(decimal_deg)
+        
+        degrees = int(abs_deg)
+        minutes = int((abs_deg - degrees) * 60)
+        seconds = ((abs_deg - degrees) * 60 - minutes) * 60
+        
+        # Format as DDMMSS.SS or DDDMMSS.SS for longitude
+        if abs_deg >= 100:  # longitude
+            dms_str = f"{degrees:03d}{minutes:02d}{seconds:05.2f}"
+        else:  # latitude
+            dms_str = f"{degrees:02d}{minutes:02d}{seconds:05.2f}"
+        
+        return f"{'-' if is_negative else '+'}{dms_str}"
+
     x_coordinate = coordinates.get("X", "")
     y_coordinate = coordinates.get("Y", "")
     z_coordinate = coordinates.get("Z", "")
-    latitude = coordinates.get("lat", "")
-    longitude = coordinates.get("lon", "")
+    latitude = decimal_to_dms(coordinates.get("lat", ""))
+    longitude = decimal_to_dms(coordinates.get("lon", ""))
     elevation = coordinates.get("alt", "")
 
     # NOTE: 3.   GNSS Receiver Information
@@ -1094,21 +1144,26 @@ def site_log(station_identifier, loglevel=logging.WARNING):
     )
 
     module_logger.debug("monument_height: %s", monument_height)
+    
+    # Set default contact info for header
+    primary_contact = "GNSS Operator"
+    email = "gnss-epos@vedur.is"
+    
     ascii_site_log = (
-        f"{marker}ISL00 Site Information Form (site log)\n"
-        f"    International GNSS Service\n"
-        f"    See Instructions at:\n"
-        f"      https://files.igs.org/pub/station/general/sitelog_instr.txt\n\n\n"
+        f"     {marker}00ISL Site Information Form (site log v2.0)\n"
+        f"     International GNSS Service\n"
+        f"     See Instructions at:\n"
+        f"       https://files.igs.org/pub/station/general/sitelog_instr_v2.0.txt\n\n\n"
         f"0.   Form\n\n"
         f"     Prepared by (full name)  : {primary_contact} ({email})\n"
         f"     Date Prepared            : {dt.now().strftime('%Y-%m-%d')}\n"
-        f"     Report Type              : NEW\n"
+        f"     Report Type              : {report_type}\n"
         f"     If Update:\n"
-        f"      Previous Site Log       : \n"
-        f"      Modified/Added Sections : \n\n\n"
-        f"1.   Site Identification of the GNSS Monument\n"
+        f"      Previous Site Log       : {previous_log}\n"
+        f"      Modified/Added Sections : {modified_sections}\n\n\n"
+        f"1.   Site Identification of the GNSS Monument\n\n"
         f"     Site Name                : {site_name}\n"
-        f"     Four Character ID        : {marker}\n"
+        f"     Nine Character ID        : {marker}00ISL\n"
         f"     Monument Inscription     : {monument_inscription}\n"
         f"     IERS DOMES Number        : {iers_domes}\n"
         f"     CDP Number               : {cdp_num}\n"
@@ -1125,17 +1180,17 @@ def site_log(station_identifier, loglevel=logging.WARNING):
         f"       Fault zones nearby     : {fault_zone}\n"
         f"         Distance/activity    : \n"
         f"     Additional Information   : \n\n\n"
-        f"2.   Site Location Information\n"
+        f"2.   Site Location Information\n\n"
         f"     City or Town             : {city}\n"
         f"     State or Province        : {state}\n"
-        f"     Country                  : {country}\n"
+        f"     Country or Region        : {country}\n"
         f"     Tectonic Plate           : {tectonic_plate}\n"
         f"     Approximate Position (ITRF)\n"
-        f"       X coordinate (m)       : {x_coordinate:.1f}\n"
-        f"       Y coordinate (m)       : {y_coordinate:.1f}\n"
-        f"       Z coordinate (m)       : {z_coordinate:.1f}\n"
-        f"       Latitude (N is +)      : {latitude:.5f}\n"
-        f"       Longitude (E is +)     : {longitude:.5f}\n"
+        f"       X coordinate (m)       : {x_coordinate:.3f}\n"
+        f"       Y coordinate (m)       : {y_coordinate:.3f}\n"
+        f"       Z coordinate (m)       : {z_coordinate:.3f}\n"
+        f"       Latitude (N is +)      : {latitude}\n"
+        f"       Longitude (E is +)     : {longitude}\n"
         f"       Elevation (m,ellips.)  : {elevation:.1f}\n"
         f"     Additional Information   : \n\n"
         f"{receiver_info}"
@@ -1147,6 +1202,7 @@ def site_log(station_identifier, loglevel=logging.WARNING):
     )
 
     # print(ascii_site_log)
+    return ascii_site_log
 
 
 def domes_info_form(station_identifier, loglevel=logging.WARNING):

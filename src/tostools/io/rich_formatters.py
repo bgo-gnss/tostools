@@ -254,7 +254,7 @@ class GPSStationFormatter:
                 height,
                 east,
                 north,
-                self._safe_get(radome.get("model"))
+                self._safe_get_radome(radome.get("model"))
             ])
             
             # Monument
@@ -283,6 +283,12 @@ class GPSStationFormatter:
         """Convert empty/None values to N/A."""
         if value is None or value == "" or value == "None":
             return "N/A"
+        return str(value)
+    
+    def _safe_get_radome(self, value) -> str:
+        """Convert empty/None radome values to NONE (IGS standard)."""
+        if value is None or value == "" or value == "None":
+            return "NONE"
         return str(value)
     
     def _format_numeric(self, value) -> str:
