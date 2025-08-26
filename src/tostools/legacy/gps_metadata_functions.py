@@ -700,7 +700,7 @@ def site_log(station_identifier, loglevel=logging.WARNING, report_type="UPDATE",
             "EURA": "EURASIAN",
             "NOAM": "NORTH AMERICAN",
         }
-        plate_short = grep_line_aslist("./station-plate", marker)[1]
+        plate_short = grep_line_aslist("tmp/organized/station_data/station-plate", marker)[1]
         tectonic_plate = plate_name[plate_short] if plate_short != "" else "UNKNOWN"
 
     def decimal_to_dms(decimal_deg):
@@ -793,7 +793,7 @@ def site_log(station_identifier, loglevel=logging.WARNING, report_type="UPDATE",
         serial_number = device.get("serial_number", "000000")
         arp = device.get("antenna_reference_point", "BPA")
         if arp == "DHARP":
-            arp = grep_line_aslist("./antenna_arp.list", device_type)[1]
+            arp = grep_line_aslist("tmp/organized/station_data/antenna_arp.list", device_type)[1]
 
         if device["monument_height"]:
             antenna_height = device["monument_height"]
