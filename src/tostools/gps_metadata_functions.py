@@ -28,6 +28,28 @@ from .io.formatters import json_print
 from .utils.logging import get_logger
 
 
+def get_data_file_path(filename):
+    """
+    Get absolute path to data files, independent of working directory.
+    
+    This function locates data files relative to the package directory,
+    making tosGPS work from any directory.
+    """
+    # Get the directory containing this module
+    package_dir = Path(__file__).parent.parent.parent
+    data_path = package_dir / "tmp" / "organized" / "station_data" / filename
+    
+    if not data_path.exists():
+        # Fallback: try relative to current working directory (legacy behavior)
+        fallback_path = Path("tmp") / "organized" / "station_data" / filename
+        if fallback_path.exists():
+            return str(fallback_path)
+        # If neither exists, return the expected path for error reporting
+        return str(data_path)
+    
+    return str(data_path)
+
+
 def print_station_history(station, raw_format=False, loglevel=logging.WARNING):
     """
     print station history
@@ -742,7 +764,7 @@ def site_log(station_identifier, loglevel=logging.WARNING):
             "EURA": "EURASIAN",
             "NOAM": "NORTH AMERICAN",
         }
-        plate_short = grep_line_aslist("tmp/organized/station_data/station-plate", marker)[1]
+        plate_short = grep_line_aslist(get_data_file_path("station-plate"), marker)[1]
         tectonic_plate = plate_name[plate_short] if plate_short != "" else "UNKNOWN"
 
     x_coordinate = coordinates.get("X", "")
@@ -815,7 +837,7 @@ def site_log(station_identifier, loglevel=logging.WARNING):
         serial_number = device.get("serial_number", "000000")
         arp = device.get("antenna_reference_point", "BPA")
         if arp == "DHARP":
-            arp = grep_line_aslist("tmp/organized/station_data/antenna_arp.list", device_type)[1]
+            arp = grep_line_aslist(get_data_file_path("antenna_arp.list"), device_type)[1]
 
         if device["monument_height"]:
             antenna_height = device["monument_height"]
