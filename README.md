@@ -23,8 +23,11 @@ tosGPS PrintTOS RHOF REYK --format gamit > stations.info
 # Validate RINEX files
 tosGPS rinex RHOF data/RHOF*.rnx
 
-# Generate IGS site log
-tosGPS sitelog RHOF --output RHOF.log
+# Generate IGS-compliant site log
+tosGPS sitelog RHOF --auto-filename --dir ./sitelogs
+
+# Validate GPS/GNSS standards compliance
+python scripts/update_standards.py --validate-only
 ```
 
 ## 📋 Table of Contents
@@ -37,6 +40,7 @@ tosGPS sitelog RHOF --output RHOF.log
 - [Examples](#-examples)
 - [Architecture](#-architecture)
 - [Development](#-development)
+- [GPS/GNSS Standards](#gpsgnss-standards)
 - [License](#-license)
 
 ## ✨ Features
@@ -59,6 +63,13 @@ tosGPS sitelog RHOF --output RHOF.log
 - **Multiple Formats**: Table, JSON, GAMIT, rich visual displays
 - **Clean Data Export**: Perfect for automation and data pipelines
 - **Selective Display**: Show only the data sections you need
+
+### 📐 GPS/GNSS Standards Compliance
+- **IGS v2.0 Site Logs**: Complete compliance with International GNSS Service standards
+- **RINEX Format Support**: Multi-version support (v2/3/4) with FORTRAN77 format preservation
+- **GAMIT/GLOBK Integration**: Fixed-width station.info format for GPS processing workflows
+- **ITRF Coordinates**: Proper reference frame handling and transformations
+- **Automated Validation**: Built-in standards compliance checking and validation
 
 ## 🔧 Installation
 
@@ -333,16 +344,59 @@ ruff check src/
 # Formatting  
 black src/
 
+# GPS/GNSS standards validation
+python scripts/update_standards.py --validate-only
+
 # Full CI pipeline locally
-ruff check src/ && black --check src/ && pytest tests/ -v
+ruff check src/ && black --check src/ && pytest tests/ -v && python scripts/update_standards.py --validate-only
+```
+
+### GPS/GNSS Standards
+```bash
+# Check for standards updates
+python scripts/update_standards.py
+
+# Generate standards compliance report
+python scripts/update_standards.py --report standards_report.txt
+
+# View standards documentation
+ls docs/standards/
 ```
 
 ### Contributing
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes with tests
-4. Ensure CI pipeline passes
+4. Ensure CI pipeline passes (includes standards compliance validation)
 5. Submit a pull request
+
+## 📐 GPS/GNSS Standards
+
+tostools maintains strict compliance with authoritative GPS/GNSS standards:
+
+### Supported Standards
+- **IGS Site Log Instructions v2.0**: International GNSS Service site log format
+- **RINEX v2/3/4**: Receiver Independent Exchange Format specifications  
+- **GAMIT/GLOBK**: MIT GPS processing software station.info format
+- **ITRF/DOMES**: International Terrestrial Reference Frame standards
+- **EPN Guidelines**: EUREF Permanent Network operational standards
+
+### Standards Integration
+- **Automated Validation**: Pre-commit hooks and CI/CD pipeline validation
+- **Local Repository**: Complete standards documents stored in `docs/standards/`
+- **Update Management**: Automated checking for standards updates
+- **Compliance Reporting**: Generate detailed compliance reports
+
+### Key Implementation Features
+- **IGS Compliance**: Nine-character station IDs, DMS coordinate formatting
+- **RINEX Compliance**: FORTRAN77 format preservation, multi-version support
+- **GAMIT Compliance**: Fixed-width station.info format, session validation
+- **Cross-validation**: Consistency checking across different standards
+
+### Documentation
+- **Standards Index**: `docs/standards/STANDARDS_INDEX.md`
+- **Workflow Integration**: `docs/standards/WORKFLOW_INTEGRATION.md`
+- **Implementation Details**: Individual standards documented in `docs/standards/`
 
 ## 📄 License
 
@@ -353,7 +407,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Benedikt G. Ófeigsson** - GPS metadata QC and RINEX processing tools
 - **Tryggvi Hjörvar** - Original TOS API integration and Icelandic station tools
 - **Icelandic Meteorological Office (IMO)** - TOS API and station data
-- **GAMIT/GLOBK** - GPS processing software compatibility
+- **International GNSS Service (IGS)** - Site log standards and specifications
+- **MIT GAMIT/GLOBK Team** - GPS processing software compatibility
+- **ITRF/IGN** - International Terrestrial Reference Frame standards
 
 ## 📞 Contact
 

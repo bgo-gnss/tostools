@@ -197,11 +197,11 @@ class GPSStationFormatter:
         table.add_column("SW", style="green", justify="right", width=4, no_wrap=True)     # "9.93", "4.60"
         # Antenna columns - red
         table.add_column("Type", style="red", justify="left", width=12, no_wrap=True)     # "ASH701945C_M", "TRM57971.00"
+        table.add_column("Radome", style="red", justify="left", width=6, no_wrap=True)    # "SCIS", "N/A"
         table.add_column("SN", style="red", justify="left", width=10, no_wrap=True)       # "1999040150", "1441045161"
         table.add_column("Height", style="red", justify="right", width=7, no_wrap=True)   # "0.000", "-0.007"
         table.add_column("East", style="red", justify="right", width=6, no_wrap=True)     # "0.000"
         table.add_column("North", style="red", justify="right", width=6, no_wrap=True)    # "0.000"
-        table.add_column("Radome", style="red", justify="left", width=6, no_wrap=True)    # "SCIS", "N/A"
         # Monument columns - yellow
         table.add_column("Height", style="yellow", justify="right", width=7, no_wrap=True)  # "1.014"
         table.add_column("East", style="yellow", justify="right", width=6, no_wrap=True)    # "0.000"
@@ -250,11 +250,11 @@ class GPSStationFormatter:
             
             row_data.extend([
                 self._safe_get(antenna.get("model")),
+                self._safe_get_radome(radome.get("model")),
                 self._safe_get(antenna.get("serial_number")),
                 height,
                 east,
-                north,
-                self._safe_get_radome(radome.get("model"))
+                north
             ])
             
             # Monument

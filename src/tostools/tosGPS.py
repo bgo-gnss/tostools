@@ -14,7 +14,8 @@ from . import gps_metadata_qc as gpsqc
 
 # Import new modular components
 from .api.tos_client import TOSClient
-# Use the comprehensive legacy site log generator 
+
+# Use the comprehensive legacy site log generator
 # from .core.site_log import generate_igs_site_log
 from .rinex.editor import update_rinex_files
 from .rinex.reader import extract_header_info, read_rinex_header
@@ -22,40 +23,46 @@ from .rinex.validator import compare_rinex_to_tos
 
 # Import new logging system
 from .utils.logging import (
-    setup_development_logging, 
-    setup_production_logging, 
+    setup_development_logging,
+    setup_production_logging,
     setup_console_logging,
     get_logger,
     LoggingConfig,
-    configure_logging
+    configure_logging,
 )
 
 
-def generate_igs_sitelog_filename(station_marker: str, country_code: str = "ISL", monument_number: str = "00", 
-                                  include_date: bool = False, base_dir: str = ".", custom_date: str = None) -> tuple[str, str]:
+def generate_igs_sitelog_filename(
+    station_marker: str,
+    country_code: str = "ISL",
+    monument_number: str = "00",
+    include_date: bool = False,
+    base_dir: str = ".",
+    custom_date: str = None,
+) -> tuple[str, str]:
     """
     Generate IGS-compliant site log filename and directory path.
-    
+
     Format without date: {STATION}{MONUMENT}{COUNTRY}
     Format with date: {station}{monument}{country}_{YYYYMMDD}.log
     Example: RHOF00ISL or rhof00isl_20250825.log
-    
+
     Args:
-        station_marker: 4-character station code (e.g., "RHOF") 
+        station_marker: 4-character station code (e.g., "RHOF")
         country_code: 3-character country code (default: "ISL" for Iceland)
         monument_number: 2-digit monument number (default: "00" for main monument)
         include_date: Whether to include current date in filename
         base_dir: Base directory for site log storage
-        
+
     Returns:
         Tuple of (full_path, filename_only)
     """
     import os
     from datetime import datetime
-    
+
     station_id = f"{station_marker.upper()}{monument_number}{country_code.upper()}"
     station_dir = os.path.join(base_dir, station_id)
-    
+
     if include_date:
         if custom_date:
             date_str = custom_date  # Use provided date (YYYYMMDD format)
@@ -64,7 +71,7 @@ def generate_igs_sitelog_filename(station_marker: str, country_code: str = "ISL"
         filename = f"{station_id.lower()}_{date_str}.log"
     else:
         filename = station_id
-    
+
     full_path = os.path.join(station_dir, filename)
     return full_path, filename
 
@@ -72,27 +79,27 @@ def generate_igs_sitelog_filename(station_marker: str, country_code: str = "ISL"
 def find_previous_sitelog(station_dir: str, station_id: str) -> str:
     """
     Find the most recent site log file in the station directory.
-    
+
     Args:
         station_dir: Directory to search for previous logs
         station_id: Station identifier (e.g., RHOF00ISL)
-        
+
     Returns:
         Filename of most recent log, or empty string if none found
     """
     import os
     import glob
-    
+
     if not os.path.exists(station_dir):
         return ""
-    
+
     # Pattern: rhof00isl_20240827.log (lowercase station + date)
     pattern = os.path.join(station_dir, f"{station_id.lower()}_????????.log")
     log_files = glob.glob(pattern)
-    
+
     if not log_files:
         return ""
-    
+
     # Sort by date (filename contains date) and return most recent
     log_files.sort()
     most_recent = os.path.basename(log_files[-1])
@@ -102,111 +109,127 @@ def find_previous_sitelog(station_dir: str, station_id: str) -> str:
 def detect_modified_sections(current_content: str, previous_log_path: str) -> str:
     """
     Compare current site log content with previous log to detect modified sections.
-    
+
     Args:
         current_content: Current site log content
         previous_log_path: Path to previous site log file
-        
+
     Returns:
         Comma-separated list of modified sections (e.g., "1,3.2,4.2")
     """
     import os
     import re
-    
+
     if not os.path.exists(previous_log_path):
         return ""  # No previous log to compare with
-    
+
     try:
-        with open(previous_log_path, 'r', encoding='utf-8') as f:
+        with open(previous_log_path, "r", encoding="utf-8") as f:
             previous_content = f.read()
     except Exception:
         return ""  # Error reading previous file
-    
+
     # Find all section headers in both files
-    section_pattern = r'^(\d+(?:\.\d+)*)\s+.*$'
-    
+    section_pattern = r"^(\d+(?:\.\d+)*)\s+.*$"
+
     current_sections = {}
     previous_sections = {}
-    
+
     # Extract sections from current content
-    for line in current_content.split('\n'):
+    for line in current_content.split("\n"):
         match = re.match(section_pattern, line.strip())
         if match:
             section_num = match.group(1)
             # Find section content (until next section or end)
             start_idx = current_content.find(line)
             # Simple approach: get next 500 chars as section content
-            section_content = current_content[start_idx:start_idx+500]
+            section_content = current_content[start_idx : start_idx + 500]
             current_sections[section_num] = section_content
-    
+
     # Extract sections from previous content
-    for line in previous_content.split('\n'):
+    for line in previous_content.split("\n"):
         match = re.match(section_pattern, line.strip())
         if match:
             section_num = match.group(1)
             start_idx = previous_content.find(line)
-            section_content = previous_content[start_idx:start_idx+500]
+            section_content = previous_content[start_idx : start_idx + 500]
             previous_sections[section_num] = section_content
-    
+
     # Compare sections
     modified = []
     for section_num, content in current_sections.items():
         prev_content = previous_sections.get(section_num, "")
         if content != prev_content:
             modified.append(section_num)
-    
-    return ",".join(modified) if modified else "1"  # Default to "1" if no specific changes detected
+
+    return (
+        ",".join(modified) if modified else "1"
+    )  # Default to "1" if no specific changes detected
 
 
 def _configure_logging(args):
     """Configure the logging system based on command line arguments."""
     # Determine console log level
-    console_level = args.log_level.value if hasattr(args.log_level, 'value') else args.log_level
-    
+    console_level = (
+        args.log_level.value if hasattr(args.log_level, "value") else args.log_level
+    )
+
     # For manual QC workflow: default to minimal console logging
     # unless explicitly requested by user
-    if hasattr(args, 'subcommand') and args.subcommand in ['PrintTOS', 'rinex', 'sitelog']:
+    if hasattr(args, "subcommand") and args.subcommand in [
+        "PrintTOS",
+        "rinex",
+        "sitelog",
+    ]:
         # Manual QC commands: Keep console clean by default
         if console_level == logging.INFO and not args.debug_all:
             console_level = logging.ERROR  # Only show errors for clean output (warnings/errors can be enabled explicitly)
-    
+
     # Smart console level: debug-all enables DEBUG for files but keeps console cleaner
     if args.debug_all and args.log_dir:
         # When file logging is available, keep console at INFO level for readability
         # but enable DEBUG for files
         file_level = logging.DEBUG
         if console_level == logging.WARNING:  # From manual QC logic above
-            console_level = logging.INFO  # Show some progress info when debug-all is requested
+            console_level = (
+                logging.INFO
+            )  # Show some progress info when debug-all is requested
     elif args.debug_all:
         # No file logging, so show DEBUG on console
         console_level = logging.DEBUG
         file_level = logging.DEBUG
     else:
         file_level = logging.DEBUG if not args.production_logging else logging.INFO
-    
+
     if args.log_dir:
         # File logging enabled
         if args.production_logging:
-            configure_logging(LoggingConfig(
-                console_level=console_level,
-                file_level=logging.INFO,
-                log_dir=args.log_dir,
-                console_format=args.log_format,
-                file_format="json",
-                structured_file=True,
-                separate_levels=True,
-            ), force_reconfigure=True)
+            configure_logging(
+                LoggingConfig(
+                    console_level=console_level,
+                    file_level=logging.INFO,
+                    log_dir=args.log_dir,
+                    console_format=args.log_format,
+                    file_format="json",
+                    structured_file=True,
+                    separate_levels=True,
+                ),
+                force_reconfigure=True,
+            )
         else:
             # Development logging - keep console clean but files comprehensive
-            configure_logging(LoggingConfig(
-                console_level=console_level,  # Respect user's level choice
-                file_level=file_level,        # Use DEBUG for files when --debug-all
-                log_dir=args.log_dir,
-                console_format=args.log_format,
-                file_format="human",
-                structured_file=True,
-                separate_levels=True,
-            ), force_reconfigure=True)
+            configure_logging(
+                LoggingConfig(
+                    console_level=console_level,  # Respect user's level choice
+                    file_level=file_level,  # Use DEBUG for files when --debug-all
+                    log_dir=args.log_dir,
+                    console_format=args.log_format,
+                    file_format="human",
+                    structured_file=True,
+                    separate_levels=True,
+                ),
+                force_reconfigure=True,
+            )
     else:
         # Console only logging
         setup_console_logging(console_level)
@@ -259,16 +282,18 @@ Contact: Benni (bgo@vedur.is) or Hildur (hildur@vedur.is)
         "--log-dir", type=str, help="Directory for log files (enables file logging)"
     )
     logging_options.add_argument(
-        "--log-format", choices=["human", "json"], default="human",
-        help="Log format (human-readable or structured JSON)"
+        "--log-format",
+        choices=["human", "json"],
+        default="human",
+        help="Log format (human-readable or structured JSON)",
     )
     logging_options.add_argument(
-        "--production-logging", action="store_true",
-        help="Use production logging configuration (less verbose)"
+        "--production-logging",
+        action="store_true",
+        help="Use production logging configuration (less verbose)",
     )
     logging_options.add_argument(
-        "--debug-all", action="store_true",
-        help="Enable debug logging for all modules"
+        "--debug-all", action="store_true", help="Enable debug logging for all modules"
     )
 
     # server options
@@ -289,12 +314,15 @@ Contact: Benni (bgo@vedur.is) or Hildur (hildur@vedur.is)
 
     # making subcommands
     subparsers = parser.add_subparsers(
-        title="Subcommands", description="valid subcommands", dest="subcommand", required=True
+        title="Subcommands",
+        description="valid subcommands",
+        dest="subcommand",
+        required=True,
     )
 
     # For TOS print options
     print_options = subparsers.add_parser(
-        "PrintTOS", 
+        "PrintTOS",
         help="Display GPS station metadata from TOS in various formats",
         epilog="""
 Examples:
@@ -322,10 +350,16 @@ Examples:
   # JSON output for scripting
   tosGPS PrintTOS RHOF --format json | jq .
   
+  # Period filtering (show only sessions within date range)
+  tosGPS PrintTOS RHOF --date-from 2010-01-01 --date-to 2020-12-31
+  
+  # Show equipment history from specific date onwards
+  tosGPS PrintTOS RHOF --date-from 2012-08-28 --show-history
+  
   # Silent operation (errors only)
   tosGPS --log-level ERROR PrintTOS RHOF 2>/dev/null
         """,
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     print_options.add_argument("stations", nargs="+", help="List of stations")
     print_options.add_argument(
@@ -335,30 +369,43 @@ Examples:
         default="rich",
         help="Output format: rich (enhanced tables), table (simple), json, gamit (processing)",
     )
-    print_options.add_argument("--raw", action="store_true", help="Include detailed raw metadata")
-    
+    print_options.add_argument(
+        "--raw", action="store_true", help="Include detailed raw metadata"
+    )
+
     # Display control options
     display_group = print_options.add_argument_group("Display options")
     display_group.add_argument(
-        "--show-static", action="store_true",
-        help="Show only static station data"
+        "--show-static", action="store_true", help="Show only static station data"
     )
     display_group.add_argument(
-        "--show-history", action="store_true",
-        help="Show only device history"
+        "--show-history", action="store_true", help="Show only device history"
     )
     display_group.add_argument(
-        "--show-contacts", action="store_true",
-        help="Show only contact summary" 
+        "--show-contacts", action="store_true", help="Show only contact summary"
     )
     display_group.add_argument(
-        "--contact", action="store_true",
-        help="Show detailed contact information in English and Icelandic"
+        "--contact",
+        action="store_true",
+        help="Show detailed contact information in English and Icelandic",
+    )
+    
+    # Period filtering options
+    filter_group = print_options.add_argument_group("Period filtering")
+    filter_group.add_argument(
+        "--date-from",
+        type=str,
+        help="Filter sessions from this date (YYYY-MM-DD format, e.g., 2010-01-01)",
+    )
+    filter_group.add_argument(
+        "--date-to", 
+        type=str,
+        help="Filter sessions to this date (YYYY-MM-DD format, e.g., 2020-12-31)",
     )
 
     # RINEX validation subcommand
     rinex_parser = subparsers.add_parser(
-        "rinex", 
+        "rinex",
         help="Validate RINEX files against TOS metadata and apply corrections",
         epilog="""
 Examples:
@@ -383,12 +430,12 @@ Examples:
       tosGPS --log-level ERROR rinex RHOF "$file" || echo "Issue in $file"
   done
         """,
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    rinex_parser.add_argument("stations", nargs="+", help="GPS stations to validate against")
     rinex_parser.add_argument(
-        "rinex_files", nargs="+", help="RINEX files to validate"
+        "stations", nargs="+", help="GPS stations to validate against"
     )
+    rinex_parser.add_argument("rinex_files", nargs="+", help="RINEX files to validate")
     rinex_parser.add_argument(
         "--fix", action="store_true", help="Apply corrections to RINEX headers"
     )
@@ -399,9 +446,9 @@ Examples:
         "--report", type=str, help="Generate detailed QC report to file"
     )
 
-    # Site log generation subcommand  
+    # Site log generation subcommand
     sitelog_parser = subparsers.add_parser(
-        "sitelog", 
+        "sitelog",
         help="Generate IGS site log",
         epilog="""
 Examples:
@@ -434,61 +481,84 @@ Examples:
   # Quality control workflow
   tosGPS sitelog RHOF --validate --format json > rhof_data.json
         """,
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sitelog_parser.add_argument("stations", nargs="+", help="List of stations")
     sitelog_parser.add_argument(
-        "--output", "-o", type=str, 
-        help="Output file (default: stdout for piping)"
+        "--output", "-o", type=str, help="Output file (default: stdout for piping)"
     )
     sitelog_parser.add_argument(
-        "--validate", action="store_true",
-        help="Validate site log completeness and report issues"
+        "--validate",
+        action="store_true",
+        help="Validate site log completeness and report issues",
     )
     sitelog_parser.add_argument(
-        "--format", choices=["igs", "json"], default="igs",
-        help="Output format: igs (standard site log) or json (structured data)"
+        "--format",
+        choices=["igs", "json"],
+        default="igs",
+        help="Output format: igs (standard site log) or json (structured data)",
     )
     sitelog_parser.add_argument(
-        "--auto-filename", action="store_true",
-        help="Generate IGS-compliant filename automatically (e.g., RHOF00ISL)"
+        "--auto-filename",
+        action="store_true",
+        help="Generate IGS-compliant filename automatically (e.g., RHOF00ISL)",
     )
     sitelog_parser.add_argument(
-        "--dir", default=".",
-        help="Base directory for site log storage (default: current directory). Creates subdirectories per station."
+        "--dir",
+        default=".",
+        help="Base directory for site log storage (default: current directory). Creates subdirectories per station.",
     )
     sitelog_parser.add_argument(
-        "--date-in-name", action="store_true",
-        help="Include creation date in filename (e.g., rhof00isl_20250825.log)"
+        "--date-in-name",
+        action="store_true",
+        help="Include creation date in filename (e.g., rhof00isl_20250825.log)",
     )
     sitelog_parser.add_argument(
         "--modified-sections",
-        help="Manually specify modified sections (e.g., '1,3.2,4.2'). If not provided, auto-detected by comparing with previous log."
+        help="Manually specify modified sections (e.g., '1,3.2,4.2'). If not provided, auto-detected by comparing with previous log.",
     )
     sitelog_parser.add_argument(
         "--custom-date",
-        help="Use custom date for filename (YYYYMMDD format, e.g., '20010719'). For testing historical equipment sessions."
+        help="Use custom date for filename (YYYYMMDD format, e.g., '20010719'). For testing historical equipment sessions.",
+    )
+    
+    # Period filtering for sitelog
+    sitelog_filter_group = sitelog_parser.add_argument_group("Period filtering")
+    sitelog_filter_group.add_argument(
+        "--date-from",
+        type=str,
+        help="Filter sessions from this date (YYYY-MM-DD format, e.g., 2010-01-01)",
+    )
+    sitelog_filter_group.add_argument(
+        "--date-to", 
+        type=str,
+        help="Filter sessions to this date (YYYY-MM-DD format, e.g., 2020-12-31)",
     )
 
     args = parser.parse_args()
-    stations = getattr(args, 'stations', [])
-    
+    stations = getattr(args, "stations", [])
+
     # Configure logging system
     _configure_logging(args)
-    
+
     # Get main logger
     logger = get_logger(__name__)
-    
+
     # Constructing the URL:
     url = "{}://{}:{}{}".format(args.protocol, args.server, args.port, args.rest)
     log_level = args.log_level
-    
-    logger.info("tosGPS started", extra={
-        "subcommand": args.subcommand,
-        "stations": stations,
-        "server_url": url,
-        "log_level": log_level.name if hasattr(log_level, 'name') else str(log_level)
-    })
+
+    logger.info(
+        "tosGPS started",
+        extra={
+            "subcommand": args.subcommand,
+            "stations": stations,
+            "server_url": url,
+            "log_level": log_level.name
+            if hasattr(log_level, "name")
+            else str(log_level),
+        },
+    )
 
     # Handle different subcommands
     if args.subcommand == "rinex":
@@ -502,6 +572,88 @@ Examples:
         _handle_print_subcommand(args, stations, url, log_level)
 
 
+def _filter_sessions_by_date(station_info, date_from=None, date_to=None):
+    """
+    Filter device sessions based on date range.
+    
+    Args:
+        station_info: Station information dictionary containing device_history
+        date_from: Start date string in YYYY-MM-DD format (optional)
+        date_to: End date string in YYYY-MM-DD format (optional)
+        
+    Returns:
+        Modified station_info with filtered device_history
+    """
+    if not date_from and not date_to:
+        return station_info  # No filtering needed
+    
+    if not station_info or 'device_history' not in station_info:
+        return station_info  # No device history to filter
+    
+    from datetime import datetime
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    # Parse filter dates
+    filter_start = None
+    filter_end = None
+    
+    try:
+        if date_from:
+            filter_start = datetime.strptime(date_from, '%Y-%m-%d')
+        if date_to:
+            filter_end = datetime.strptime(date_to, '%Y-%m-%d')
+    except ValueError as e:
+        logger.error(f"Invalid date format: {e}. Use YYYY-MM-DD format.")
+        return station_info  # Return unfiltered data on error
+    
+    # Filter sessions
+    original_sessions = station_info['device_history']
+    filtered_sessions = []
+    
+    for session in original_sessions:
+        session_start = None
+        session_end = None
+        
+        # Parse session dates
+        try:
+            if session.get('time_from'):
+                session_start = datetime.strptime(str(session['time_from'])[:10], '%Y-%m-%d')
+            
+            if session.get('time_to') and session['time_to'] != 'Present' and session['time_to']:
+                session_end = datetime.strptime(str(session['time_to'])[:10], '%Y-%m-%d')
+            else:
+                # Session is ongoing (Present) - use current date for filtering
+                session_end = datetime.now()
+                
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Could not parse session dates: {e}")
+            continue  # Skip sessions with invalid dates
+        
+        # Apply filtering logic
+        include_session = True
+        
+        if filter_start and session_end and session_end < filter_start:
+            include_session = False  # Session ends before filter start
+        
+        if filter_end and session_start and session_start > filter_end:
+            include_session = False  # Session starts after filter end
+        
+        if include_session:
+            filtered_sessions.append(session)
+    
+    # Update station info with filtered sessions
+    station_info_filtered = station_info.copy()
+    station_info_filtered['device_history'] = filtered_sessions
+    
+    # Log filtering results
+    logger.info(f"Session filtering: {len(original_sessions)} → {len(filtered_sessions)} sessions "
+               f"(from: {date_from}, to: {date_to})")
+    
+    return station_info_filtered
+
+
 def _handle_print_subcommand(args, stations, url, log_level):
     """Handle PrintTOS subcommand and default behavior."""
     stationInfo_list = []
@@ -510,17 +662,17 @@ def _handle_print_subcommand(args, stations, url, log_level):
     pformat, raw = (
         (args.format, args.raw) if args.subcommand == "PrintTOS" else ("rich", False)
     )
-    
+
     # Process show options - if any --show-* flag is used, show only those sections
     # If no --show-* flags are used, show everything (default behavior)
-    show_static_flag = getattr(args, 'show_static', False)
-    show_history_flag = getattr(args, 'show_history', False) 
-    show_contacts_flag = getattr(args, 'show_contacts', False)
-    detailed_contacts = getattr(args, 'contact', False)
-    
+    show_static_flag = getattr(args, "show_static", False)
+    show_history_flag = getattr(args, "show_history", False)
+    show_contacts_flag = getattr(args, "show_contacts", False)
+    detailed_contacts = getattr(args, "contact", False)
+
     # If any --show-* flag is specified, only show those sections
     any_show_flag = show_static_flag or show_history_flag or show_contacts_flag
-    
+
     if any_show_flag:
         # Selective display mode - show only requested sections
         show_options = {
@@ -533,7 +685,7 @@ def _handle_print_subcommand(args, stations, url, log_level):
         if detailed_contacts:
             show_options = {
                 "show_static": False,
-                "show_history": False, 
+                "show_history": False,
                 "show_contacts": False,  # Will be handled by detailed_contacts
             }
         else:
@@ -545,10 +697,17 @@ def _handle_print_subcommand(args, stations, url, log_level):
 
     for sta in stations:
         station_info = gpsqc.gps_metadata(sta, url, loglevel=log_level.value)
-        
+
         if not station_info:
             continue
-            
+        
+        # Apply period filtering if specified
+        station_info = _filter_sessions_by_date(
+            station_info, 
+            getattr(args, 'date_from', None), 
+            getattr(args, 'date_to', None)
+        )
+
         if pformat == "table":
             gpsf.print_station_history(
                 station_info, raw_format=raw, loglevel=log_level.value
@@ -556,19 +715,23 @@ def _handle_print_subcommand(args, stations, url, log_level):
         elif pformat == "rich":
             # Use new rich formatter with full flag support
             from .io.rich_formatters import print_stations_rich
+
             print_stations_rich(
-                [station_info], 
+                [station_info],
                 show_static=show_options["show_static"],
                 show_contacts=show_options["show_contacts"],
-                show_history=show_options["show_history"], 
-                detailed_contacts=detailed_contacts
+                show_history=show_options["show_history"],
+                detailed_contacts=detailed_contacts,
             )
         elif pformat == "json":
             # Use JSON formatter
             from .io.formatters import json_print
+
             print(json_print(station_info))
         elif pformat == "gamit":
-            stationInfo_list += gpsf.print_station_info(station_info, loglevel=log_level.value)
+            stationInfo_list += gpsf.print_station_info(
+                station_info, loglevel=log_level.value
+            )
 
     # Handle gamit format output (accumulated at the end)
     if pformat == "gamit":
@@ -598,13 +761,19 @@ def _handle_rinex_subcommand(args, stations, url, log_level):
         try:
             station_data = gpsqc.gps_metadata(station, url, loglevel=log_level.value)
             if not station_data:
-                print(f"Error: Could not retrieve metadata for station {station}", file=sys.stderr)
+                print(
+                    f"Error: Could not retrieve metadata for station {station}",
+                    file=sys.stderr,
+                )
                 continue
 
             # Extract device sessions for validation (use most recent)
-            device_sessions = station_data.get('device_history', [])
+            device_sessions = station_data.get("device_history", [])
             if not device_sessions:
-                print(f"Warning: No device history found for station {station}", file=sys.stderr)
+                print(
+                    f"Warning: No device history found for station {station}",
+                    file=sys.stderr,
+                )
                 continue
 
             # Use the most recent session for validation
@@ -634,28 +803,35 @@ def _handle_rinex_subcommand(args, stations, url, log_level):
 
             # Compare with TOS metadata
             comparison = compare_rinex_to_tos(rinex_info, station_data, log_level.value)
-            all_comparisons.append({
-                'station': station,
-                'file': rinex_file,
-                'comparison': comparison
-            })
+            all_comparisons.append(
+                {"station": station, "file": rinex_file, "comparison": comparison}
+            )
 
             # Report discrepancies
             if comparison.get("discrepancies"):
-                print(f"Found {len(comparison['discrepancies'])} discrepancies:", file=sys.stderr)
-                for field, diff in comparison['discrepancies'].items():
-                    print(f"  {field}: RINEX='{diff.get('rinex', '')}' vs TOS='{diff.get('tos', '')}'", file=sys.stderr)
+                print(
+                    f"Found {len(comparison['discrepancies'])} discrepancies:",
+                    file=sys.stderr,
+                )
+                for field, diff in comparison["discrepancies"].items():
+                    print(
+                        f"  {field}: RINEX='{diff.get('rinex', '')}' vs TOS='{diff.get('tos', '')}'",
+                        file=sys.stderr,
+                    )
             else:
                 print("✓ No discrepancies found")
 
             # Apply fixes if requested
             if args.fix and comparison.get("corrections"):
-                print(f"Applying {len(comparison['corrections'])} corrections...", file=sys.stderr)
+                print(
+                    f"Applying {len(comparison['corrections'])} corrections...",
+                    file=sys.stderr,
+                )
                 success = update_rinex_files(
                     [rinex_path],
-                    [comparison['corrections']],
+                    [comparison["corrections"]],
                     backup=args.backup,
-                    loglevel=log_level.value
+                    loglevel=log_level.value,
                 )
                 if success.get(str(rinex_path)):
                     print("✓ Corrections applied successfully", file=sys.stderr)
@@ -664,16 +840,16 @@ def _handle_rinex_subcommand(args, stations, url, log_level):
 
     # Generate report if requested
     if args.report and all_comparisons:
-        report_content = "GPS RINEX QC REPORT\n" + "="*50 + "\n\n"
+        report_content = "GPS RINEX QC REPORT\n" + "=" * 50 + "\n\n"
         for item in all_comparisons:
             report_content += f"Station: {item['station']}\n"
             report_content += f"File: {item['file']}\n"
-            comp = item['comparison']
+            comp = item["comparison"]
             report_content += f"Discrepancies: {len(comp.get('discrepancies', {}))}\n"
             report_content += f"Corrections: {len(comp.get('corrections', {}))}\n\n"
 
         try:
-            with open(args.report, 'w') as f:
+            with open(args.report, "w") as f:
                 f.write(report_content)
             print(f"\n✓ QC report saved to {args.report}", file=sys.stderr)
         except Exception as e:
@@ -694,36 +870,59 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
             # Get complete station metadata with proper device sessions (like legacy system)
             complete_station_data = tos_client.get_complete_station_metadata(station)
             if not complete_station_data:
-                print(f"Error: Could not retrieve metadata for station {station}", file=sys.stderr)
+                print(
+                    f"Error: Could not retrieve metadata for station {station}",
+                    file=sys.stderr,
+                )
                 continue
 
             # Extract device sessions from complete metadata
-            device_sessions = complete_station_data.get('device_history', [])
+            device_sessions = complete_station_data.get("device_history", [])
+            
+            # Apply period filtering if specified
+            complete_station_data = _filter_sessions_by_date(
+                complete_station_data, 
+                getattr(args, 'date_from', None), 
+                getattr(args, 'date_to', None)
+            )
+            device_sessions = complete_station_data.get("device_history", [])
 
             # Validation if requested (basic validation for now)
             if args.validate:
                 # Simple validation - check if we got station data
                 if complete_station_data and device_sessions:
-                    required_fields = ['marker', 'name', 'lat', 'lon', 'altitude']
-                    missing = [f for f in required_fields if not complete_station_data.get(f)]
-                    
+                    required_fields = ["marker", "name", "lat", "lon", "altitude"]
+                    missing = [
+                        f for f in required_fields if not complete_station_data.get(f)
+                    ]
+
                     if missing:
-                        print(f"⚠️  Station {station}: Missing required fields: {', '.join(missing)}", file=sys.stderr)
+                        print(
+                            f"⚠️  Station {station}: Missing required fields: {', '.join(missing)}",
+                            file=sys.stderr,
+                        )
                     else:
-                        print(f"✅ Station {station}: Basic required data present ({len(device_sessions)} device sessions)", file=sys.stderr)
+                        print(
+                            f"✅ Station {station}: Basic required data present ({len(device_sessions)} device sessions)",
+                            file=sys.stderr,
+                        )
                 else:
-                    print(f"❌ Station {station}: No station data or device sessions found", file=sys.stderr)
+                    print(
+                        f"❌ Station {station}: No station data or device sessions found",
+                        file=sys.stderr,
+                    )
 
             # Generate output based on format
             if args.format == "json":
                 # JSON format - structured site log data
                 from .io.formatters import json_print
+
                 site_log_data = {
                     "station": station,
                     "metadata": complete_station_data,
                     "device_sessions": device_sessions,
                     "generated_date": datetime.now().isoformat(),
-                    "format": "site_log_json_v1"
+                    "format": "site_log_json_v1",
                 }
                 output_content = json_print(site_log_data)
             else:
@@ -733,69 +932,79 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
                     station_id = f"{station.upper()}00ISL"
                     station_dir = os.path.join(args.dir, station_id)
                     previous_log = find_previous_sitelog(station_dir, station_id)
-                    
+
                     report_type = "NEW" if not previous_log else "UPDATE"
-                    modified_sections = args.modified_sections if args.modified_sections else "1"
-                    
-                    output_content = gpsf.site_log(station, loglevel=log_level.value, 
-                                                 report_type=report_type, 
-                                                 previous_log=previous_log,
-                                                 modified_sections=modified_sections)
+                    modified_sections = (
+                        args.modified_sections if args.modified_sections else "1"
+                    )
+
+                    output_content = gpsf.site_log(
+                        station,
+                        loglevel=log_level.value,
+                        report_type=report_type,
+                        previous_log=previous_log,
+                        modified_sections=modified_sections,
+                    )
                 else:
                     output_content = gpsf.site_log(station, loglevel=log_level.value)
 
             # Output handling - file, auto-filename, or stdout
             output_file = None
-            
+
             if args.output:
                 # Use specified output file
                 output_file = args.output
             elif args.auto_filename:
                 # Generate IGS-compliant filename with new features
                 full_path, filename = generate_igs_sitelog_filename(
-                    station, 
+                    station,
                     include_date=args.date_in_name,
                     base_dir=args.dir,
-                    custom_date=args.custom_date
+                    custom_date=args.custom_date,
                 )
-                
+
                 # Create directory if it doesn't exist
                 import os
+
                 os.makedirs(os.path.dirname(full_path), exist_ok=True)
-                
+
                 # Determine previous log and report type
                 station_id = f"{station.upper()}00ISL"
                 station_dir = os.path.dirname(full_path)
                 previous_log = find_previous_sitelog(station_dir, station_id)
-                
+
                 # Auto-detect modified sections if not manually specified
                 modified_sections = args.modified_sections
                 if not modified_sections and previous_log:
                     previous_log_path = os.path.join(station_dir, previous_log)
-                    modified_sections = detect_modified_sections(output_content, previous_log_path)
-                
+                    modified_sections = detect_modified_sections(
+                        output_content, previous_log_path
+                    )
+
                 output_file = full_path
                 print(f"Using IGS filename: {filename}", file=sys.stderr)
                 if previous_log:
                     print(f"Previous log: {previous_log}", file=sys.stderr)
                     print(f"Report type: UPDATE", file=sys.stderr)
                     if modified_sections:
-                        print(f"Modified sections: {modified_sections}", file=sys.stderr)
+                        print(
+                            f"Modified sections: {modified_sections}", file=sys.stderr
+                        )
                 else:
                     print(f"Report type: NEW", file=sys.stderr)
-            
+
             if output_file:
                 # Write to file
                 try:
-                    with open(output_file, 'w', encoding='utf-8') as f:
+                    with open(output_file, "w", encoding="utf-8") as f:
                         f.write(output_content)
                     # Send success message to stderr to keep stdout clean
                     print(f"✓ Site log saved to {output_file}", file=sys.stderr)
-                    
+
                     # Also output to stdout when using auto-filename (dual output)
                     if args.auto_filename:
                         print(output_content)  # Also send to stdout for piping
-                        
+
                 except Exception as e:
                     print(f"Error writing site log: {e}", file=sys.stderr)
                     # Still output to stdout if file write failed

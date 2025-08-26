@@ -1,0 +1,84 @@
+DOMES INFORMATION FORM
+
+ 1. Request from (full name) : optional
+
+ 2. Site Name                :
+ 3. Country                  :
+ 4. Point Description        :
+    Support description      :
+    Picture                  : see guidelines
+
+ 5. DOMES Number             :  
+ 6. Local Number             :
+ 7. 4-Char Code              :
+
+ 8. Approximate Position
+    Latitude (deg min)       :
+    Longitude (deg min)      :
+    Elevation (m)            :
+    Tectonic plate           :    
+
+ 9. Instrument               :
+10. Date of Installation     :
+
+11. Operation Contact Name   : optional
+    Agency                   :
+    E-mail                   :
+
+12. Site Contact Name        : optional
+    Agency                   :
+    E-mail                   :
+
+13. Additional information   :
+____________________________________________________________________________
+GUIDELINES: ONE form per point should be prepared:
+
+ 2. Name of a city or any other place that is easy to find on a map. The word site designates a set of points located in a small area (typically less than 1 or 2 kilometres around the site name) and connected by one or several surveys.
+    Examples : Washington - White House or Paris - La Sorbonne University or The Vatican or Antarctica - Concordia base, etc...
+
+ 3. Country or dependency
+    Examples : United States of America or France or Portuguese dependencies beyond the seas or Kerguelen Islands, etc...
+
+ 4. Point description to which ITRF coordinates will be referred. It should be filled in as clearly as possible. A tracking point could be defined as either an instrument reference point of a permanent observing system or a well defined geodetic ground marker.
+    Examples :
+    - intersection of axes of a permanent VLBI antenna
+    - rotation axes intersection of a permanent SLR telescope
+    - DORIS Antenna Reference Point (ARP)
+    - top and centre of a brass mark
+    - reference point of a self centring antenna mount : this is generally the case of an antenna installed permanently with no well defined geodetic marker (brass mark) beneath. Most of the time it is coincident with the antenna reference point but it is not antenna dependent.
+      For a GNSS station, if the reference point is the ARP, that means it is antenna dependent : if you remove the antenna and change it, the reference point is formally destroyed! For this reason it is much more suitable to find, if possible, a reference point which refers to the antenna mount and not to the antenna.
+    - geodetic ground marker (brass mark or circle plate) under a mobile observing system; either installed permanently or with successive occupancies
+
+    Support description : 
+    Example : 1.4 m height concrete pillar anchored in bedrock or stainless steel mast fixed on the side of a 3 storeys height building, etc...
+
+    Pictures enclosed with the request could be useful (general and close-up view of the antenna mount and the monument) 
+
+ 5. DOMES number will be provided after request by IERS Section, IGN-France.
+
+ 6. Number (in local network if any) used by the local agency to identify the point.
+
+ 7. 4-char Identification for IGS and DORIS stations or CDP 4-digit number for SLR and VLBI stations.
+    So as to avoid to duplicate a 4-char id for different GNSS stations, please check first the acronym availability referring to the daily updated codomes file on ftp://igs-rf.ign.fr/pub/DOMES/codomes.snx, and to the SOPAC website at http://sopac.ucsd.edu/checkSiteID.shtml. 
+
+ 8. Approximate coordinates. Using degrees and minutes format DDD°MM'. Recommended accuracy: minute.
+     -Latitude [from -90.00 to +90.00] which means - in southern hemisphere and + in northern hemisphere
+    Example : Lat : for 25°59" south please fill -25.59
+     -Longitude only positive [from 0.00 to 359.59]
+    Example : Lon : for 00.59 west please fill 359.01
+     -Elevation : approximate height above ellipsoid. Recommended accuracy: decimetre.
+    Example : 100.1 m
+
+    Tectonic plate : 4-char code from NUVEL1A model
+    Example : PCFC, AFRC, ANTA, ARAB, AUST, CARB, COCO, EURA, NAZC, NOAM, SOAM, JUFU, INDI or PHIL.
+
+ 9. The space geodesy instrument occupying the point.
+    Example : VLBI, SLR, DORIS, GNSS or tide-gauge.
+    No need receiver and antenna trademarks, models and serial numbers, except for antenna dependent reference points.
+ 
+11. Contact person and agency responsible for the operation of the instrument.
+
+12. Contact person and agency hosting the instrument (site owner)
+
+13. Additional informations.
+    Acronyms and DOMES numbers of colocated instruments (if any); GNSS antenna shared by two receivers (if any): in this case the two acronyms will refer to the same DOMES number; destroyed marker with DOMES number; GNSS station on a marker formerly used by an other space geodesy technique; decommissioned station replaced by a new one; name of GNSS station local network ; etc 
