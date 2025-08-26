@@ -21,6 +21,7 @@ from gtimes.timefunc import datefRinex
 from tabulate import tabulate
 
 from . import gps_metadata_qc as gpsqc
+from ..utils.data_quality import data_quality_manager
 
 
 def get_data_file_path(filename):
@@ -270,19 +271,34 @@ def print_station_info(station, loglevel=logging.WARNING):
             else:
                 antenna_SN = item["antenna"]["serial_number"]
 
-            # Antenna height and offsets
-            antenna_height = (
-                item["antenna"]["antenna_height"] + item["monument"]["monument_height"]
-            )
+            # Antenna height and offsets - with data quality monitoring
+            antenna_height_base = data_quality_manager.get_antenna_height_safe(item, station["marker"])
+            monument_height = data_quality_manager.get_monument_height_safe(item, station["marker"])
+            antenna_height = antenna_height_base + monument_height
 
-            antenna_N = (
-                item["antenna"]["antenna_offset_north"]
-                + item["monument"]["monument_offset_north"]
-            )
-            antenna_E = (
-                item["antenna"]["antenna_offset_east"]
-                + item["monument"]["monument_offset_east"]
-            )
+            # Safe offset extraction with fallbacks
+            try:
+                antenna_N = (
+                    item["antenna"]["antenna_offset_north"]
+                    + item["monument"]["monument_offset_north"]
+                )
+                antenna_E = (
+                    item["antenna"]["antenna_offset_east"]
+                    + item["monument"]["monument_offset_east"]
+                )
+            except KeyError:
+                # Handle missing monument offset data
+                antenna_N = item["antenna"].get("antenna_offset_north", 0.0)
+                antenna_E = item["antenna"].get("antenna_offset_east", 0.0)
+                if "monument" not in item:
+                    data_quality_manager.report_issue(
+                        station=station["marker"],
+                        issue_type=data_quality_manager.IssueType.MISSING_MONUMENT,
+                        description="Monument offset data missing - using antenna offsets only",
+                        impact="Antenna positioning may be less accurate",
+                        fallback_used="monument_offsets = 0.0",
+                        session_start=item.get("time_from", "").strftime("%Y-%m-%d") if item.get("time_from") else None
+                    )
 
             if item["antenna"]["antenna_reference_point"] is None:
                 antenna_reference_point = "-----"
@@ -297,36 +313,19 @@ def print_station_info(station, loglevel=logging.WARNING):
             antenna_type = "---------------"
             antenna_SN = "---------------"
 
-        # receiver type
-        if "gnss_receiver" in item.keys():
-            if item["gnss_receiver"]["model"] is None:
-                receiver_type = "--------------------"
-            else:
-                receiver_type = item["gnss_receiver"]["model"]
-
-            # receiver SN
-            if item["gnss_receiver"]["serial_number"] is None:
-                receiver_SN = "--------------------"
-            else:
-                receiver_SN = item["gnss_receiver"]["serial_number"]
-
-            # receiver firmware
-            if item["gnss_receiver"]["firmware_version"] is None:
-                firmware_version = "--------------------"
-            else:
-                firmware_version = item["gnss_receiver"]["firmware_version"]
-
-            # receiver software
-            if item["gnss_receiver"]["software_version"] is None:
+        # Receiver information - with data quality monitoring
+        receiver_info = data_quality_manager.get_receiver_info_safe(item, station["marker"])
+        receiver_type = receiver_info["model"]
+        receiver_SN = receiver_info["serial_number"] 
+        firmware_version = receiver_info["firmware_version"]
+        
+        # Software version with fallback
+        try:
+            software_version = item["gnss_receiver"].get("software_version", "-----")
+            if software_version is None:
                 software_version = "-----"
-            else:
-                software_version = item["gnss_receiver"]["software_version"]
-            # -------------------------------------------------------
-        else:
-            receiver_type = "--------------------"
-            firmware_version = "--------------------"
+        except KeyError:
             software_version = "-----"
-            receiver_SN = "--------------------"
 
         # radome
         if "radome" in item.keys():

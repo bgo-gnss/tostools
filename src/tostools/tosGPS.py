@@ -15,6 +15,7 @@ from . import gps_metadata_qc as gpsqc
 
 # Import new modular components
 from .api.tos_client import TOSClient
+from .utils.data_quality import data_quality_manager
 
 # Use the comprehensive legacy site log generator
 # from .core.site_log import generate_igs_site_log
@@ -295,6 +296,19 @@ Contact: Benni (bgo@vedur.is) or Hildur (hildur@vedur.is)
     )
     logging_options.add_argument(
         "--debug-all", action="store_true", help="Enable debug logging for all modules"
+    )
+
+    # Data quality reporting options
+    quality_options = parser.add_argument_group(title="Data Quality Reporting")
+    quality_options.add_argument(
+        "--report-issues",
+        type=str,
+        help="Save TOS data quality issues to JSON file (e.g., data_issues.json)"
+    )
+    quality_options.add_argument(
+        "--quality-report", 
+        type=str,
+        help="Save human-readable data quality report to file (e.g., tos_quality_report.txt)"
     )
 
     # server options
@@ -1017,6 +1031,17 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
 
         except Exception as e:
             print(f"Error generating site log for {station}: {e}", file=sys.stderr)
+
+    # Generate data quality reports if requested
+    if hasattr(args, 'report_issues') and args.report_issues:
+        data_quality_manager.save_issues_to_file(args.report_issues)
+        print(f"✓ Data quality issues saved to {args.report_issues}", file=sys.stderr)
+    
+    if hasattr(args, 'quality_report') and args.quality_report:
+        report_content = data_quality_manager.generate_summary_report()
+        with open(args.quality_report, 'w') as f:
+            f.write(report_content)
+        print(f"✓ Data quality report saved to {args.quality_report}", file=sys.stderr)
 
 
 if __name__ == "__main__":
