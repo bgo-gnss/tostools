@@ -474,7 +474,7 @@ def get_contacts(id_entity_parent, url_rest, loglevel=logging.WARNING):
         module_logger.warning("No owners found at: %s. Setting default", url_rest)
         # Get complete IMO contact information for fallback
         imo_addition = additional_contact_fields("Veðurstofa Íslands")
-        
+
         contact["owner"] = {
             "role": "owner",
             "role_is": "Eigandi stöðvar",
@@ -492,7 +492,7 @@ def get_contacts(id_entity_parent, url_rest, loglevel=logging.WARNING):
             "main_url_en": imo_addition["main_url_en"],
         }
         contact["operator"] = {
-            "role": "operator", 
+            "role": "operator",
             "role_is": "Rekstraraðili stöðvar",
             "name": "Veðurstofa Íslands",
             "address": "Bústaðarvegur 7-9, 105 Reykjavík, Ísland",
@@ -514,7 +514,7 @@ def get_contacts(id_entity_parent, url_rest, loglevel=logging.WARNING):
     if contact["owner"]["name"] == "Landmælingar Íslands":
         contact["operator"] = {
             "role": "operator",
-            "role_is": "Rekstraraðili stöðvar", 
+            "role_is": "Rekstraraðili stöðvar",
             "name": "Landmælingar Íslands",
         }
         module_logger.info(

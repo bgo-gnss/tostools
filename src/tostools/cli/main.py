@@ -8,7 +8,7 @@ all business logic to the appropriate modular components.
 import argparse
 import logging
 import sys
-from typing import List, Dict
+from typing import Dict, List
 
 from ..api.tos_client import TOSClient
 from ..io.formatters import json_print
@@ -56,23 +56,21 @@ def setup_argument_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--show-static", action="store_true",
-        help="Show only static station data"
+        "--show-static", action="store_true", help="Show only static station data"
     )
-    
+
     parser.add_argument(
-        "--show-history", action="store_true",
-        help="Show only device history"
+        "--show-history", action="store_true", help="Show only device history"
     )
-    
+
     parser.add_argument(
-        "--show-contacts", action="store_true",
-        help="Show only contact summary" 
+        "--show-contacts", action="store_true", help="Show only contact summary"
     )
-    
+
     parser.add_argument(
-        "--contact", action="store_true",
-        help="Show detailed contact information in English and Icelandic"
+        "--contact",
+        action="store_true",
+        help="Show detailed contact information in English and Icelandic",
     )
 
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
@@ -128,7 +126,7 @@ def process_stations(
 
     Args:
         station_ids: List of station identifiers
-        tos_client: TOS API client instance  
+        tos_client: TOS API client instance
         output_format: Output format ('rich', 'table', 'json', 'gamit')
         show_options: Dict with show_static, show_history, show_contacts flags
         detailed_contacts: Whether to show detailed contact information
@@ -158,22 +156,27 @@ def process_stations(
             elif output_format == "rich":
                 # Use new rich formatter with full flag support
                 from ..io.rich_formatters import print_stations_rich
+
                 print_stations_rich(
-                    [station_data], 
+                    [station_data],
                     show_static=show_options["show_static"],
                     show_contacts=show_options["show_contacts"],
-                    show_history=show_options["show_history"], 
-                    detailed_contacts=detailed_contacts
+                    show_history=show_options["show_history"],
+                    detailed_contacts=detailed_contacts,
                 )
             elif output_format == "gamit":
                 # Handle gamit format - collect data for batch output
                 from .. import gps_metadata_functions as gpsf
-                if not hasattr(process_stations, 'stationInfo_list'):
+
+                if not hasattr(process_stations, "stationInfo_list"):
                     process_stations.stationInfo_list = []
-                process_stations.stationInfo_list += gpsf.print_station_info(station_data, loglevel)
+                process_stations.stationInfo_list += gpsf.print_station_info(
+                    station_data, loglevel
+                )
             else:
                 # Use existing tabulate formatter for table format
                 from .. import gps_metadata_functions
+
                 gps_metadata_functions.print_station_history(
                     station_data, raw_format=False, loglevel=loglevel
                 )
@@ -202,11 +205,11 @@ def main_cli() -> int:
 
     # Handle format and display options
     output_format = args.format
-    
+
     # Process show options - if any --show-* flag is used, show only those sections
     # If no --show-* flags are used, show everything (default behavior)
     any_show_flag = args.show_static or args.show_history or args.show_contacts
-    
+
     if any_show_flag:
         # Selective display mode - show only requested sections
         show_options = {
@@ -228,7 +231,7 @@ def main_cli() -> int:
                 "show_history": True,
                 "show_contacts": True,
             }
-    
+
     detailed_contacts = args.contact
 
     try:
@@ -250,11 +253,18 @@ def main_cli() -> int:
             return 1
         else:  # PrintTOS
             process_stations(
-                args.stations, tos_client, output_format, show_options, detailed_contacts, loglevel
+                args.stations,
+                tos_client,
+                output_format,
+                show_options,
+                detailed_contacts,
+                loglevel,
             )
-            
+
             # Handle GAMIT format output (accumulated data)
-            if output_format == "gamit" and hasattr(process_stations, 'stationInfo_list'):
+            if output_format == "gamit" and hasattr(
+                process_stations, "stationInfo_list"
+            ):
                 # Print GAMIT header
                 header = "*SITE  Station Name      Session Start      Session Stop       Ant Ht   HtCod  Ant N    Ant E    Receiver Type         Vers                  SwVer  Receiver SN           Antenna Type     Dome   Antenna SN"
                 print(header)

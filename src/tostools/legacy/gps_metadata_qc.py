@@ -195,6 +195,7 @@ def device_attribute_history(device, session_start, session_end, loglevel=loggin
 
     # Use new centralized logging system instead of legacy one
     from ..utils.logging import get_logger
+
     module_logger = get_logger(__name__, loglevel)
     tmp_connections = []
     connections = []

@@ -20,21 +20,21 @@ from gtimes import timefunc as tf
 from gtimes.timefunc import datefRinex
 from tabulate import tabulate
 
+from ..utils.data_quality import IssueType, data_quality_manager
 from . import gps_metadata_qc as gpsqc
-from ..utils.data_quality import data_quality_manager, IssueType, IssueSeverity
 
 
 def get_data_file_path(filename):
     """
     Get absolute path to data files, independent of working directory.
-    
+
     This function locates data files relative to the package directory,
     making tosGPS work from any directory.
     """
     # Get the directory containing this module
     package_dir = Path(__file__).parent.parent.parent.parent
     data_path = package_dir / "data" / "station_config" / filename
-    
+
     if not data_path.exists():
         # Fallback: try legacy path for backwards compatibility
         legacy_path = package_dir / "tmp" / "organized" / "station_data" / filename
@@ -46,7 +46,7 @@ def get_data_file_path(filename):
             return str(fallback_path)
         # If none exist, return the expected path for error reporting
         return str(data_path)
-    
+
     return str(data_path)
 
 
@@ -272,8 +272,12 @@ def print_station_info(station, loglevel=logging.WARNING):
                 antenna_SN = item["antenna"]["serial_number"]
 
             # Antenna height and offsets - with data quality monitoring
-            antenna_height_base = data_quality_manager.get_antenna_height_safe(item, station["marker"])
-            monument_height = data_quality_manager.get_monument_height_safe(item, station["marker"])
+            antenna_height_base = data_quality_manager.get_antenna_height_safe(
+                item, station["marker"]
+            )
+            monument_height = data_quality_manager.get_monument_height_safe(
+                item, station["marker"]
+            )
             antenna_height = antenna_height_base + monument_height
 
             # Safe offset extraction with fallbacks
@@ -297,7 +301,11 @@ def print_station_info(station, loglevel=logging.WARNING):
                         description="Monument offset data missing - using antenna offsets only",
                         impact="Antenna positioning may be less accurate",
                         fallback_used="monument_offsets = 0.0",
-                        session_start=item.get("time_from", "").strftime("%Y-%m-%d") if item.get("time_from") else None
+                        session_start=(
+                            item.get("time_from", "").strftime("%Y-%m-%d")
+                            if item.get("time_from")
+                            else None
+                        ),
                     )
 
             if item["antenna"]["antenna_reference_point"] is None:
@@ -314,11 +322,13 @@ def print_station_info(station, loglevel=logging.WARNING):
             antenna_SN = "---------------"
 
         # Receiver information - with data quality monitoring
-        receiver_info = data_quality_manager.get_receiver_info_safe(item, station["marker"])
+        receiver_info = data_quality_manager.get_receiver_info_safe(
+            item, station["marker"]
+        )
         receiver_type = receiver_info["model"]
-        receiver_SN = receiver_info["serial_number"] 
+        receiver_SN = receiver_info["serial_number"]
         firmware_version = receiver_info["firmware_version"]
-        
+
         # Software version with fallback
         try:
             software_version = item["gnss_receiver"].get("software_version", "-----")
@@ -583,7 +593,13 @@ def get_monument_height(device_iter, date_from, date_to, loglevel=logging.WARNIN
     return monument_height
 
 
-def site_log(station_identifier, loglevel=logging.WARNING, report_type="UPDATE", previous_log="", modified_sections="1"):
+def site_log(
+    station_identifier,
+    loglevel=logging.WARNING,
+    report_type="UPDATE",
+    previous_log="",
+    modified_sections="1",
+):
     """"""
 
     module_logger = get_logger(name=__name__)
@@ -669,7 +685,9 @@ def site_log(station_identifier, loglevel=logging.WARNING, report_type="UPDATE",
             if not foundation_depth == "(m)":
                 foundation_depth = foundation_depth + " m"
 
-    marker_description = station.get("marker_description", "(CHISELLED CROSS/DIVOT/BRASS NAIL/etc)")
+    marker_description = station.get(
+        "marker_description", "(CHISELLED CROSS/DIVOT/BRASS NAIL/etc)"
+    )
     station_start_date = station.get("date_start", "")
     station_start_date = dt.strptime(station_start_date, "%Y-%m-%d %H:%M").strftime(
         "%Y-%m-%dT%H:%MZ"
@@ -677,7 +695,9 @@ def site_log(station_identifier, loglevel=logging.WARNING, report_type="UPDATE",
     geological_characteristic = station.get("geological_characteristic", "").upper()
     bedrock_type = station.get("bedrock_type", "").upper()
     bedrock_condition = station.get("bedrock_condition", "").upper()
-    fracture_spacing = station.get("fracture_spacing", "(0 cm/1-10 cm/11-50 cm/51-200 cm/over 200 cm)")
+    fracture_spacing = station.get(
+        "fracture_spacing", "(0 cm/1-10 cm/11-50 cm/51-200 cm/over 200 cm)"
+    )
     fault_zone = station.get("is_near_fault_zones", "NO").upper()
     # Translate Icelandic responses to English for IGS compliance
     if fault_zone == "NEI":
@@ -698,13 +718,13 @@ def site_log(station_identifier, loglevel=logging.WARNING, report_type="UPDATE",
     country_translation = {
         # Icelandic names
         "Ísland": "ISL",
-        "Island": "ISL", 
+        "Island": "ISL",
         # English names
         "Iceland": "ISL",
         # Nordic countries (common in region)
         "Norge": "NOR",
         "Norway": "NOR",
-        "Danmark": "DNK", 
+        "Danmark": "DNK",
         "Denmark": "DNK",
         "Sverige": "SWE",
         "Sweden": "SWE",
@@ -712,7 +732,7 @@ def site_log(station_identifier, loglevel=logging.WARNING, report_type="UPDATE",
         "Finland": "FIN",
         # Add more as needed
     }
-    
+
     raw_country = station.get("country", "Iceland")
     # If it's already a 3-letter ISO code, use it; otherwise translate
     if len(raw_country) == 3 and raw_country.isupper():
@@ -732,20 +752,20 @@ def site_log(station_identifier, loglevel=logging.WARNING, report_type="UPDATE",
         """Convert decimal degrees to DDMMSS.SS format"""
         if not decimal_deg:
             return ""
-        
+
         is_negative = decimal_deg < 0
         abs_deg = abs(decimal_deg)
-        
+
         degrees = int(abs_deg)
         minutes = int((abs_deg - degrees) * 60)
         seconds = ((abs_deg - degrees) * 60 - minutes) * 60
-        
+
         # Format as DDMMSS.SS or DDDMMSS.SS for longitude
         if abs_deg >= 100:  # longitude
             dms_str = f"{degrees:03d}{minutes:02d}{seconds:05.2f}"
         else:  # latitude
             dms_str = f"{degrees:02d}{minutes:02d}{seconds:05.2f}"
-        
+
         return f"{'-' if is_negative else '+'}{dms_str}"
 
     x_coordinate = coordinates.get("X", "")
@@ -818,7 +838,9 @@ def site_log(station_identifier, loglevel=logging.WARNING, report_type="UPDATE",
         serial_number = device.get("serial_number", "000000")
         arp = device.get("antenna_reference_point", "BPA")
         if arp == "DHARP":
-            arp = grep_line_aslist(get_data_file_path("antenna_arp.list"), device_type)[1]
+            arp = grep_line_aslist(get_data_file_path("antenna_arp.list"), device_type)[
+                1
+            ]
 
         if device["monument_height"]:
             antenna_height = device["monument_height"]
@@ -1169,11 +1191,11 @@ def site_log(station_identifier, loglevel=logging.WARNING, report_type="UPDATE",
     )
 
     module_logger.debug("monument_height: %s", monument_height)
-    
+
     # Set default contact info for header
     primary_contact = "GNSS Operator"
     email = "gnss-epos@vedur.is"
-    
+
     ascii_site_log = (
         f"     {marker}00ISL Site Information Form (site log v2.0)\n"
         f"     International GNSS Service\n"
