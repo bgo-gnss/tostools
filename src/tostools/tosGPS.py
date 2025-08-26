@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -964,8 +965,6 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
                 )
 
                 # Create directory if it doesn't exist
-                import os
-
                 os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
                 # Determine previous log and report type
