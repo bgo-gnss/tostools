@@ -37,14 +37,18 @@ def get_data_file_path(filename):
     """
     # Get the directory containing this module
     package_dir = Path(__file__).parent.parent.parent
-    data_path = package_dir / "tmp" / "organized" / "station_data" / filename
+    data_path = package_dir / "data" / "station_config" / filename
     
     if not data_path.exists():
-        # Fallback: try relative to current working directory (legacy behavior)
-        fallback_path = Path("tmp") / "organized" / "station_data" / filename
+        # Fallback: try legacy path for backwards compatibility
+        legacy_path = package_dir / "tmp" / "organized" / "station_data" / filename
+        if legacy_path.exists():
+            return str(legacy_path)
+        # Fallback: try relative to current working directory
+        fallback_path = Path("data") / "station_config" / filename
         if fallback_path.exists():
             return str(fallback_path)
-        # If neither exists, return the expected path for error reporting
+        # If none exist, return the expected path for error reporting
         return str(data_path)
     
     return str(data_path)

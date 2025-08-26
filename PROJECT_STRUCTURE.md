@@ -8,6 +8,7 @@ This document provides an overview of the organized project structure for better
 tostools/
 ├── src/tostools/           # Main source code
 ├── docs/                   # Documentation and standards
+├── data/                   # Project data and configuration files
 ├── tests/                  # Test suite
 ├── scripts/                # Utility scripts
 ├── bin/                    # Binary tools (RINEX processing)
@@ -15,7 +16,6 @@ tostools/
 ├── logs/                   # Application logs
 ├── sitelogs/               # Generated IGS site logs
 ├── reference_data/         # Reference implementations
-├── tmp/                    # Organized temporary data
 ├── *.md                    # Project documentation
 └── pyproject.toml          # Package configuration
 ```
@@ -41,12 +41,12 @@ tostools/
 - **itrf/** - International Terrestrial Reference Frame
 - **epn/** - EUREF Permanent Network standards
 
-### `tmp/organized/` - Organized Temporary Data
-- **rinex/** - RINEX observation files (*.D, *.gz)
-- **sitelogs/** - Generated site logs and station logs
-- **station_data/** - GPS station configuration and metadata
-- **test_files/** - Test outputs and debug files
-- **reference_data/** - Reference standards and documentation
+### `data/` - Project Data and Configuration
+- **station_config/** - GPS station configuration files (station-plate, antenna_arp.list)
+- **rinex_samples/** - RINEX observation files for testing and development
+- **sitelogs_archive/** - Historical site logs and station logs
+- **reference/** - Reference standards and documentation files
+- **test_outputs/** - Test outputs and debug files from development
 
 ### `scripts/` - Utility Scripts
 - **update_standards.py** - Automated GPS/GNSS standards management

@@ -1,0 +1,56 @@
+     ISL00 Site Information Form (site log)
+     International GNSS Service
+     See Instructions at:
+       ftp://igs.ign.fr/pub/igscb/igscb_mail/general/sitelog_instr.txt
+
+
+0.   Form
+
+     Prepared by (full name)  : GNSS Operator
+     Date Prepared            : 2025-08-23
+     Report Type              : UPDATE
+     Previous Site Log       : 
+     Modified/Added Sections  : (n.n,n.n,...)
+
+
+1.   Site Identification of the GNSS Monument
+
+     Site Name                : 
+     Four Character ID        : 
+     Monument Inscription     : 
+     IERS DOMES Number        : 
+     CDP Number               : 
+     Monument Description     : STEEL MAST
+       Height of the Monument : (m)
+       Monument Foundation    : STEEL RODS
+       Foundation Depth       : (m)
+     Marker Description       : 
+     Date Installed           : 
+     Geologic Characteristic  : 
+       Bedrock Type           : 
+       Bedrock Condition      : 
+       Fracture Spacing       : 
+       Fault zones nearby     : 
+         Distance/activity    : 
+     Additional Information   : (multiple lines)
+
+2.   Site Location Information
+
+     City or Town             : 
+     State or Province        : 
+     Country                  : Iceland
+     Tectonic Plate           : 
+     Approximate Position (ITRF)
+       X coordinate (m)       :  6378137.0000
+       Y coordinate (m)       :        0.0000  
+       Z coordinate (m)       :        0.0000
+       Latitude (N is +)      : +00.00000000
+       Longitude (E is +)     : +000.00000000
+       Elevation (m,ellips.)  :     0.0
+     Additional Information   : (multiple lines)
+
+
+
+
+
+More Information           : (multiple lines)

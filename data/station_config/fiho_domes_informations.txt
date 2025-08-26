@@ -1,0 +1,38 @@
+DOMES INFORMATION FORM (DIF)
+
+ 1. Request from (full name) : Mr. Thorarinn Sigurdsson
+    Agency                   : National Land Survey of Iceland
+    E-mail                   : thorarinn.sigurdsson@lmi.is or lmi@lmi.is 
+    Date                     : 28.10.2021
+
+2. Site Name                 : Fiflholt
+3. Country                   : Iceland
+4. Point Description         : The station is at the east site of Iceland on the
+                             : North America tectonic plate. The antenna is mounted
+                             : on a stainless steel quadripod, that is bolted
+                             : and cemented into stable bedrock. The top of
+                             : the quadripod is the ARP.
+
+ 5. DOMES Number             :
+ 6. Local Number             : FIHO
+ 7. 4-Char Code              :
+
+ 8. Approximate Position
+    Latitude (deg min)       : 064° 41.661'
+    Longitude (deg min)      : 337° 51.121'
+    Elevation (m)            : 125.2 m
+
+ 9. Instrument               : Rec.: Trimble NetR5, serial nr. 4806K53396
+ 			     : Ant.: Navxperience 3G+C, serial nr. NA02473
+
+
+10. Date of Installation     : 18.06.2021
+
+11. Operation Contact Name   : Mr. Thorarinn Sigurdsson
+    Agency                   : National Land Survey of Iceland
+    E-mail                   : thorarinn.sigurdsson@lmi.is
+    
+12. Site Contact Name        : Same as the operation contact person
+    Agency                   :
+    E-mail                   :
+____________________________________________________________________________

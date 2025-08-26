@@ -1,0 +1,8 @@
+GPS RINEX QC REPORT
+==================================================
+
+Station: RHOF
+File: test.rnx
+Discrepancies: 1
+Corrections: 2
+
