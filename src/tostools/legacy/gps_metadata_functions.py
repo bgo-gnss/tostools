@@ -20,7 +20,7 @@ from gtimes import timefunc as tf
 from gtimes.timefunc import datefRinex
 from tabulate import tabulate
 
-from ..utils.data_quality import IssueType, data_quality_manager
+from ..utils.data_quality import IssueType, IssueSeverity, data_quality_manager
 from . import gps_metadata_qc as gpsqc
 
 
@@ -343,6 +343,67 @@ def print_station_info(station, loglevel=logging.WARNING):
         else:
             dome = "NONE"
 
+        # Validate critical fields before creating GAMIT session line
+        # Skip sessions with missing critical data to prevent GPS processing errors
+        critical_data_missing = False
+        skip_reasons = []
+        
+        # Check receiver type (critical)
+        if receiver_type is None or receiver_type in ["UNKNOWN", "None", ""]:
+            critical_data_missing = True
+            skip_reasons.append("missing receiver type")
+            
+        # Check antenna type (critical) 
+        if antenna_type is None or antenna_type in ["---------------", "None", ""]:
+            critical_data_missing = True
+            skip_reasons.append("missing antenna type")
+            
+        # Check antenna height (critical - must be > 0)
+        if antenna_height <= 0.0:
+            critical_data_missing = True
+            skip_reasons.append("invalid antenna height")
+            
+        # Check if monument height was missing (critical for accuracy)
+        if monument_height == 0.0 and "monument" not in item:
+            critical_data_missing = True
+            skip_reasons.append("missing monument data")
+            
+        if critical_data_missing:
+            # Log the skipped session and report to data quality system
+            session_period = f"{time_from} to {time_to}"
+            skip_reason_str = ", ".join(skip_reasons)
+            
+            data_quality_manager.report_issue(
+                station=station["marker"],
+                issue_type=IssueType.MISSING_CRITICAL_DATA,
+                severity=IssueSeverity.CRITICAL,
+                description=f"GAMIT session skipped due to {skip_reason_str}",
+                impact="Session excluded from GPS processing to prevent 5cm+ positioning errors",
+                fallback_used="session_line_excluded",
+                session_start=(
+                    item.get("time_from", "").strftime("%Y-%m-%d")
+                    if item.get("time_from")
+                    else None
+                ),
+                session_end=(
+                    item.get("time_to", "").strftime("%Y-%m-%d")
+                    if item.get("time_to")
+                    else None
+                ),
+                context={
+                    "session_period": session_period,
+                    "receiver_type": receiver_type,
+                    "antenna_type": antenna_type,
+                    "antenna_height": antenna_height,
+                    "monument_height": monument_height,
+                }
+            )
+            
+            module_logger.warning(
+                f"Skipping GAMIT session {session_period} for {station['marker']}: {skip_reason_str}"
+            )
+            continue  # Skip this session - don't add to stationInfo_list
+            
         # header='*SITE  Station Name      Session Start      Session Stop       Ant Ht   HtCod  Ant N    Ant E    Receiver Type         Vers                  SwVer  Receiver SN           Antenna Type     Dome   Antenna SN'
         sessionLine = " {0:4.4}  {1:17.17} {2:17.17}  {3:17.17}  {4: 1.4f}  {5:5.5}  {6: 1.4f}  {7: 1.4f}  {8:20.20}  {9:20.20}  {10:>5.5}  {11:20.20}  {12:15.15}  {13:5.5}  {14:20.20}".format(
             station["marker"].upper(),

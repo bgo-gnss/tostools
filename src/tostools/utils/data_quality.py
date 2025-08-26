@@ -32,6 +32,7 @@ class IssueType(Enum):
     INCOMPLETE_DEVICE_HISTORY = "incomplete_device_history"
     UNKNOWN_ANTENNA_TYPE = "unknown_antenna_type"
     MISSING_SERIAL_NUMBERS = "missing_serial_numbers"
+    MISSING_CRITICAL_DATA = "missing_critical_data"
 
 
 class IssueSeverity(Enum):

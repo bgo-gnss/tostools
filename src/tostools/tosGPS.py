@@ -417,6 +417,19 @@ Examples:
         help="Filter sessions to this date (YYYY-MM-DD format, e.g., 2020-12-31)",
     )
 
+    # Data quality reporting options for PrintTOS
+    printtos_quality_options = print_options.add_argument_group("Data Quality Reporting")
+    printtos_quality_options.add_argument(
+        "--report-issues",
+        type=str,
+        help="Save TOS data quality issues to JSON file (e.g., data_issues.json)",
+    )
+    printtos_quality_options.add_argument(
+        "--quality-report",
+        type=str,
+        help="Save human-readable data quality report to file (e.g., tos_quality_report.txt)",
+    )
+
     # RINEX validation subcommand
     rinex_parser = subparsers.add_parser(
         "rinex",
@@ -458,6 +471,19 @@ Examples:
     )
     rinex_parser.add_argument(
         "--report", type=str, help="Generate detailed QC report to file"
+    )
+
+    # Data quality reporting options for rinex
+    rinex_quality_options = rinex_parser.add_argument_group("Data Quality Reporting")
+    rinex_quality_options.add_argument(
+        "--report-issues",
+        type=str,
+        help="Save TOS data quality issues to JSON file (e.g., data_issues.json)",
+    )
+    rinex_quality_options.add_argument(
+        "--quality-report",
+        type=str,
+        help="Save human-readable data quality report to file (e.g., tos_quality_report.txt)",
     )
 
     # Site log generation subcommand
@@ -549,6 +575,19 @@ Examples:
         help="Filter sessions to this date (YYYY-MM-DD format, e.g., 2020-12-31)",
     )
 
+    # Data quality reporting options for sitelog
+    sitelog_quality_options = sitelog_parser.add_argument_group("Data Quality Reporting")
+    sitelog_quality_options.add_argument(
+        "--report-issues",
+        type=str,
+        help="Save TOS data quality issues to JSON file (e.g., data_issues.json)",
+    )
+    sitelog_quality_options.add_argument(
+        "--quality-report",
+        type=str,
+        help="Save human-readable data quality report to file (e.g., tos_quality_report.txt)",
+    )
+
     args = parser.parse_args()
     stations = getattr(args, "stations", [])
 
@@ -573,6 +612,7 @@ Examples:
             ),
         },
     )
+    
 
     # Handle different subcommands
     if args.subcommand == "rinex":
@@ -584,6 +624,17 @@ Examples:
     else:
         # Default behavior - print station information
         _handle_print_subcommand(args, stations, url, log_level)
+
+    # Generate data quality reports if requested
+    if hasattr(args, "report_issues") and args.report_issues:
+        data_quality_manager.save_issues_to_file(args.report_issues)
+        print(f"✓ Data quality issues saved to {args.report_issues}", file=sys.stderr)
+
+    if hasattr(args, "quality_report") and args.quality_report:
+        report_content = data_quality_manager.generate_summary_report()
+        with open(args.quality_report, "w") as f:
+            f.write(report_content)
+        print(f"✓ Data quality report saved to {args.quality_report}", file=sys.stderr)
 
 
 def _filter_sessions_by_date(station_info, date_from=None, date_to=None):
@@ -1040,16 +1091,6 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
         except Exception as e:
             print(f"Error generating site log for {station}: {e}", file=sys.stderr)
 
-    # Generate data quality reports if requested
-    if hasattr(args, "report_issues") and args.report_issues:
-        data_quality_manager.save_issues_to_file(args.report_issues)
-        print(f"✓ Data quality issues saved to {args.report_issues}", file=sys.stderr)
-
-    if hasattr(args, "quality_report") and args.quality_report:
-        report_content = data_quality_manager.generate_summary_report()
-        with open(args.quality_report, "w") as f:
-            f.write(report_content)
-        print(f"✓ Data quality report saved to {args.quality_report}", file=sys.stderr)
 
 
 if __name__ == "__main__":
