@@ -21,7 +21,7 @@ from gtimes.timefunc import datefRinex
 from tabulate import tabulate
 
 from . import gps_metadata_qc as gpsqc
-from ..utils.data_quality import data_quality_manager
+from ..utils.data_quality import data_quality_manager, IssueType, IssueSeverity
 
 
 def get_data_file_path(filename):
@@ -293,7 +293,7 @@ def print_station_info(station, loglevel=logging.WARNING):
                 if "monument" not in item:
                     data_quality_manager.report_issue(
                         station=station["marker"],
-                        issue_type=data_quality_manager.IssueType.MISSING_MONUMENT,
+                        issue_type=IssueType.MISSING_MONUMENT,
                         description="Monument offset data missing - using antenna offsets only",
                         impact="Antenna positioning may be less accurate",
                         fallback_used="monument_offsets = 0.0",
