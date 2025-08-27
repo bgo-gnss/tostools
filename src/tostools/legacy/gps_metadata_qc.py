@@ -392,15 +392,24 @@ def additional_contact_fields(contact_name, loglevel=logging.WARNING):
         contact_add["address_en"] = "Bústaðarvegur 7-9, 105 Reykjavík, Iceland"
         contact_add["main_url"] = "https://vedur.is"
         contact_add["main_url_en"] = "https://en.vedur.is"
-    # elif contact_name == "Landmælingar Íslands":
-    #     contact_add["abbreviation"] = ""
-    #     contact_add["name_en"] = ""
-    #     contact_add["email"] = ""
-    #     contact_add["primary_contact"] = ""
-    #     contact_add["department"] = ""
-    #     contact_add["address_en"] = ""
-    #     contact_add["main_url"] = ""
-    #     contact_add["main_url_en"] = ""
+    elif contact_name == "Landmælingar Íslands":
+        contact_add["abbreviation"] = "LMI"
+        contact_add["name_en"] = "National Land Survey of Iceland"
+        contact_add["email"] = "gnss@natt.is"
+        contact_add["primary_contact"] = "GNSS operator"
+        contact_add["department"] = "Geodetic department"
+        contact_add["address_en"] = "Smiðjuvellir 28, 300 Akranes, Iceland"
+        contact_add["main_url"] = "https://www.natt.is/"
+        contact_add["main_url_en"] = "https://www.natt.is/en/"
+    elif contact_name == "Jarðvísindastofnun Háskóla Íslands":
+        contact_add["abbreviation"] = "IES"
+        contact_add["name_en"] = "Institute of Earth Sciences"
+        contact_add["email"] = "gnss@hi.is"
+        contact_add["primary_contact"] = "GNSS operator"
+        contact_add["department"] = "Department of crustal deformation"
+        contact_add["address_en"] = "Sturlugata 7, 102 Reykjavík, Iceland"
+        contact_add["main_url"] = "https://jardvis.hi.is/is"
+        contact_add["main_url_en"] = "https://earthice.hi.is/"
     else:
         contact_add["abbreviation"] = ""
         contact_add["name_en"] = ""
@@ -479,9 +488,23 @@ def get_contacts(id_entity_parent, url_rest, loglevel=logging.WARNING):
         )
 
     if contact["owner"]["name"] == "Landmælingar Íslands":
+        operator_addition = additional_contact_fields("Landmælingar Íslands")
         contact["operator"] = {
+            "id_entity": contact["owner"]["id_entity"],
             "role_is": "Rekstraraðili stöðvar",
             "name": "Landmælingar Íslands",
+            "address": "",
+            "comment": "",
+            "phone_primary": "",
+            "ssid": "",
+            "abbreviation": operator_addition["abbreviation"],
+            "name_en": operator_addition["name_en"],
+            "email": operator_addition["email"],
+            "primary_contact": operator_addition["primary_contact"],
+            "department": operator_addition["department"],
+            "address_en": operator_addition["address_en"],
+            "main_url": operator_addition["main_url"],
+            "main_url_en": operator_addition["main_url_en"],
         }
         module_logger.info(
             "Setting role of contact: %s: %s",
