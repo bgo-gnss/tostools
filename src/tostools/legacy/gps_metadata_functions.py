@@ -750,9 +750,14 @@ def site_log(
         "marker_description", "(CHISELLED CROSS/DIVOT/BRASS NAIL/etc)"
     )
     station_start_date = station.get("date_start", "")
-    station_start_date = dt.strptime(station_start_date, "%Y-%m-%d %H:%M").strftime(
-        "%Y-%m-%dT%H:%MZ"
-    )
+    try:
+        station_start_date = dt.strptime(station_start_date, "%Y-%m-%d %H:%M").strftime(
+            "%Y-%m-%dT%H:%MZ"
+        )
+    except ValueError:
+        station_start_date = dt.strptime(
+            station_start_date[:19], "%Y-%m-%dT%H:%M:%S"
+        ).strftime("%Y-%m-%dT%H:%MZ")
     geological_characteristic = station.get("geological_characteristic", "").upper()
     bedrock_type = station.get("bedrock_type", "").upper()
     bedrock_condition = station.get("bedrock_condition", "").upper()

@@ -300,7 +300,7 @@ def print_station_info(station, loglevel=logging.WARNING):
         # Essential: time_from must be valid datetime
         try:
             time_from = item["time_from"].strftime("%Y %j %H %M %S")
-        except (AttributeError, TypeError, ValueError):
+        except (AttributeError, TypeError, ValueError) as e:
             session_errors.append(
                 f"time_from invalid or missing (type: {type(item.get('time_from', None))}, value: {item.get('time_from', 'None')})"
             )
@@ -813,9 +813,14 @@ def site_log(station_identifier, loglevel=logging.WARNING):
 
     marker_description = station.get("marker_description", "")
     station_start_date = station.get("date_start", "")
-    station_start_date = dt.strptime(station_start_date, "%Y-%m-%d %H:%M").strftime(
-        "%Y-%m-%dT%H:%MZ"
-    )
+    try:
+        station_start_date = dt.strptime(station_start_date, "%Y-%m-%d %H:%M").strftime(
+            "%Y-%m-%dT%H:%MZ"
+        )
+    except ValueError:
+        station_start_date = dt.strptime(
+            station_start_date[:19], "%Y-%m-%dT%H:%M:%S"
+        ).strftime("%Y-%m-%dT%H:%MZ")
     geological_characteristic = station.get("geological_characteristic", "").upper()
     bedrock_type = station.get("bedrock_type", "").upper()
     bedrock_condition = station.get("bedrock_condition", "").upper()
