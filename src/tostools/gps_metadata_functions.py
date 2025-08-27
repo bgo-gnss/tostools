@@ -31,14 +31,14 @@ from .utils.logging import get_logger
 def get_data_file_path(filename):
     """
     Get absolute path to data files, independent of working directory.
-    
+
     This function locates data files relative to the package directory,
     making tosGPS work from any directory.
     """
     # Get the directory containing this module
     package_dir = Path(__file__).parent.parent.parent
     data_path = package_dir / "data" / "station_config" / filename
-    
+
     if not data_path.exists():
         # Fallback: try legacy path for backwards compatibility
         legacy_path = package_dir / "tmp" / "organized" / "station_data" / filename
@@ -50,7 +50,7 @@ def get_data_file_path(filename):
             return str(fallback_path)
         # If none exist, return the expected path for error reporting
         return str(data_path)
-    
+
     return str(data_path)
 
 
@@ -69,15 +69,21 @@ def print_station_history(station, raw_format=False, loglevel=logging.WARNING):
         if key not in ["contact", "device_history"]
     )
     # Log concise station summary instead of full dictionary
-    station_name = station.get('name', station.get('marker', 'unknown'))
+    station_name = station.get("name", station.get("marker", "unknown"))
     coords = f"({station.get('lat', 'N/A')}, {station.get('lon', 'N/A')})"
-    device_count = len(station.get('device_history', []))
-    module_logger.debug(f"Processing station: {station_name} at {coords} with {device_count} device sessions")
+    device_count = len(station.get("device_history", []))
+    module_logger.debug(
+        f"Processing station: {station_name} at {coords} with {device_count} device sessions"
+    )
     module_logger.debug("Full station data: {}".format(station))
     print(tabulate([station_attributes], headers=station_headers))
     contact_info = [
-        (station["contact"][item].get("role", station["contact"][item]["role_is"]).title(), 
-         station["contact"][item]["name"])
+        (
+            station["contact"][item]
+            .get("role", station["contact"][item]["role_is"])
+            .title(),
+            station["contact"][item]["name"],
+        )
         for item in station["contact"].keys()
     ]
     print(tabulate(contact_info, headers=["Role", "Name"]))
@@ -157,7 +163,9 @@ def print_station_history(station, raw_format=False, loglevel=logging.WARNING):
                         )
 
                     if "serial_number" in device_headers:
-                        device_headers[device_headers.index("serial_number")] = "Serial Number"
+                        device_headers[device_headers.index("serial_number")] = (
+                            "Serial Number"
+                        )
                     if "model" in device_headers:
                         device_headers[device_headers.index("model")] = "Model"
                     if "time_from" in device_headers:
@@ -241,8 +249,8 @@ def getSession(station, session_nr, loglevel=logging.WARNING):
 def print_station_info(station, loglevel=logging.WARNING):
     """
     Generate GAMIT format station information with robust validation.
-    
-    Validates essential data and skips invalid sessions while continuing 
+
+    Validates essential data and skips invalid sessions while continuing
     to process valid sessions from the same station.
     """
 
@@ -254,33 +262,48 @@ def print_station_info(station, loglevel=logging.WARNING):
 
     # Validate essential station-level data first
     if not station.get("marker"):
-        module_logger.error("Station missing essential field 'marker' - skipping entire station")
+        module_logger.error(
+            "Station missing essential field 'marker' - skipping entire station"
+        )
         return []
-    
+
     if not station.get("name"):
-        module_logger.error("Station %s missing essential field 'name' - skipping entire station", station.get("marker", "UNKNOWN"))
+        module_logger.error(
+            "Station %s missing essential field 'name' - skipping entire station",
+            station.get("marker", "UNKNOWN"),
+        )
         return []
-        
+
     if not station.get("device_history"):
-        module_logger.error("Station %s has no device history - skipping entire station", station["marker"])
+        module_logger.error(
+            "Station %s has no device history - skipping entire station",
+            station["marker"],
+        )
         return []
 
     stationInfo_list = []
     valid_sessions = 0
     total_sessions = len(station["device_history"])
-    
+
     for session_idx, item in enumerate(station["device_history"]):
-        module_logger.debug("Processing session %d/%d for station %s", session_idx + 1, total_sessions, station["marker"])
-        
+        module_logger.debug(
+            "Processing session %d/%d for station %s",
+            session_idx + 1,
+            total_sessions,
+            station["marker"],
+        )
+
         # Validate essential session data - skip session if critical fields are missing
         skip_session = False
         session_errors = []
-        
+
         # Essential: time_from must be valid datetime
         try:
             time_from = item["time_from"].strftime("%Y %j %H %M %S")
         except (AttributeError, TypeError, ValueError) as e:
-            session_errors.append(f"time_from invalid or missing (type: {type(item.get('time_from', None))}, value: {item.get('time_from', 'None')})")
+            session_errors.append(
+                f"time_from invalid or missing (type: {type(item.get('time_from', None))}, value: {item.get('time_from', 'None')})"
+            )
             skip_session = True
 
         # Handle time_to (can be None for current sessions)
@@ -291,8 +314,11 @@ def print_station_info(station, loglevel=logging.WARNING):
                 time_to = "9999 999 00 00 00"  # GAMIT convention for present
         except (AttributeError, TypeError, ValueError):
             # This is non-essential - time_to can be None for current sessions, so WARNING is appropriate
-            module_logger.warning("Station %s session %d: time_to invalid, using 'present' (9999 999 00 00 00)", 
-                                station["marker"], session_idx + 1)
+            module_logger.warning(
+                "Station %s session %d: time_to invalid, using 'present' (9999 999 00 00 00)",
+                station["marker"],
+                session_idx + 1,
+            )
             time_to = "9999 999 00 00 00"
 
         # receiver type
@@ -310,28 +336,50 @@ def print_station_info(station, loglevel=logging.WARNING):
                 antenna_SN = item["antenna"]["serial_number"]
 
             # Antenna height and offsets (handle missing monument data)
-            if "monument" in item.keys() and item["monument"]["monument_height"] is not None:
+            if (
+                "monument" in item.keys()
+                and item["monument"]["monument_height"] is not None
+            ):
                 antenna_height = (
-                    item["antenna"]["antenna_height"] + item["monument"]["monument_height"]
+                    item["antenna"]["antenna_height"]
+                    + item["monument"]["monument_height"]
                 )
             else:
-                antenna_height = item["antenna"]["antenna_height"] if item["antenna"]["antenna_height"] is not None else 0.0000
+                antenna_height = (
+                    item["antenna"]["antenna_height"]
+                    if item["antenna"]["antenna_height"] is not None
+                    else 0.0000
+                )
 
-            if "monument" in item.keys() and item["monument"]["monument_offset_north"] is not None:
+            if (
+                "monument" in item.keys()
+                and item["monument"]["monument_offset_north"] is not None
+            ):
                 antenna_N = (
                     item["antenna"]["antenna_offset_north"]
                     + item["monument"]["monument_offset_north"]
                 )
             else:
-                antenna_N = item["antenna"]["antenna_offset_north"] if item["antenna"]["antenna_offset_north"] is not None else 0.0000
-                
-            if "monument" in item.keys() and item["monument"]["monument_offset_east"] is not None:
+                antenna_N = (
+                    item["antenna"]["antenna_offset_north"]
+                    if item["antenna"]["antenna_offset_north"] is not None
+                    else 0.0000
+                )
+
+            if (
+                "monument" in item.keys()
+                and item["monument"]["monument_offset_east"] is not None
+            ):
                 antenna_E = (
                     item["antenna"]["antenna_offset_east"]
                     + item["monument"]["monument_offset_east"]
                 )
             else:
-                antenna_E = item["antenna"]["antenna_offset_east"] if item["antenna"]["antenna_offset_east"] is not None else 0.0000
+                antenna_E = (
+                    item["antenna"]["antenna_offset_east"]
+                    if item["antenna"]["antenna_offset_east"] is not None
+                    else 0.0000
+                )
 
             if item["antenna"]["antenna_reference_point"] is None:
                 antenna_reference_point = "-----"
@@ -390,8 +438,12 @@ def print_station_info(station, loglevel=logging.WARNING):
 
         # Skip this session if critical data is missing
         if skip_session:
-            module_logger.error("Station %s session %d SKIPPED - Essential data missing: %s", 
-                              station["marker"], session_idx + 1, "; ".join(session_errors))
+            module_logger.error(
+                "Station %s session %d SKIPPED - Essential data missing: %s",
+                station["marker"],
+                session_idx + 1,
+                "; ".join(session_errors),
+            )
             continue
 
         # Generate GAMIT session line
@@ -416,20 +468,37 @@ def print_station_info(station, loglevel=logging.WARNING):
             )
             stationInfo_list.append(sessionLine)
             valid_sessions += 1
-            module_logger.debug("Station %s session %d: Valid GAMIT line generated", station["marker"], session_idx + 1)
-            
+            module_logger.debug(
+                "Station %s session %d: Valid GAMIT line generated",
+                station["marker"],
+                session_idx + 1,
+            )
+
         except (KeyError, ValueError, TypeError) as e:
-            module_logger.error("Station %s session %d SKIPPED - Error formatting GAMIT line: %s", 
-                              station["marker"], session_idx + 1, str(e))
+            module_logger.error(
+                "Station %s session %d SKIPPED - Error formatting GAMIT line: %s",
+                station["marker"],
+                session_idx + 1,
+                str(e),
+            )
 
     # Log validation summary
     skipped_sessions = total_sessions - valid_sessions
     if skipped_sessions > 0:
         # Use ERROR level so this critical information always shows, even at ERROR logging level
-        module_logger.error("Station %s: %d/%d sessions valid for GAMIT processing (%d skipped due to missing essential data)", 
-                           station["marker"], valid_sessions, total_sessions, skipped_sessions)
+        module_logger.error(
+            "Station %s: %d/%d sessions valid for GAMIT processing (%d skipped due to missing essential data)",
+            station["marker"],
+            valid_sessions,
+            total_sessions,
+            skipped_sessions,
+        )
     else:
-        module_logger.info("Station %s: All %d sessions valid for GAMIT processing", station["marker"], valid_sessions)
+        module_logger.info(
+            "Station %s: All %d sessions valid for GAMIT processing",
+            station["marker"],
+            valid_sessions,
+        )
 
     return stationInfo_list
 
@@ -744,9 +813,14 @@ def site_log(station_identifier, loglevel=logging.WARNING):
 
     marker_description = station.get("marker_description", "")
     station_start_date = station.get("date_start", "")
-    station_start_date = dt.strptime(station_start_date, "%Y-%m-%d %H:%M").strftime(
-        "%Y-%m-%dT%H:%MZ"
-    )
+    try:
+        station_start_date = dt.strptime(station_start_date, "%Y-%m-%d %H:%M").strftime(
+            "%Y-%m-%dT%H:%MZ"
+        )
+    except ValueError:
+        station_start_date = dt.strptime(
+            station_start_date[:19], "%Y-%m-%dT%H:%M:%S"
+        ).strftime("%Y-%m-%dT%H:%MZ")
     geological_characteristic = station.get("geological_characteristic", "").upper()
     bedrock_type = station.get("bedrock_type", "").upper()
     bedrock_condition = station.get("bedrock_condition", "").upper()
@@ -841,7 +915,9 @@ def site_log(station_identifier, loglevel=logging.WARNING):
         serial_number = device.get("serial_number", "000000")
         arp = device.get("antenna_reference_point", "BPA")
         if arp == "DHARP":
-            arp = grep_line_aslist(get_data_file_path("antenna_arp.list"), device_type)[1]
+            arp = grep_line_aslist(get_data_file_path("antenna_arp.list"), device_type)[
+                1
+            ]
 
         if device["monument_height"]:
             antenna_height = device["monument_height"]
