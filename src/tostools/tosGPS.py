@@ -44,9 +44,9 @@ def generate_igs_sitelog_filename(
     """
     Generate IGS-compliant site log filename and directory path.
 
-    Format without date: {STATION}{MONUMENT}{COUNTRY}
+    Format without date: {STATION}{MONUMENT}{COUNTRY}.log
     Format with date: {station}{monument}{country}_{YYYYMMDD}.log
-    Example: RHOF00ISL or rhof00isl_20250825.log
+    Example: RHOF00ISL.log or rhof00isl_20250825.log
 
     Args:
         station_marker: 4-character station code (e.g., "RHOF")
@@ -71,7 +71,7 @@ def generate_igs_sitelog_filename(
             date_str = datetime.now().strftime("%Y%m%d")
         filename = f"{station_id.lower()}_{date_str}.log"
     else:
-        filename = station_id
+        filename = f"{station_id}.log"
 
     full_path = os.path.join(station_dir, filename)
     return full_path, filename
