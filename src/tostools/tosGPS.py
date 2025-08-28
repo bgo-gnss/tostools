@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -615,18 +616,24 @@ def _filter_sessions_by_date(station_info, date_from=None, date_to=None):
     for session in original_sessions:
         session_start = None
         session_end = None
-        
+
         # Parse session dates
         try:
             if session.get('time_from'):
-                session_start = datetime.strptime(str(session['time_from'])[:10], '%Y-%m-%d')
-            
+                time_str = str(session['time_from'])
+                try:
+                    session_start = datetime.strptime(time_str, '%Y-%m-%d %H:%M')
+                except ValueError:
+                    session_start = datetime.strptime(time_str[:19], '%Y-%m-%dT%H:%M:%S')
             if session.get('time_to') and session['time_to'] != 'Present' and session['time_to']:
-                session_end = datetime.strptime(str(session['time_to'])[:10], '%Y-%m-%d')
+                time_str = str(session['time_to'])
+                try:
+                    session_end = datetime.strptime(time_str, '%Y-%m-%d %H:%M')
+                except ValueError:
+                    session_end = datetime.strptime(time_str[:19], '%Y-%m-%dT%H:%M:%S')
             else:
                 # Session is ongoing (Present) - use current date for filtering
                 session_end = datetime.now()
-                
         except (ValueError, TypeError) as e:
             logger.warning(f"Could not parse session dates: {e}")
             continue  # Skip sessions with invalid dates
@@ -964,8 +971,6 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
                 )
 
                 # Create directory if it doesn't exist
-                import os
-
                 os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
                 # Determine previous log and report type
