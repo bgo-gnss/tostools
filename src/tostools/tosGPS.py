@@ -3,17 +3,19 @@
 import argparse
 import logging
 import os
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
 from argparse_logging import add_log_level_argument
+from gtimes import timefunc as tf
 
+from .legacy import gps_metadata_functions as gpsf
 from . import gps_metadata_qc as gpsqc
 
 # Import new modular components
 from .api.tos_client import TOSClient
-from .legacy import gps_metadata_functions as gpsf
 
 # Use the comprehensive legacy site log generator
 # from .core.site_log import generate_igs_site_log
@@ -24,11 +26,23 @@ from .utils.data_quality import data_quality_manager
 
 # Import new logging system
 from .utils.logging import (
+    setup_development_logging,
+    setup_production_logging,
+    setup_console_logging,
+    get_logger,
     LoggingConfig,
     configure_logging,
-    get_logger,
-    setup_console_logging,
 )
+
+# Reference data configuration
+REFERENCE_DATA_CONFIG = {
+    "station-info": {
+        "remote_path": "/D/DATABASE/GAMIT/station.info.sopac.apr05",
+        "remote_host": "gpsops@okada", 
+        "local_filename": "station.info.sopac.apr05",
+        "description": "SOPAC station info file for GAMIT processing"
+    }
+}
 
 
 def generate_igs_sitelog_filename(
@@ -588,6 +602,30 @@ Examples:
         help="Save human-readable data quality report to file (e.g., tos_quality_report.txt)",
     )
 
+    # Reference data management subcommand
+    fetch_parser = subparsers.add_parser(
+        "fetch-reference",
+        help="Fetch reference data files from remote servers",
+        epilog="""
+Examples:
+  # Fetch station info file from okada server
+  tosGPS fetch-reference station-info
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    fetch_parser.add_argument(
+        "data_type", 
+        choices=["station-info"],
+        help="Type of reference data to fetch"
+    )
+
+    # Station comparison subcommand  
+    compare_parser = subparsers.add_parser(
+        "compare-reference",
+        help="Compare TOS station data with reference station.info file"
+    )
+    compare_parser.add_argument("stations", nargs="+", help="List of stations to compare")
+
     args = parser.parse_args()
     stations = getattr(args, "stations", [])
 
@@ -601,17 +639,19 @@ Examples:
     url = "{}://{}:{}{}".format(args.protocol, args.server, args.port, args.rest)
     log_level = args.log_level
 
-    logger.info(
-        "tosGPS started",
-        extra={
-            "subcommand": args.subcommand,
-            "stations": stations,
-            "server_url": url,
-            "log_level": (
-                log_level.name if hasattr(log_level, "name") else str(log_level)
-            ),
-        },
-    )
+    # Suppress initial log message for compare-reference for clean output
+    if args.subcommand != "compare-reference":
+        logger.info(
+            "tosGPS started",
+            extra={
+                "subcommand": args.subcommand,
+                "stations": stations,
+                "server_url": url,
+                "log_level": log_level.name
+                if hasattr(log_level, "name")
+                else str(log_level),
+            },
+        )
     
 
     # Handle different subcommands
@@ -619,6 +659,14 @@ Examples:
         _handle_rinex_subcommand(args, stations, url, log_level)
     elif args.subcommand == "sitelog":
         _handle_sitelog_subcommand(args, stations, url, log_level)
+    elif args.subcommand == "fetch-reference":
+        _handle_fetch_reference_subcommand(args, log_level)
+    elif args.subcommand == "compare-reference":
+        # Suppress all logging for completely clean comparison output
+        logging.getLogger().setLevel(logging.ERROR)
+        for logger_name in logging.Logger.manager.loggerDict:
+            logging.getLogger(logger_name).setLevel(logging.ERROR)
+        _handle_compare_reference_subcommand(args, stations, url, log_level)
     elif args.subcommand == "PrintTOS":
         _handle_print_subcommand(args, stations, url, log_level)
     else:
@@ -1091,6 +1139,383 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
         except Exception as e:
             print(f"Error generating site log for {station}: {e}", file=sys.stderr)
 
+
+def _get_reference_data_dir():
+    """Get the reference data directory relative to the project root."""
+    # Get the directory where this file is located (src/tostools/)
+    current_dir = Path(__file__).parent
+    # Go up to project root (../../ from src/tostools/)
+    project_root = current_dir.parent.parent
+    return project_root / "reference_data"
+
+
+
+
+def _fetch_station_info(reference_data_dir, logger):
+    """Fetch station info file from okada server."""
+    config = REFERENCE_DATA_CONFIG["station-info"]
+    local_path = reference_data_dir / config["local_filename"]
+    
+    # Show existing file info if it exists
+    if local_path.exists():
+        mod_time = datetime.fromtimestamp(local_path.stat().st_mtime)
+        print(f"Existing file: {mod_time.strftime('%Y-%m-%d %H:%M')}", file=sys.stderr)
+    
+    # Ensure local directory exists
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    print(f"Fetching {config['description']}...", file=sys.stderr)
+    print(f"Remote: {config['remote_host']}:{config['remote_path']}", file=sys.stderr)
+    print(f"Local: {local_path}", file=sys.stderr)
+    
+    try:
+        # Use scp to fetch the file
+        cmd = [
+            "scp",
+            f"{config['remote_host']}:{config['remote_path']}",
+            str(local_path)
+        ]
+        
+        logger.info(f"Executing: {' '.join(cmd)}")
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60  # 1 minute timeout
+        )
+        
+        if result.returncode == 0:
+            # Verify file was downloaded
+            if local_path.exists():
+                size_mb = local_path.stat().st_size / (1024 * 1024)
+                print(f"✓ Successfully downloaded station info file ({size_mb:.1f} MB)", file=sys.stderr)
+                logger.info(f"Station info file downloaded: {local_path} ({size_mb:.1f} MB)")
+            else:
+                print("✗ Download appeared successful but file not found", file=sys.stderr)
+                logger.error("SCP completed but file not found locally")
+        else:
+            print(f"✗ Download failed: {result.stderr.strip()}", file=sys.stderr)
+            logger.error(f"SCP failed with return code {result.returncode}: {result.stderr}")
+            
+    except subprocess.TimeoutExpired:
+        print("✗ Download timeout (60s)", file=sys.stderr)
+        logger.error("SCP timeout after 60 seconds")
+    except Exception as e:
+        print(f"✗ Download error: {e}", file=sys.stderr)
+        logger.error(f"SCP execution failed: {e}")
+
+
+def _handle_fetch_reference_subcommand(args, log_level):
+    """
+    Handle reference data fetching subcommand.
+    
+    Downloads reference data files from remote servers to the local reference_data directory.
+    Supports status checking and automatic re-downloading.
+    
+    Args:
+        args: Parsed command line arguments
+        log_level: Logging level for output control
+    """
+    logger = get_logger(__name__)
+    reference_data_dir = _get_reference_data_dir()
+    
+    if args.data_type == "station-info":
+        _fetch_station_info(reference_data_dir, logger)
+
+
+def _fetch_station_info(reference_data_dir, logger):
+    """Fetch station info file from okada server."""
+    config = REFERENCE_DATA_CONFIG["station-info"]
+    local_path = reference_data_dir / config["local_filename"]
+    
+    # Show existing file info if it exists
+    if local_path.exists():
+        mod_time = datetime.fromtimestamp(local_path.stat().st_mtime)
+        print(f"Existing file: {mod_time.strftime('%Y-%m-%d %H:%M')}", file=sys.stderr)
+    
+    # Ensure local directory exists
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    print(f"Fetching {config['description']}...", file=sys.stderr)
+    print(f"Remote: {config['remote_host']}:{config['remote_path']}", file=sys.stderr)
+    print(f"Local: {local_path}", file=sys.stderr)
+    
+    try:
+        # Use scp to fetch the file
+        cmd = [
+            "scp",
+            f"{config['remote_host']}:{config['remote_path']}",
+            str(local_path)
+        ]
+        
+        logger.info(f"Executing: {' '.join(cmd)}")
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60  # 1 minute timeout
+        )
+        
+        if result.returncode == 0:
+            # Verify file was downloaded
+            if local_path.exists():
+                size_mb = local_path.stat().st_size / (1024 * 1024)
+                print(f"✓ Successfully downloaded station info file ({size_mb:.1f} MB)", file=sys.stderr)
+                logger.info(f"Station info file downloaded: {local_path} ({size_mb:.1f} MB)")
+            else:
+                print("✗ Download appeared successful but file not found", file=sys.stderr)
+                logger.error("SCP completed but file not found locally")
+        else:
+            print(f"✗ Download failed: {result.stderr.strip()}", file=sys.stderr)
+            logger.error(f"SCP failed with return code {result.returncode}: {result.stderr}")
+            
+    except subprocess.TimeoutExpired:
+        print("✗ Download timeout (60s)", file=sys.stderr)
+        logger.error("SCP timeout after 60 seconds")
+    except Exception as e:
+        print(f"✗ Download error: {e}", file=sys.stderr)
+        logger.error(f"SCP execution failed: {e}")
+
+
+def _parse_station_info_file():
+    """Parse the SOPAC station.info file and return station data dictionary."""
+    reference_data_dir = _get_reference_data_dir()
+    station_info_path = reference_data_dir / "station.info.sopac.apr05"
+    
+    if not station_info_path.exists():
+        return None
+    
+    stations_data = {}
+    
+    try:
+        with open(station_info_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.rstrip('\n\r')
+                
+                # Skip comments, headers, and empty lines
+                if not line or line.startswith(('*', '#')) or len(line) < 50:
+                    continue
+                
+                # Extract station code from fixed positions (columns 1-4)
+                if len(line) >= 4:
+                    station_code = line[1:5].strip()
+                    
+                    if station_code and not station_code.isspace():
+                        if station_code not in stations_data:
+                            stations_data[station_code] = []
+                        
+                        stations_data[station_code].append(line)
+                        
+    except Exception:
+        return None
+    
+    return stations_data
+
+
+def _print_line_with_highlights(line, other_line, column_info, is_tos=True):
+    """Print a line with differences highlighted using ANSI colors."""
+    # ANSI color codes
+    BLUE = '\033[94m'   # Bright blue text for differences
+    RESET = '\033[0m'   # Reset to normal
+    
+    result = ""
+    last_pos = 0
+    
+    for col_name, start, end in column_info:
+        col_start = start - 1  # Convert to 0-based indexing
+        col_end = min(end, len(line))
+        
+        # Get the column values (stripped for comparison)
+        # Handle -1 as "to end of line"
+        if end == -1:
+            my_val = line[col_start:].strip() if len(line) > col_start else ""
+            other_val = other_line[col_start:].strip() if len(other_line) > col_start else ""
+        else:
+            my_val = line[col_start:end].strip() if len(line) >= end else line[col_start:].strip() if len(line) > col_start else ""
+            other_val = other_line[col_start:end].strip() if len(other_line) >= end else other_line[col_start:].strip() if len(other_line) > col_start else ""
+        
+        # Add content before this column
+        if last_pos < col_start:
+            result += line[last_pos:col_start]
+        
+        # Add this column's content (highlight if different)
+        if col_start < len(line):
+            # Handle -1 as "to end of line"
+            if end == -1:
+                column_content = line[col_start:]
+                col_actual_end = len(line)
+            else:
+                column_content = line[col_start:min(end, len(line))]
+                col_actual_end = min(end, len(line))
+            
+            if my_val != other_val and my_val:  # Highlight if different and not empty
+                result += BLUE + column_content + RESET
+            else:
+                result += column_content
+            
+            last_pos = col_actual_end
+        else:
+            last_pos = col_start if end == -1 else min(end, len(line))
+        
+        if last_pos >= len(line):
+            break
+    
+    # Add any remaining content after the last column
+    if last_pos < len(line):
+        result += line[last_pos:]
+    
+    print(result)
+
+
+def _analyze_line_differences(tos_lines, ref_lines):
+    """Analyze differences between TOS and reference lines with column-level detail."""
+    # Define the column positions and names for station.info format
+    # Fixed based on actual data analysis
+    column_info = [
+        ("Station", 1, 6),           # " ELDC  "
+        ("Station Name", 7, 24),     # "Eldvorp           "
+        ("Session Start", 25, 43),   # "2020 029 00 00 00"
+        ("Session Stop", 44, 62),    # "2021 050 00 00 00"
+        ("Height", 65, 73),          # "0.0000  "
+        ("HtCod", 74, 80),          # "DHARP   "
+        ("Ant N", 81, 88),          # "0.0000   "
+        ("Ant E", 89, 96),          # "0.0000  "
+        ("Receiver Type", 97, 116),  # "SEPT POLARX5          "
+        ("Receiver FW", 117, 136),   # "5.3.0                  "
+        ("SwVer", 137, 143),        # "5.30  "
+        ("Receiver SN", 144, 161),   # "3012366               "
+        ("Antenna Type", 162, 179),  # "SEPCHOKE_B3E6    "
+        ("Dome", 180, 185),         # "NONE   " vs "SPKE   "
+        ("Antenna SN", 186, -1)      # "antenna-eldc-2020012" vs "0000" (to end of line)
+    ]
+    
+    # Find best matches between lines (by station code and rough timing)
+    for tos_line in tos_lines:
+        best_match = None
+        best_score = 0
+        
+        # Look for similar lines in reference data
+        for ref_line in ref_lines:
+            if len(tos_line) >= 25 and len(ref_line) >= 25:
+                # Match by station code and station name
+                tos_station = tos_line[1:5].strip()
+                tos_name = tos_line[7:25].strip()
+                ref_station = ref_line[1:5].strip() 
+                ref_name = ref_line[7:25].strip()
+                
+                if tos_station == ref_station and tos_name == ref_name:
+                    # Calculate similarity score based on session timing
+                    tos_start = tos_line[26:45].strip() if len(tos_line) > 45 else ""
+                    ref_start = ref_line[26:45].strip() if len(ref_line) > 45 else ""
+                    
+                    if tos_start == ref_start:
+                        score = 100  # Perfect timing match
+                    elif tos_start[:9] == ref_start[:9]:  # Same start year/day
+                        score = 80
+                    else:
+                        score = 50  # Same station/name, different timing
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_match = ref_line
+        
+        if best_match and best_score >= 50:
+            # Compare columns
+            differences = []
+            for col_name, start, end in column_info:
+                # Handle -1 as "to end of line"
+                if end == -1:
+                    tos_val = tos_line[start-1:].strip() if len(tos_line) >= start else ""
+                    ref_val = best_match[start-1:].strip() if len(best_match) >= start else ""
+                else:
+                    tos_val = tos_line[start-1:end].strip() if len(tos_line) >= end else ""
+                    ref_val = best_match[start-1:end].strip() if len(best_match) >= end else ""
+                
+                if tos_val != ref_val:
+                    differences.append(f"{col_name}: '{tos_val}' vs '{ref_val}'")
+            
+            if differences:
+                session = tos_line[26:45].strip()
+                print(f"\n📅 Session: {session}")
+                print("─" * 80)
+                
+                # Show the lines with colored text highlighting
+                print("TOS: ", end="")
+                _print_line_with_highlights(tos_line, best_match, column_info, is_tos=True)
+                print("STA: ", end="")
+                _print_line_with_highlights(best_match, tos_line, column_info, is_tos=False)
+        else:
+            # No good match found - this is a completely new/missing line
+            session = tos_line[26:45].strip() if len(tos_line) > 45 else "unknown"
+            print(f"\n➕ New in TOS: {session}")
+    
+    # Check for lines only in reference
+    for ref_line in ref_lines:
+        found_match = False
+        for tos_line in tos_lines:
+            if len(tos_line) >= 25 and len(ref_line) >= 25:
+                tos_station = tos_line[1:5].strip()
+                tos_name = tos_line[7:25].strip()
+                ref_station = ref_line[1:5].strip()
+                ref_name = ref_line[7:25].strip()
+                
+                if (tos_station == ref_station and tos_name == ref_name and
+                    tos_line[26:45].strip() == ref_line[26:45].strip()):
+                    found_match = True
+                    break
+        
+        if not found_match:
+            session = ref_line[26:45].strip() if len(ref_line) > 45 else "unknown"
+            print(f"\n➖ Missing from TOS: {session}")
+
+
+def _handle_compare_reference_subcommand(args, stations, url, log_level):
+    """Handle station comparison with reference station.info file."""
+    # Load reference data
+    reference_data = _parse_station_info_file()
+    if not reference_data:
+        print("Error: Could not load reference station.info file", file=sys.stderr)
+        print("Run: tosGPS fetch-reference station-info", file=sys.stderr)
+        return
+    
+    for station in stations:
+        # Get TOS data in GAMIT format (always suppress logging for clean output)
+        try:
+            station_info = gpsqc.gps_metadata(station, url, loglevel=logging.ERROR)
+            if not station_info:
+                print(f"Error: No TOS data found for {station}", file=sys.stderr)
+                continue
+            
+            tos_lines = gpsf.print_station_info(station_info, loglevel=logging.ERROR)
+            
+        except Exception as e:
+            print(f"Error getting TOS data for {station}: {e}", file=sys.stderr)
+            continue
+        
+        # Get reference data
+        ref_lines = reference_data.get(station, [])
+        if not ref_lines:
+            print(f"Error: No reference data found for {station}", file=sys.stderr)
+            continue
+        
+        # Compare the data with detailed column analysis
+        tos_stripped = [line.strip() for line in tos_lines]
+        ref_stripped = [line.strip() for line in ref_lines]
+        
+        # Check for exact matches first
+        if set(tos_stripped) == set(ref_stripped):
+            print(f"✓ {station}: No differences found")
+            continue
+        
+        print(f"DIFFERENCES FOUND for {station}:")
+        
+        # Analyze differences line by line
+        _analyze_line_differences(tos_stripped, ref_stripped)
+        
+        if len(stations) > 1:
+            print()  # Add blank line between stations
 
 
 if __name__ == "__main__":

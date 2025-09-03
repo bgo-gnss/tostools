@@ -164,6 +164,13 @@ tosGPS --log-level ERROR rinex RHOF file.rnx 2>/dev/null
 echo $?  # Check exit code: 0=success, 1=discrepancies
 ```
 
+### Reference Data Management
+
+```bash
+# Download/update station info file from okada server
+tosGPS fetch-reference station-info
+```
+
 ### Site Log Generation
 
 ```bash
