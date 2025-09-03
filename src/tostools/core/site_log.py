@@ -186,9 +186,7 @@ def _generate_receiver_section(device_sessions: List[Dict[str, Any]]) -> str:
 
     # Get all receiver sessions sorted by date (direct access to gnss_receiver key)
     receiver_sessions = [
-        session
-        for session in device_sessions
-        if "gnss_receiver" in session
+        session for session in device_sessions if "gnss_receiver" in session
     ]
 
     receiver_sessions.sort(key=lambda x: x.get("time_from") or datetime.min)
@@ -198,10 +196,20 @@ def _generate_receiver_section(device_sessions: List[Dict[str, Any]]) -> str:
 
         receiver_type = receiver.get("model", "")
         serial_num = receiver.get("serial_number", "")
-        firmware_ver = receiver.get("firmware_version", "") or receiver.get("software_version", "")
+        firmware_ver = receiver.get("firmware_version", "") or receiver.get(
+            "software_version", ""
+        )
 
-        date_installed = session.get("time_from", "").strftime("%Y-%m-%dT%H:%MZ") if session.get("time_from") else ""
-        date_removed = session.get("time_to", "").strftime("%Y-%m-%dT%H:%MZ") if session.get("time_to") else "(CCYY-MM-DDThh:mmZ)"
+        date_installed = (
+            session.get("time_from", "").strftime("%Y-%m-%dT%H:%MZ")
+            if session.get("time_from")
+            else ""
+        )
+        date_removed = (
+            session.get("time_to", "").strftime("%Y-%m-%dT%H:%MZ")
+            if session.get("time_to")
+            else "(CCYY-MM-DDThh:mmZ)"
+        )
 
         receiver_section = f"""3.{section_num}  Receiver Type            : {receiver_type}
      Satellite System         : GPS
@@ -226,11 +234,7 @@ def _generate_antenna_section(device_sessions: List[Dict[str, Any]]) -> str:
     section_num = 1
 
     # Get all antenna sessions sorted by date (direct access to antenna key)
-    antenna_sessions = [
-        session
-        for session in device_sessions
-        if "antenna" in session
-    ]
+    antenna_sessions = [session for session in device_sessions if "antenna" in session]
 
     antenna_sessions.sort(key=lambda x: x.get("time_from") or datetime.min)
 
@@ -247,8 +251,16 @@ def _generate_antenna_section(device_sessions: List[Dict[str, Any]]) -> str:
             radome_info = session.get("radome", {})
             radome_type = radome_info.get("model", "NONE")
 
-        date_installed = session.get("time_from", "").strftime("%Y-%m-%dT%H:%MZ") if session.get("time_from") else ""
-        date_removed = session.get("time_to", "").strftime("%Y-%m-%dT%H:%MZ") if session.get("time_to") else "(CCYY-MM-DDThh:mmZ)"
+        date_installed = (
+            session.get("time_from", "").strftime("%Y-%m-%dT%H:%MZ")
+            if session.get("time_from")
+            else ""
+        )
+        date_removed = (
+            session.get("time_to", "").strftime("%Y-%m-%dT%H:%MZ")
+            if session.get("time_to")
+            else "(CCYY-MM-DDThh:mmZ)"
+        )
 
         antenna_section = f"""4.{section_num}  Antenna Type             : {antenna_type:<16} {radome_type:>4}
      Serial Number            : {serial_num}

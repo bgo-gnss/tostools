@@ -8,28 +8,26 @@ from datetime import datetime
 from pathlib import Path
 
 from argparse_logging import add_log_level_argument
-from gtimes import timefunc as tf
 
-from .legacy import gps_metadata_functions as gpsf
 from . import gps_metadata_qc as gpsqc
 
 # Import new modular components
 from .api.tos_client import TOSClient
+from .legacy import gps_metadata_functions as gpsf
 
 # Use the comprehensive legacy site log generator
 # from .core.site_log import generate_igs_site_log
 from .rinex.editor import update_rinex_files
 from .rinex.reader import extract_header_info, read_rinex_header
 from .rinex.validator import compare_rinex_to_tos
+from .utils.data_quality import data_quality_manager
 
 # Import new logging system
 from .utils.logging import (
-    setup_development_logging,
-    setup_production_logging,
-    setup_console_logging,
-    get_logger,
     LoggingConfig,
     configure_logging,
+    get_logger,
+    setup_console_logging,
 )
 
 
@@ -88,8 +86,8 @@ def find_previous_sitelog(station_dir: str, station_id: str) -> str:
     Returns:
         Filename of most recent log, or empty string if none found
     """
-    import os
     import glob
+    import os
 
     if not os.path.exists(station_dir):
         return ""
@@ -184,7 +182,9 @@ def _configure_logging(args):
     ]:
         # Manual QC commands: Keep console clean by default
         if console_level == logging.INFO and not args.debug_all:
-            console_level = logging.ERROR  # Only show errors for clean output (warnings/errors can be enabled explicitly)
+            console_level = (
+                logging.ERROR
+            )  # Only show errors for clean output (warnings/errors can be enabled explicitly)
 
     # Smart console level: debug-all enables DEBUG for files but keeps console cleaner
     if args.debug_all and args.log_dir:
@@ -297,6 +297,19 @@ Contact: Benni (bgo@vedur.is) or Hildur (hildur@vedur.is)
         "--debug-all", action="store_true", help="Enable debug logging for all modules"
     )
 
+    # Data quality reporting options
+    quality_options = parser.add_argument_group(title="Data Quality Reporting")
+    quality_options.add_argument(
+        "--report-issues",
+        type=str,
+        help="Save TOS data quality issues to JSON file (e.g., data_issues.json)",
+    )
+    quality_options.add_argument(
+        "--quality-report",
+        type=str,
+        help="Save human-readable data quality report to file (e.g., tos_quality_report.txt)",
+    )
+
     # server options
     server_options = parser.add_argument_group(title="Server options")
     server_options.add_argument(
@@ -390,7 +403,7 @@ Examples:
         action="store_true",
         help="Show detailed contact information in English and Icelandic",
     )
-    
+
     # Period filtering options
     filter_group = print_options.add_argument_group("Period filtering")
     filter_group.add_argument(
@@ -399,9 +412,22 @@ Examples:
         help="Filter sessions from this date (YYYY-MM-DD format, e.g., 2010-01-01)",
     )
     filter_group.add_argument(
-        "--date-to", 
+        "--date-to",
         type=str,
         help="Filter sessions to this date (YYYY-MM-DD format, e.g., 2020-12-31)",
+    )
+
+    # Data quality reporting options for PrintTOS
+    printtos_quality_options = print_options.add_argument_group("Data Quality Reporting")
+    printtos_quality_options.add_argument(
+        "--report-issues",
+        type=str,
+        help="Save TOS data quality issues to JSON file (e.g., data_issues.json)",
+    )
+    printtos_quality_options.add_argument(
+        "--quality-report",
+        type=str,
+        help="Save human-readable data quality report to file (e.g., tos_quality_report.txt)",
     )
 
     # RINEX validation subcommand
@@ -445,6 +471,19 @@ Examples:
     )
     rinex_parser.add_argument(
         "--report", type=str, help="Generate detailed QC report to file"
+    )
+
+    # Data quality reporting options for rinex
+    rinex_quality_options = rinex_parser.add_argument_group("Data Quality Reporting")
+    rinex_quality_options.add_argument(
+        "--report-issues",
+        type=str,
+        help="Save TOS data quality issues to JSON file (e.g., data_issues.json)",
+    )
+    rinex_quality_options.add_argument(
+        "--quality-report",
+        type=str,
+        help="Save human-readable data quality report to file (e.g., tos_quality_report.txt)",
     )
 
     # Site log generation subcommand
@@ -522,7 +561,7 @@ Examples:
         "--custom-date",
         help="Use custom date for filename (YYYYMMDD format, e.g., '20010719'). For testing historical equipment sessions.",
     )
-    
+
     # Period filtering for sitelog
     sitelog_filter_group = sitelog_parser.add_argument_group("Period filtering")
     sitelog_filter_group.add_argument(
@@ -531,9 +570,22 @@ Examples:
         help="Filter sessions from this date (YYYY-MM-DD format, e.g., 2010-01-01)",
     )
     sitelog_filter_group.add_argument(
-        "--date-to", 
+        "--date-to",
         type=str,
         help="Filter sessions to this date (YYYY-MM-DD format, e.g., 2020-12-31)",
+    )
+
+    # Data quality reporting options for sitelog
+    sitelog_quality_options = sitelog_parser.add_argument_group("Data Quality Reporting")
+    sitelog_quality_options.add_argument(
+        "--report-issues",
+        type=str,
+        help="Save TOS data quality issues to JSON file (e.g., data_issues.json)",
+    )
+    sitelog_quality_options.add_argument(
+        "--quality-report",
+        type=str,
+        help="Save human-readable data quality report to file (e.g., tos_quality_report.txt)",
     )
 
     args = parser.parse_args()
@@ -555,11 +607,12 @@ Examples:
             "subcommand": args.subcommand,
             "stations": stations,
             "server_url": url,
-            "log_level": log_level.name
-            if hasattr(log_level, "name")
-            else str(log_level),
+            "log_level": (
+                log_level.name if hasattr(log_level, "name") else str(log_level)
+            ),
         },
     )
+    
 
     # Handle different subcommands
     if args.subcommand == "rinex":
@@ -572,47 +625,58 @@ Examples:
         # Default behavior - print station information
         _handle_print_subcommand(args, stations, url, log_level)
 
+    # Generate data quality reports if requested
+    if hasattr(args, "report_issues") and args.report_issues:
+        data_quality_manager.save_issues_to_file(args.report_issues)
+        print(f"✓ Data quality issues saved to {args.report_issues}", file=sys.stderr)
+
+    if hasattr(args, "quality_report") and args.quality_report:
+        report_content = data_quality_manager.generate_summary_report()
+        with open(args.quality_report, "w") as f:
+            f.write(report_content)
+        print(f"✓ Data quality report saved to {args.quality_report}", file=sys.stderr)
+
 
 def _filter_sessions_by_date(station_info, date_from=None, date_to=None):
     """
     Filter device sessions based on date range.
-    
+
     Args:
         station_info: Station information dictionary containing device_history
         date_from: Start date string in YYYY-MM-DD format (optional)
         date_to: End date string in YYYY-MM-DD format (optional)
-        
+
     Returns:
         Modified station_info with filtered device_history
     """
     if not date_from and not date_to:
         return station_info  # No filtering needed
-    
-    if not station_info or 'device_history' not in station_info:
+
+    if not station_info or "device_history" not in station_info:
         return station_info  # No device history to filter
-    
-    from datetime import datetime
+
     import logging
-    
+    from datetime import datetime
+
     logger = logging.getLogger(__name__)
-    
+
     # Parse filter dates
     filter_start = None
     filter_end = None
-    
+
     try:
         if date_from:
-            filter_start = datetime.strptime(date_from, '%Y-%m-%d')
+            filter_start = datetime.strptime(date_from, "%Y-%m-%d")
         if date_to:
-            filter_end = datetime.strptime(date_to, '%Y-%m-%d')
+            filter_end = datetime.strptime(date_to, "%Y-%m-%d")
     except ValueError as e:
         logger.error(f"Invalid date format: {e}. Use YYYY-MM-DD format.")
         return station_info  # Return unfiltered data on error
-    
+
     # Filter sessions
-    original_sessions = station_info['device_history']
+    original_sessions = station_info["device_history"]
     filtered_sessions = []
-    
+
     for session in original_sessions:
         session_start = None
         session_end = None
@@ -637,27 +701,29 @@ def _filter_sessions_by_date(station_info, date_from=None, date_to=None):
         except (ValueError, TypeError) as e:
             logger.warning(f"Could not parse session dates: {e}")
             continue  # Skip sessions with invalid dates
-        
+
         # Apply filtering logic
         include_session = True
-        
+
         if filter_start and session_end and session_end < filter_start:
             include_session = False  # Session ends before filter start
-        
+
         if filter_end and session_start and session_start > filter_end:
             include_session = False  # Session starts after filter end
-        
+
         if include_session:
             filtered_sessions.append(session)
-    
+
     # Update station info with filtered sessions
     station_info_filtered = station_info.copy()
-    station_info_filtered['device_history'] = filtered_sessions
-    
+    station_info_filtered["device_history"] = filtered_sessions
+
     # Log filtering results
-    logger.info(f"Session filtering: {len(original_sessions)} → {len(filtered_sessions)} sessions "
-               f"(from: {date_from}, to: {date_to})")
-    
+    logger.info(
+        f"Session filtering: {len(original_sessions)} → {len(filtered_sessions)} sessions "
+        f"(from: {date_from}, to: {date_to})"
+    )
+
     return station_info_filtered
 
 
@@ -707,12 +773,12 @@ def _handle_print_subcommand(args, stations, url, log_level):
 
         if not station_info:
             continue
-        
+
         # Apply period filtering if specified
         station_info = _filter_sessions_by_date(
-            station_info, 
-            getattr(args, 'date_from', None), 
-            getattr(args, 'date_to', None)
+            station_info,
+            getattr(args, "date_from", None),
+            getattr(args, "date_to", None),
         )
 
         if pformat == "table":
@@ -752,7 +818,6 @@ def _handle_print_subcommand(args, stations, url, log_level):
 
 def _handle_rinex_subcommand(args, stations, url, log_level):
     """Handle RINEX validation and correction subcommand."""
-    from pathlib import Path
 
     print(f"RINEX QC for stations: {', '.join(stations)}", file=sys.stderr)
 
@@ -885,12 +950,12 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
 
             # Extract device sessions from complete metadata
             device_sessions = complete_station_data.get("device_history", [])
-            
+
             # Apply period filtering if specified
             complete_station_data = _filter_sessions_by_date(
-                complete_station_data, 
-                getattr(args, 'date_from', None), 
-                getattr(args, 'date_to', None)
+                complete_station_data,
+                getattr(args, "date_from", None),
+                getattr(args, "date_to", None),
             )
             device_sessions = complete_station_data.get("device_history", [])
 
@@ -990,13 +1055,13 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
                 print(f"Using IGS filename: {filename}", file=sys.stderr)
                 if previous_log:
                     print(f"Previous log: {previous_log}", file=sys.stderr)
-                    print(f"Report type: UPDATE", file=sys.stderr)
+                    print("Report type: UPDATE", file=sys.stderr)
                     if modified_sections:
                         print(
                             f"Modified sections: {modified_sections}", file=sys.stderr
                         )
                 else:
-                    print(f"Report type: NEW", file=sys.stderr)
+                    print("Report type: NEW", file=sys.stderr)
 
             if output_file:
                 # Write to file
@@ -1023,6 +1088,7 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
 
         except Exception as e:
             print(f"Error generating site log for {station}: {e}", file=sys.stderr)
+
 
 
 if __name__ == "__main__":

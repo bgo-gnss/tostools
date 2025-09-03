@@ -72,7 +72,11 @@ def read_rinex_file(
         content = read_text_file(path, loglevel)
         return content.encode() if content else None
     # Check for RINEX day-of-year format (e.g., .24D)
-    elif len(path.suffix) == 4 and path.suffix[1:3].isdigit() and path.suffix[3].upper() == "D":
+    elif (
+        len(path.suffix) == 4
+        and path.suffix[1:3].isdigit()
+        and path.suffix[3].upper() == "D"
+    ):
         content = read_text_file(path, loglevel)
         return content.encode() if content else None
     else:
