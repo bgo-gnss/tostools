@@ -662,9 +662,9 @@ Examples:
         _handle_fetch_reference_subcommand(args, log_level)
     elif args.subcommand == "compare-reference":
         # Suppress all logging for completely clean comparison output
-        logging.getLogger().setLevel(logging.ERROR)
+        logging.getLogger().setLevel(logging.CRITICAL)
         for logger_name in logging.Logger.manager.loggerDict:
-            logging.getLogger(logger_name).setLevel(logging.ERROR)
+            logging.getLogger(logger_name).setLevel(logging.CRITICAL)
         _handle_compare_reference_subcommand(args, stations, url, log_level)
     elif args.subcommand == "PrintTOS":
         _handle_print_subcommand(args, stations, url, log_level)
@@ -1482,12 +1482,12 @@ def _handle_compare_reference_subcommand(args, stations, url, log_level):
     for station in stations:
         # Get TOS data in GAMIT format (always suppress logging for clean output)
         try:
-            station_info = gpsqc.gps_metadata(station, url, loglevel=logging.ERROR)
+            station_info = gpsqc.gps_metadata(station, url, loglevel=logging.CRITICAL)
             if not station_info:
                 print(f"Error: No TOS data found for {station}", file=sys.stderr)
                 continue
             
-            tos_lines = gpsf.print_station_info(station_info, loglevel=logging.ERROR)
+            tos_lines = gpsf.print_station_info(station_info, loglevel=logging.CRITICAL)
             
         except Exception as e:
             print(f"Error getting TOS data for {station}: {e}", file=sys.stderr)
