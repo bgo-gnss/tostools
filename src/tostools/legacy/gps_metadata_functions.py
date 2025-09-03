@@ -24,6 +24,41 @@ from ..utils.data_quality import IssueType, IssueSeverity, data_quality_manager
 from . import gps_metadata_qc as gpsqc
 
 
+def normalize_icelandic_for_gamit(text):
+    """
+    Convert Icelandic characters to ASCII equivalents for GAMIT format compatibility.
+    
+    Args:
+        text: String that may contain Icelandic characters
+        
+    Returns:
+        String with Icelandic characters replaced by ASCII equivalents
+    """
+    if not text:
+        return text
+        
+    # Icelandic to ASCII character mapping
+    icelandic_to_ascii = {
+        'á': 'a', 'Á': 'A',  # a with acute accent
+        'é': 'e', 'É': 'E',  # e with acute accent  
+        'í': 'i', 'Í': 'I',  # i with acute accent
+        'ó': 'o', 'Ó': 'O',  # o with acute accent
+        'ú': 'u', 'Ú': 'U',  # u with acute accent
+        'ý': 'y', 'Ý': 'Y',  # y with acute accent
+        'þ': 'th', 'Þ': 'Th',  # thorn
+        'ð': 'd', 'Ð': 'D',  # eth
+        'æ': 'ae', 'Æ': 'Ae',  # ae ligature
+        'ö': 'o', 'Ö': 'O',  # o with diaeresis
+    }
+    
+    # Apply character replacements
+    normalized = text
+    for icelandic_char, ascii_char in icelandic_to_ascii.items():
+        normalized = normalized.replace(icelandic_char, ascii_char)
+    
+    return normalized
+
+
 def get_data_file_path(filename):
     """
     Get absolute path to data files, independent of working directory.
@@ -407,7 +442,7 @@ def print_station_info(station, loglevel=logging.WARNING):
         # header='*SITE  Station Name      Session Start      Session Stop       Ant Ht   HtCod  Ant N    Ant E    Receiver Type         Vers                  SwVer  Receiver SN           Antenna Type     Dome   Antenna SN'
         sessionLine = " {0:4.4}  {1:17.17} {2:17.17}  {3:17.17}  {4: 1.4f}  {5:5.5}  {6: 1.4f}  {7: 1.4f}  {8:20.20}  {9:20.20}  {10:>5.5}  {11:20.20}  {12:15.15}  {13:5.5}  {14:20.20}".format(
             station["marker"].upper(),
-            station["name"][:18],
+            normalize_icelandic_for_gamit(station["name"])[:18],
             time_from,
             time_to,
             antenna_height,

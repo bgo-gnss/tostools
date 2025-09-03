@@ -652,7 +652,6 @@ Examples:
                 else str(log_level),
             },
         )
-    
 
     # Handle different subcommands
     if args.subcommand == "rinex":
