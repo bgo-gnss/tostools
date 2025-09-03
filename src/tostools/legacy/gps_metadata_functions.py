@@ -262,7 +262,7 @@ def getSession(station, session_nr, loglevel=logging.WARNING):
     return session
 
 
-def print_station_info(station, loglevel=logging.WARNING):
+def print_station_info(station, loglevel=logging.WARNING, skip_validation=False):
     """
     print station metadata information
     """
@@ -378,30 +378,31 @@ def print_station_info(station, loglevel=logging.WARNING):
         else:
             dome = "NONE"
 
-        # Validate critical fields before creating GAMIT session line
+        # Validate critical fields before creating GAMIT session line (unless skipped)
         # Skip sessions with missing critical data to prevent GPS processing errors
         critical_data_missing = False
         skip_reasons = []
         
-        # Check receiver type (critical)
-        if receiver_type is None or receiver_type in ["UNKNOWN", "None", ""]:
-            critical_data_missing = True
-            skip_reasons.append("missing receiver type")
-            
-        # Check antenna type (critical) 
-        if antenna_type is None or antenna_type in ["---------------", "None", ""]:
-            critical_data_missing = True
-            skip_reasons.append("missing antenna type")
-            
-        # Check antenna height (critical - must be > 0)
-        if antenna_height <= 0.0:
-            critical_data_missing = True
-            skip_reasons.append("invalid antenna height")
-            
-        # Check if monument height was missing (critical for accuracy)
-        if monument_height == 0.0 and "monument" not in item:
-            critical_data_missing = True
-            skip_reasons.append("missing monument data")
+        if not skip_validation:
+            # Check receiver type (critical)
+            if receiver_type is None or receiver_type in ["UNKNOWN", "None", ""]:
+                critical_data_missing = True
+                skip_reasons.append("missing receiver type")
+                
+            # Check antenna type (critical) 
+            if antenna_type is None or antenna_type in ["---------------", "None", ""]:
+                critical_data_missing = True
+                skip_reasons.append("missing antenna type")
+                
+            # Check antenna height (critical - must be > 0)
+            if antenna_height <= 0.0:
+                critical_data_missing = True
+                skip_reasons.append("invalid antenna height")
+                
+            # Check if monument height was missing (critical for accuracy)
+            if monument_height == 0.0 and "monument" not in item:
+                critical_data_missing = True
+                skip_reasons.append("missing monument data")
             
         if critical_data_missing:
             # Log the skipped session and report to data quality system

@@ -1487,7 +1487,7 @@ def _handle_compare_reference_subcommand(args, stations, url, log_level):
                 print(f"Error: No TOS data found for {station}", file=sys.stderr)
                 continue
             
-            tos_lines = gpsf.print_station_info(station_info, loglevel=logging.CRITICAL)
+            tos_lines = gpsf.print_station_info(station_info, loglevel=logging.CRITICAL, skip_validation=True)
             
         except Exception as e:
             print(f"Error getting TOS data for {station}: {e}", file=sys.stderr)
