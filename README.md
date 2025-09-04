@@ -165,21 +165,65 @@ tosGPS --log-level ERROR rinex RHOF file.rnx 2>/dev/null
 echo $?  # Check exit code: 0=success, 1=discrepancies
 ```
 
-### Reference Data Management
+### Metadata Synchronization
 
-The reference data management system provides automated fetching and comparison of external GPS/GNSS reference data files.
+The unified metadata sync system (`sync-meta`) provides automated downloading, validation, and comparison of external GPS/GNSS reference data files with operational-grade reliability.
+
+**Key Features:**
+- **Multi-type support**: GAMIT stations, IGS logs, ANTEX data, etc.
+- **Intelligent caching**: Conditional downloads with checksum validation
+- **Operational resilience**: Never abort - complete what's possible
+- **YAML configuration**: Flexible server and type management
+- **Smart comparison**: Automatic detailed analysis for single stations
 
 ```bash
-# Download/update station info file from okada server (3.6MB SOPAC file)
-tosGPS fetch-reference station-info
+# Discovery and status
+tosGPS sync-meta --list-types          # Show available metadata types
+tosGPS sync-meta --list-servers        # Show configured servers  
+tosGPS sync-meta --status              # Show sync status of all types
 
-# Compare TOS GPS station data against reference data
-tosGPS compare-reference RHOF           # Single station comparison
-tosGPS compare-reference RHOF REYK HOFN # Multiple station comparison
+# Basic operations (dry-run with comparison - default)
+tosGPS sync-meta --type gamit-stations RHOF                 # Check differences
+tosGPS sync-meta --type gamit-stations RHOF --update        # Update with confirmation
 
-# Visual diff output with colored highlighting:
-# - Green: TOS-only sessions (newer data)
-# - Red: Reference-only sessions (potential gaps)
+# Batch operations
+tosGPS sync-meta --type gamit-stations RHOF REYK HOFN --update --no-compare
+tosGPS sync-meta --type all --all-stations --dry-run        # Check all TOS stations
+
+# Multi-type operations
+tosGPS sync-meta --type gamit-stations,igs-logs RHOF --dry-run
+tosGPS sync-meta --type gamit-stations,igs-logs RHOF --update --no-compare
+
+# Advanced options  
+tosGPS sync-meta --type gamit-stations --server okada RHOF  # Force specific server
+tosGPS sync-meta --type gamit-stations RHOF --force-download # Bypass cache
+tosGPS sync-meta --type gamit-stations RHOF --backup        # Create backup
+```
+
+**Configuration Setup:**
+```bash
+# Create configuration directory
+mkdir -p ~/.config/tostools
+
+# Copy example configuration  
+cp docs/sync-config.yaml.example ~/.config/tostools/sync-config.yaml
+
+# Edit configuration for your environment
+editor ~/.config/tostools/sync-config.yaml
+```
+
+The system uses a default configuration if no YAML file is found, but creating your own configuration allows:
+- Adding multiple metadata types (igs-logs, antex-data, rinex-nav)
+- Configuring multiple servers with fallback priorities
+- Customizing cache settings and validation parameters
+- Setting up operational monitoring and error handling
+
+**Operational Features:**
+- **Exit codes**: 0=success, 1=partial failure, 2=total failure (for monitoring)
+- **Never abort**: Continues processing even when individual stations fail
+- **Clean output**: Status to stderr, data to stdout (pipe-friendly)
+- **Intelligent caching**: Downloads only when data has changed
+- **Visual diff output**: Colored highlighting shows TOS vs reference differences
 # - Yellow: Session differences (equipment changes, coordinates)
 ```
 

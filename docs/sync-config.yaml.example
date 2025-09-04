@@ -1,0 +1,107 @@
+# tostools metadata sync configuration
+# Place this file at: ~/.config/tostools/sync-config.yaml
+#
+# This configuration defines metadata sources and servers for the unified
+# 'tosGPS sync-meta' command system.
+
+metadata_sources:
+  # Server definitions
+  servers:
+    okada:
+      host: "gpsops@okada"
+      auth_method: "ssh_key"
+      base_path: "/D/DATABASE"
+      description: "Primary GAMIT processing server"
+      
+    sopac:
+      host: "garner.ucsd.edu"
+      auth_method: "ftp"
+      base_path: "/pub/products"
+      description: "SOPAC reference data archive"
+      
+    igs-central:
+      host: "files.igs.org"
+      auth_method: "https"
+      base_url: "https://files.igs.org"
+      description: "IGS Central Bureau data repository"
+      
+    cddis:
+      host: "cddis.nasa.gov"
+      auth_method: "ftps"  
+      base_path: "/gnss"
+      description: "NASA CDDIS GNSS archive"
+
+  # Metadata type definitions
+  types:
+    gamit-stations:
+      description: "GAMIT station information files"
+      primary_server: "okada"
+      fallback_servers: ["sopac"]
+      files:
+        okada: "/GAMIT/station.info.sopac.apr05"
+        sopac: "/station_info/station.info"
+      checksum_validation: true
+      update_frequency: "weekly"
+      cache_ttl: "7d"  # Cache time-to-live
+      
+    igs-logs:
+      description: "IGS site log files"
+      primary_server: "igs-central"
+      fallback_servers: ["cddis"]
+      files:
+        igs-central: "/pub/station/log/{station}*.log"
+        cddis: "/gnss/products/logs/{station}*.log"
+      checksum_validation: true
+      update_frequency: "daily"
+      cache_ttl: "1d"
+      
+    antex-data:
+      description: "Antenna calibration files (ANTEX format)"
+      primary_server: "igs-central"
+      fallback_servers: ["cddis"]
+      files:
+        igs-central: "/pub/station/general/igs14.atx"
+        cddis: "/gnss/products/antex/igs14.atx"
+      checksum_validation: true
+      update_frequency: "monthly"
+      cache_ttl: "30d"
+      
+    rinex-nav:
+      description: "RINEX navigation files"
+      primary_server: "cddis"
+      fallback_servers: ["igs-central"]
+      files:
+        cddis: "/gnss/data/daily/{year}/{doy}/{year}{doy}.{yy}n.Z"
+        igs-central: "/pub/gps/data/daily/{year}/{doy}/{year}{doy}.{yy}n.Z"
+      checksum_validation: true
+      update_frequency: "daily"
+      cache_ttl: "7d"
+
+# Global settings
+settings:
+  # Cache directory (can use environment variables)
+  cache_dir: "${XDG_DATA_HOME:-~/.local/share}/tostools/cache"
+  
+  # Connection settings
+  connection:
+    timeout: 30
+    retries: 3
+    retry_delay: 5
+    
+  # Backup settings
+  backup:
+    enabled: true
+    max_backups: 5
+    backup_dir: "${cache_dir}/backups"
+    
+  # Comparison settings
+  comparison:
+    numeric_tolerance: 0.001  # For height/offset comparisons
+    ignore_whitespace: true
+    case_sensitive: false
+    
+  # Operational settings
+  operational:
+    never_abort: true  # Continue processing even on failures
+    progress_reporting: true
+    detailed_errors: true
