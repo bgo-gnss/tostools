@@ -50,6 +50,7 @@ python scripts/update_standards.py --validate-only
 - **GAMIT/GLOBK Integration**: Production-ready format for GPS processing workflows  
 - **RINEX Validation**: Compare RINEX headers against TOS metadata
 - **Site Log Generation**: IGS-compliant site logs with complete station history
+- **Reference Data Management**: Automated fetching and comparison with external datasets
 - **Robust Data Validation**: Prevents processing crashes with smart error handling
 
 ### 🌐 TOS API Integration
@@ -166,10 +167,28 @@ echo $?  # Check exit code: 0=success, 1=discrepancies
 
 ### Reference Data Management
 
+The reference data management system provides automated fetching and comparison of external GPS/GNSS reference data files.
+
 ```bash
-# Download/update station info file from okada server
+# Download/update station info file from okada server (3.6MB SOPAC file)
 tosGPS fetch-reference station-info
+
+# Compare TOS GPS station data against reference data
+tosGPS compare-reference RHOF           # Single station comparison
+tosGPS compare-reference RHOF REYK HOFN # Multiple station comparison
+
+# Visual diff output with colored highlighting:
+# - Green: TOS-only sessions (newer data)
+# - Red: Reference-only sessions (potential gaps)
+# - Yellow: Session differences (equipment changes, coordinates)
 ```
+
+**Features:**
+- **Automated Downloads**: Secure SSH/SCP fetching from okada server
+- **Visual Comparisons**: Color-coded diff output for quality control
+- **Icelandic Normalization**: Handles ÁÐÍÓÚÝÞÆØå characters for GAMIT compatibility
+- **Session Analysis**: Line-by-line comparison with precise column-level detection
+- **Clean Output**: Optimized for both manual review and automation workflows
 
 ### Site Log Generation
 

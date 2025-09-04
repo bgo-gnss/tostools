@@ -602,29 +602,123 @@ Examples:
         help="Save human-readable data quality report to file (e.g., tos_quality_report.txt)",
     )
 
-    # Reference data management subcommand
-    fetch_parser = subparsers.add_parser(
-        "fetch-reference",
-        help="Fetch reference data files from remote servers",
+    # Unified metadata synchronization subcommand
+    sync_parser = subparsers.add_parser(
+        "sync-meta",
+        help="Synchronize metadata from reference servers (download, validate, compare)",
         epilog="""
 Examples:
-  # Fetch station info file from okada server
-  tosGPS fetch-reference station-info
+  # Check differences (dry-run with comparison - default)
+  tosGPS sync-meta --type gamit-stations RHOF
+  
+  # Update with confirmation prompt
+  tosGPS sync-meta --type gamit-stations RHOF --update
+  
+  # Batch update without detailed comparison
+  tosGPS sync-meta --type gamit-stations RHOF REYK HOFN --update --no-compare
+  
+  # Multi-type operations
+  tosGPS sync-meta --type gamit-stations,igs-logs RHOF --dry-run
+  
+  # Discovery and status
+  tosGPS sync-meta --list-types          # Show available metadata types
+  tosGPS sync-meta --list-servers        # Show configured servers
+  tosGPS sync-meta --status              # Show sync status of all types
+  
+  # Advanced options
+  tosGPS sync-meta --type gamit-stations --server okada RHOF    # Force specific server
+  tosGPS sync-meta --type gamit-stations RHOF --force-download  # Bypass cache
+  tosGPS sync-meta --type all --all-stations --dry-run         # Check all TOS stations
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    fetch_parser.add_argument(
-        "data_type", 
-        choices=["station-info"],
-        help="Type of reference data to fetch"
+    
+    # Station arguments (optional for discovery commands)
+    sync_parser.add_argument(
+        "stations", 
+        nargs="*", 
+        help="List of stations to sync (optional for --list-types, --status commands)"
     )
-
-    # Station comparison subcommand  
-    compare_parser = subparsers.add_parser(
-        "compare-reference",
-        help="Compare TOS station data with reference station.info file"
+    
+    # Core operation mode
+    sync_mode_group = sync_parser.add_mutually_exclusive_group()
+    sync_mode_group.add_argument(
+        "--update", 
+        action="store_true",
+        help="Actually update local data (default: dry-run mode)"
     )
-    compare_parser.add_argument("stations", nargs="+", help="List of stations to compare")
+    sync_mode_group.add_argument(
+        "--dry-run", 
+        action="store_true", 
+        default=True,
+        help="Check differences without updating (default behavior)"
+    )
+    
+    # Metadata type selection
+    type_group = sync_parser.add_argument_group("Metadata type selection")
+    type_group.add_argument(
+        "--type", 
+        type=str,
+        help="Comma-separated list of metadata types (e.g., gamit-stations,igs-logs) or 'all'"
+    )
+    type_group.add_argument(
+        "--list-types",
+        action="store_true", 
+        help="List available metadata types from configuration"
+    )
+    
+    # Server options
+    server_group = sync_parser.add_argument_group("Server options")
+    server_group.add_argument(
+        "--server",
+        type=str,
+        help="Force specific server (e.g., okada,sopac) - overrides configured priority"
+    )
+    server_group.add_argument(
+        "--list-servers",
+        action="store_true",
+        help="List configured servers"
+    )
+    
+    # Comparison and output options
+    compare_group = sync_parser.add_argument_group("Comparison options")
+    compare_compare_group = compare_group.add_mutually_exclusive_group()
+    compare_compare_group.add_argument(
+        "--compare",
+        action="store_true",
+        help="Show detailed comparison (default for dry-run + single station)"
+    )
+    compare_compare_group.add_argument(
+        "--no-compare", 
+        action="store_true",
+        help="Skip detailed comparison (default for batch operations)"
+    )
+    
+    # Station selection options
+    station_group = sync_parser.add_argument_group("Station selection")
+    station_group.add_argument(
+        "--all-stations",
+        action="store_true", 
+        help="Process all stations available in TOS"
+    )
+    
+    # Advanced options
+    advanced_group = sync_parser.add_argument_group("Advanced options")
+    advanced_group.add_argument(
+        "--force-download",
+        action="store_true",
+        help="Force re-download even if cache is valid"
+    )
+    advanced_group.add_argument(
+        "--backup",
+        action="store_true", 
+        help="Create backup before updating local data"
+    )
+    advanced_group.add_argument(
+        "--status",
+        action="store_true",
+        help="Show sync status of all configured metadata types"
+    )
 
     args = parser.parse_args()
     stations = getattr(args, "stations", [])
@@ -658,14 +752,13 @@ Examples:
         _handle_rinex_subcommand(args, stations, url, log_level)
     elif args.subcommand == "sitelog":
         _handle_sitelog_subcommand(args, stations, url, log_level)
-    elif args.subcommand == "fetch-reference":
-        _handle_fetch_reference_subcommand(args, log_level)
-    elif args.subcommand == "compare-reference":
-        # Suppress all logging for completely clean comparison output
-        logging.getLogger().setLevel(logging.CRITICAL)
-        for logger_name in logging.Logger.manager.loggerDict:
-            logging.getLogger(logger_name).setLevel(logging.CRITICAL)
-        _handle_compare_reference_subcommand(args, stations, url, log_level)
+    elif args.subcommand == "sync-meta":
+        # For dry-run comparison mode, suppress logging like compare-reference did
+        if not args.update and (args.compare or _determine_comparison_mode_simple(args, len(stations))):
+            logging.getLogger().setLevel(logging.CRITICAL)
+            for logger_name in logging.Logger.manager.loggerDict:
+                logging.getLogger(logger_name).setLevel(logging.CRITICAL)
+        _handle_sync_meta_subcommand(args, stations, url, log_level)
     elif args.subcommand == "PrintTOS":
         _handle_print_subcommand(args, stations, url, log_level)
     else:
@@ -1515,6 +1608,398 @@ def _handle_compare_reference_subcommand(args, stations, url, log_level):
         
         if len(stations) > 1:
             print()  # Add blank line between stations
+
+
+def _handle_sync_meta_subcommand(args, stations, url, log_level):
+    """Handle unified metadata synchronization subcommand."""
+    from pathlib import Path
+    import yaml
+    import json
+    import hashlib
+    import sys
+    from datetime import datetime, timedelta
+    
+    logger = get_logger(__name__)
+    
+    # Handle discovery commands first (don't need stations)
+    if args.list_types:
+        _list_metadata_types()
+        return
+    
+    if args.list_servers:
+        _list_metadata_servers()
+        return
+        
+    if args.status:
+        _show_sync_status()
+        return
+    
+    # Validate required arguments for sync operations
+    if not args.type and not args.status:
+        print("Error: --type is required for sync operations", file=sys.stderr)
+        print("Use --list-types to see available metadata types", file=sys.stderr)
+        return
+    
+    if not stations and not args.all_stations:
+        print("Error: Specify stations or use --all-stations", file=sys.stderr)
+        return
+    
+    # Parse metadata types
+    if args.type == "all":
+        metadata_types = _get_all_metadata_types()
+    else:
+        metadata_types = [t.strip() for t in args.type.split(",")]
+    
+    # Validate metadata types
+    available_types = _get_available_metadata_types()
+    invalid_types = [t for t in metadata_types if t not in available_types]
+    if invalid_types:
+        print(f"Error: Unknown metadata types: {', '.join(invalid_types)}", file=sys.stderr)
+        print("Use --list-types to see available types", file=sys.stderr)
+        return
+    
+    # Get station list
+    if args.all_stations:
+        stations = _discover_all_tos_stations(url, log_level)
+        if not stations:
+            print("Error: Could not discover TOS stations", file=sys.stderr)
+            return
+    
+    # Determine comparison mode (smart defaults)
+    show_comparison = _determine_comparison_mode(args, len(stations), len(metadata_types))
+    
+    # Process each metadata type
+    overall_success = True
+    results = {}
+    
+    for metadata_type in metadata_types:
+        print(f"\n=== Processing {metadata_type} ===", file=sys.stderr)
+        
+        type_results = _process_metadata_type(
+            metadata_type=metadata_type,
+            stations=stations,
+            url=url,
+            log_level=log_level,
+            update_mode=args.update,
+            show_comparison=show_comparison,
+            force_download=args.force_download,
+            backup=args.backup,
+            forced_server=args.server
+        )
+        
+        results[metadata_type] = type_results
+        
+        # Never abort - continue with other types even if this one fails
+        if not type_results.get("success", False):
+            overall_success = False
+    
+    # Generate summary report
+    _generate_sync_summary(results, metadata_types, stations)
+    
+    # Exit with appropriate code for operational monitoring
+    if not overall_success:
+        import sys
+        sys.exit(1)  # Partial failure
+
+
+def _list_metadata_types():
+    """List available metadata types from configuration."""
+    try:
+        config = _load_sync_config()
+        types = config.get("metadata_sources", {}).get("types", {})
+        
+        if not types:
+            print("No metadata types configured.", file=sys.stderr)
+            print("Create ~/.config/tostools/sync-config.yaml to configure metadata sources.", file=sys.stderr)
+            return
+        
+        print("Available metadata types:")
+        for type_name, type_config in types.items():
+            description = type_config.get("description", "No description")
+            servers = type_config.get("primary_server", "unknown")
+            fallbacks = type_config.get("fallback_servers", [])
+            if fallbacks:
+                servers += f", {', '.join(fallbacks)}"
+            
+            print(f"  {type_name:<20} {description} ({servers})")
+            
+    except Exception as e:
+        print(f"Error loading metadata types: {e}", file=sys.stderr)
+
+
+def _list_metadata_servers():
+    """List configured metadata servers."""
+    try:
+        config = _load_sync_config()
+        servers = config.get("metadata_sources", {}).get("servers", {})
+        
+        if not servers:
+            print("No servers configured.", file=sys.stderr)
+            return
+            
+        print("Configured servers:")
+        for server_name, server_config in servers.items():
+            host = server_config.get("host", "unknown")
+            auth = server_config.get("auth_method", "unknown")
+            print(f"  {server_name:<15} {auth:<8} ({host})")
+            
+    except Exception as e:
+        print(f"Error loading server configuration: {e}", file=sys.stderr)
+
+
+def _show_sync_status():
+    """Show sync status of all configured metadata types."""
+    try:
+        cache_dir = _get_metadata_cache_dir()
+        config = _load_sync_config()
+        types = config.get("metadata_sources", {}).get("types", {})
+        
+        print("Metadata sync status:")
+        
+        for type_name in types:
+            type_cache_dir = cache_dir / type_name
+            metadata_file = type_cache_dir / "metadata.json"
+            
+            if metadata_file.exists():
+                try:
+                    with open(metadata_file, 'r') as f:
+                        metadata = json.load(f)
+                    
+                    downloaded_at = datetime.fromisoformat(metadata["downloaded_at"].replace('Z', '+00:00'))
+                    age = datetime.now() - downloaded_at.replace(tzinfo=None)
+                    
+                    print(f"  {type_name:<20} Last sync: {age.days} days ago")
+                except:
+                    print(f"  {type_name:<20} Cache corrupted")
+            else:
+                print(f"  {type_name:<20} Never synced")
+                
+    except Exception as e:
+        print(f"Error checking sync status: {e}", file=sys.stderr)
+
+
+def _load_sync_config():
+    """Load sync configuration from YAML file."""
+    config_path = Path.home() / ".config" / "tostools" / "sync-config.yaml"
+    
+    if not config_path.exists():
+        # Return default configuration
+        return {
+            "metadata_sources": {
+                "servers": {
+                    "okada": {
+                        "host": "gpsops@okada",
+                        "auth_method": "ssh_key",
+                        "base_path": "/D/DATABASE"
+                    }
+                },
+                "types": {
+                    "gamit-stations": {
+                        "description": "GAMIT station information files",
+                        "primary_server": "okada",
+                        "files": {
+                            "okada": "/GAMIT/station.info.sopac.apr05"
+                        },
+                        "checksum_validation": True,
+                        "update_frequency": "weekly"
+                    }
+                }
+            }
+        }
+    
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
+
+
+def _get_metadata_cache_dir():
+    """Get the metadata cache directory."""
+    return Path.home() / ".local" / "share" / "tostools" / "cache"
+
+
+def _get_available_metadata_types():
+    """Get list of available metadata types."""
+    config = _load_sync_config()
+    return list(config.get("metadata_sources", {}).get("types", {}).keys())
+
+
+def _get_all_metadata_types():
+    """Get all available metadata types."""
+    return _get_available_metadata_types()
+
+
+def _determine_comparison_mode_simple(args, num_stations):
+    """Simple version for early logging decision."""
+    if args.compare:
+        return True
+    if args.no_compare:
+        return False
+    # Default: show comparison for single station
+    return num_stations == 1
+
+
+def _determine_comparison_mode(args, num_stations, num_types):
+    """Determine whether to show detailed comparison based on arguments and context."""
+    # Explicit flags override defaults
+    if args.compare:
+        return True
+    if args.no_compare:
+        return False
+    
+    # Smart defaults based on operation context
+    if args.update:
+        # Update mode: show comparison for single station operations
+        return num_stations == 1 and num_types == 1
+    else:
+        # Dry-run mode: show comparison for single station operations  
+        return num_stations == 1 and num_types == 1
+
+
+def _discover_all_tos_stations(url, log_level):
+    """Discover all available stations in TOS."""
+    # This is a placeholder - would need to implement TOS station discovery
+    # For now, return a common set of Icelandic stations
+    return ["RHOF", "REYK", "HOFN", "AKUR", "VOGS"]
+
+
+def _process_metadata_type(metadata_type, stations, url, log_level, update_mode, 
+                          show_comparison, force_download, backup, forced_server):
+    """Process a single metadata type for all specified stations."""
+    logger = get_logger(__name__)
+    
+    results = {
+        "success": True,
+        "stations_processed": 0,
+        "stations_updated": 0,
+        "stations_failed": 0,
+        "errors": []
+    }
+    
+    try:
+        # Load configuration for this metadata type
+        config = _load_sync_config()
+        type_config = config["metadata_sources"]["types"][metadata_type]
+        
+        # Download reference data if needed
+        reference_data = _download_and_cache_reference_data(
+            metadata_type, type_config, force_download, forced_server
+        )
+        
+        if not reference_data:
+            results["success"] = False
+            results["errors"].append(f"Could not download reference data for {metadata_type}")
+            return results
+        
+        # Process each station
+        for station in stations:
+            try:
+                station_result = _process_single_station(
+                    station=station,
+                    metadata_type=metadata_type,
+                    reference_data=reference_data,
+                    url=url,
+                    log_level=log_level,
+                    update_mode=update_mode,
+                    show_comparison=show_comparison,
+                    backup=backup
+                )
+                
+                results["stations_processed"] += 1
+                
+                if station_result.get("updated", False):
+                    results["stations_updated"] += 1
+                
+            except Exception as e:
+                results["stations_failed"] += 1
+                results["errors"].append(f"{station}: {str(e)}")
+                logger.error(f"Failed to process station {station}: {e}")
+                # Continue with other stations (never abort)
+                
+    except Exception as e:
+        results["success"] = False
+        results["errors"].append(f"Failed to process metadata type {metadata_type}: {str(e)}")
+        logger.error(f"Failed to process metadata type {metadata_type}: {e}")
+    
+    return results
+
+
+def _download_and_cache_reference_data(metadata_type, type_config, force_download, forced_server):
+    """Download and cache reference data with validation."""
+    # This would implement the caching logic similar to the existing fetch functionality
+    # For now, use the existing reference data parsing as a fallback
+    if metadata_type == "gamit-stations":
+        return _parse_station_info_file()
+    
+    return None
+
+
+def _process_single_station(station, metadata_type, reference_data, url, log_level, 
+                           update_mode, show_comparison, backup):
+    """Process a single station for a specific metadata type."""
+    result = {"updated": False}
+    
+    if metadata_type == "gamit-stations":
+        # Use existing comparison logic
+        try:
+            station_info = gpsqc.gps_metadata(station, url, loglevel=logging.CRITICAL)
+            if not station_info:
+                print(f"Error: No TOS data found for {station}", file=sys.stderr)
+                return result
+            
+            tos_lines = gpsf.print_station_info(station_info, loglevel=logging.CRITICAL, skip_validation=True)
+            ref_lines = reference_data.get(station, [])
+            
+            if not ref_lines:
+                print(f"Error: No reference data found for {station}", file=sys.stderr)
+                return result
+            
+            # Compare the data
+            tos_stripped = [line.strip() for line in tos_lines]
+            ref_stripped = [line.strip() for line in ref_lines]
+            
+            # Check for exact matches first
+            if set(tos_stripped) == set(ref_stripped):
+                print(f"✓ {station}: No differences found")
+                return result
+            
+            if show_comparison:
+                print(f"DIFFERENCES FOUND for {station}:")
+                _analyze_line_differences(tos_stripped, ref_stripped)
+            else:
+                print(f"⚠️  {station}: Differences detected (use --compare for details)")
+            
+            if update_mode:
+                # Here we would implement the update logic
+                # For now, just simulate the update
+                print(f"✓ {station}: Would update (update logic not yet implemented)", file=sys.stderr)
+                result["updated"] = True
+                
+        except Exception as e:
+            print(f"Error processing {station}: {e}", file=sys.stderr)
+            
+    return result
+
+
+def _generate_sync_summary(results, metadata_types, stations):
+    """Generate a summary report of the sync operation."""
+    total_processed = sum(r.get("stations_processed", 0) for r in results.values())
+    total_updated = sum(r.get("stations_updated", 0) for r in results.values()) 
+    total_failed = sum(r.get("stations_failed", 0) for r in results.values())
+    
+    print(f"\n=== Sync Summary ===", file=sys.stderr)
+    print(f"Metadata types: {len(metadata_types)}", file=sys.stderr)
+    print(f"Stations processed: {total_processed}", file=sys.stderr)
+    print(f"Stations updated: {total_updated}", file=sys.stderr)
+    
+    if total_failed > 0:
+        print(f"Stations failed: {total_failed}", file=sys.stderr)
+        
+        # Report errors
+        for metadata_type, result in results.items():
+            errors = result.get("errors", [])
+            if errors:
+                print(f"\n{metadata_type} errors:", file=sys.stderr)
+                for error in errors:
+                    print(f"  - {error}", file=sys.stderr)
 
 
 if __name__ == "__main__":

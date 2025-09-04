@@ -11,6 +11,9 @@ tmp/
 *.D
 *.D.Z
 
+# Reference data (downloaded on demand)
+reference_data/
+
 # Python
 __pycache__/
 *.py[cod]
