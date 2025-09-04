@@ -273,6 +273,9 @@ QUICK START:
   # Generate site log
   tosGPS sitelog RHOF --output RHOF.log
   
+  # Sync metadata from reference servers
+  tosGPS sync-meta --type gamit-stations RHOF
+  
 LOGGING CONTROL:
   --log-level ERROR    # Clean output (recommended for scripting)
   --log-dir logs/      # Enable comprehensive file logging  
