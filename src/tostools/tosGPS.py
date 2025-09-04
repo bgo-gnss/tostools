@@ -342,7 +342,7 @@ QUICK START:
   tosGPS sitelog RHOF --output RHOF.log
   
   # Sync metadata from reference servers
-  tosGPS sync-meta --type gamit-stations RHOF
+  tosGPS sync-meta --type gamit-station-info RHOF
   
 LOGGING CONTROL:
   --log-level ERROR    # Clean output (recommended for scripting)
@@ -693,16 +693,16 @@ Examples:
         epilog="""
 Examples:
   # Check differences (default behavior)
-  tosGPS syncMeta --type gamit-stations RHOF
+  tosGPS syncMeta --type gamit-station-info RHOF
   
   # Update with confirmation prompt
-  tosGPS syncMeta --type gamit-stations RHOF --update
+  tosGPS syncMeta --type gamit-station-info RHOF --update
   
   # Batch update without detailed comparison
-  tosGPS syncMeta --type gamit-stations RHOF REYK HOFN --update --no-compare
+  tosGPS syncMeta --type gamit-station-info RHOF REYK HOFN --update --no-compare
   
   # Multi-type operations
-  tosGPS syncMeta --type gamit-stations,igs-logs RHOF
+  tosGPS syncMeta --type gamit-station-info,igs-logs RHOF
   
   # Discovery and status
   tosGPS syncMeta --list-types          # Show available metadata types
@@ -710,8 +710,8 @@ Examples:
   tosGPS syncMeta --status              # Show sync status of all types
   
   # Advanced options
-  tosGPS syncMeta --type gamit-stations --force-server okada RHOF    # Force specific server
-  tosGPS syncMeta --type gamit-stations RHOF --force-download  # Bypass cache
+  tosGPS syncMeta --type gamit-station-info --force-server okada RHOF    # Force specific server
+  tosGPS syncMeta --type gamit-station-info RHOF --force-download  # Bypass cache
   tosGPS syncMeta --type all --all-stations                   # Check all TOS stations
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -736,7 +736,7 @@ Examples:
     type_group.add_argument(
         "--type",
         type=str,
-        help="Comma-separated list of metadata types (e.g., gamit-stations,igs-logs) or 'all'",
+        help="Comma-separated list of metadata types (e.g., gamit-station-info,igs-logs) or 'all'",
     )
     type_group.add_argument(
         "--list-types",
@@ -1499,7 +1499,7 @@ def _parse_station_info_file():
     if not station_info_path.exists():
         print(f"ERROR: Station info file not found at: {station_info_path}", file=sys.stderr)
         print(f"Expected directory structure: <project_root>/data/station_config/", file=sys.stderr)
-        print(f"To fetch the file, run: tosGPS syncMeta --type gamit-stations RHOF", file=sys.stderr)
+        print(f"To fetch the file, run: tosGPS syncMeta --type gamit-station-info RHOF", file=sys.stderr)
         return None
 
     stations_data = {}
@@ -1957,7 +1957,7 @@ def _load_sync_config():
                     }
                 },
                 "types": {
-                    "gamit-stations": {
+                    "gamit-station-info": {
                         "description": "GAMIT station information files",
                         "primary_server": "okada",
                         "files": {"okada": "/GAMIT/station.info.sopac.apr05"},
@@ -2100,7 +2100,7 @@ def _download_and_cache_reference_data(
     metadata_type, type_config, force_download, forced_server
 ):
     """Download and cache reference data with validation."""
-    if metadata_type == "gamit-stations":
+    if metadata_type == "gamit-station-info":
         # Check if station info file exists, if not download it
         station_config_dir = _get_station_config_dir()
         station_info_path = station_config_dir / "station.info.sopac.apr05"
@@ -2128,7 +2128,7 @@ def _process_single_station(
     """Process a single station for a specific metadata type."""
     result = {"updated": False}
 
-    if metadata_type == "gamit-stations":
+    if metadata_type == "gamit-station-info":
         try:
             # Get TOS data using the exact same approach as PrintTOS
             station_info = gpsqc.gps_metadata(station, url, loglevel=logging.CRITICAL)

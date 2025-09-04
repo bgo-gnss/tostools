@@ -119,13 +119,13 @@ tosGPS sitelog RHOF --date-in-name --force-update
 
 ```bash
 # Enhanced visual comparison (new default behavior)
-tosGPS syncMeta --type gamit-stations REYK --compare
+tosGPS syncMeta --type gamit-station-info REYK --compare
 
 # Session-by-session analysis with color coding
-tosGPS syncMeta --type gamit-stations RHOF
+tosGPS syncMeta --type gamit-station-info RHOF
 
 # Batch operations with streamlined output
-tosGPS syncMeta --type gamit-stations REYK RHOF HOFN --no-compare
+tosGPS syncMeta --type gamit-station-info REYK RHOF HOFN --no-compare
 ```
 
 #### Visual Comparison Features

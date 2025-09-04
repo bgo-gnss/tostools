@@ -33,7 +33,7 @@ metadata_sources:
 
   # Metadata type definitions
   types:
-    gamit-stations:
+    gamit-station-info:
       description: "GAMIT station information files"
       primary_server: "okada"
       fallback_servers: ["sopac"]

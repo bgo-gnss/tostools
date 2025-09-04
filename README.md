@@ -27,7 +27,7 @@ tosGPS rinex RHOF data/RHOF*.rnx
 tosGPS sitelog RHOF --auto-filename --date-in-name --dir ./sitelogs
 
 # Synchronize and compare reference data
-tosGPS syncMeta --type gamit-stations RHOF
+tosGPS syncMeta --type gamit-station-info RHOF
 
 # Validate GPS/GNSS standards compliance
 python scripts/update_standards.py --validate-only
@@ -186,21 +186,21 @@ tosGPS syncMeta --list-servers        # Show configured servers
 tosGPS syncMeta --status              # Show sync status of all types
 
 # Basic operations (check differences - default)
-tosGPS syncMeta --type gamit-stations RHOF                 # Check differences
-tosGPS syncMeta --type gamit-stations RHOF --update        # Update with confirmation
+tosGPS syncMeta --type gamit-station-info RHOF                 # Check differences
+tosGPS syncMeta --type gamit-station-info RHOF --update        # Update with confirmation
 
 # Batch operations
-tosGPS syncMeta --type gamit-stations RHOF REYK HOFN --update --no-compare
+tosGPS syncMeta --type gamit-station-info RHOF REYK HOFN --update --no-compare
 tosGPS syncMeta --type all --all-stations                  # Check all TOS stations
 
 # Multi-type operations
-tosGPS syncMeta --type gamit-stations,igs-logs RHOF
-tosGPS syncMeta --type gamit-stations,igs-logs RHOF --update --no-compare
+tosGPS syncMeta --type gamit-station-info,igs-logs RHOF
+tosGPS syncMeta --type gamit-station-info,igs-logs RHOF --update --no-compare
 
 # Advanced options  
-tosGPS syncMeta --type gamit-stations --force-server okada RHOF  # Force specific server
-tosGPS syncMeta --type gamit-stations RHOF --force-download # Bypass cache
-tosGPS syncMeta --type gamit-stations RHOF --backup        # Create backup
+tosGPS syncMeta --type gamit-station-info --force-server okada RHOF  # Force specific server
+tosGPS syncMeta --type gamit-station-info RHOF --force-download # Bypass cache
+tosGPS syncMeta --type gamit-station-info RHOF --backup        # Create backup
 ```
 
 **Configuration Setup:**
