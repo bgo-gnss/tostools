@@ -5,6 +5,79 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2025-09-04
+
+### 🎨 Enhanced Visual Comparison System for syncMeta
+
+#### Added
+
+- **Professional Visual Comparison Interface** (`src/tostools/tosGPS.py`)
+  - Session-by-session comparison with intelligent matching between TOS and reference data
+  - Color-coded difference highlighting: Blue (station names), Yellow (serial numbers), Red (critical data), Gray (identical content)
+  - Column-level difference detection with precise field identification
+  - Period validation with smart tolerance (year/day/hour comparison)
+  - Enhanced comparison summaries showing exactly what differs between datasets
+
+- **Advanced Session Analysis**
+  - `_parse_gamit_session()`: Structured parsing of GAMIT station.info format
+  - `_match_sessions()`: Intelligent session matching with fuzzy logic
+  - `_highlight_differences()`: Column-level highlighting system
+  - `_periods_differ_significantly()`: Smart period comparison with operational tolerance
+  - Extra/Missing session detection with clear visual presentation
+
+- **Comprehensive syncMeta Documentation**
+  - Updated README with correct `syncMeta` command examples
+  - Fixed command name consistency throughout documentation
+  - Added visual comparison examples and workflow guidance
+
+#### Enhanced
+
+- **syncMeta Command Visual Output**
+  - Professional color hierarchy: identical content in gray, differences highlighted
+  - Side-by-side REF/TOS comparison with aligned formatting
+  - Clear section headers with color coding for different session periods
+  - Extra/Missing sessions displayed with normal text (not grayed out)
+  - Comprehensive difference summaries for each session comparison
+
+- **GAMIT Format Compatibility**
+  - Preserves exact GAMIT station.info formatting while adding visual enhancements
+  - Fixed-width column alignment maintained for GPS processing compatibility
+  - Session period validation prevents impossible timing (same start/end dates)
+
+#### Fixed
+
+- **Code Quality Issues**
+  - Fixed import sorting and unused variable cleanup
+  - Added missing json and yaml imports for sync functionality
+  - Replaced bare except clauses with proper exception handling
+  - Applied black formatting to all modified files
+
+- **Reference Data Management**
+  - Fixed missing reference data file path after repository cleanup
+  - Ensured proper station.info.sopac.apr05 file location for syncMeta functionality
+  - Corrected reference data directory structure
+
+#### Examples
+
+```bash
+# Enhanced visual comparison (new default behavior)
+tosGPS syncMeta --type gamit-stations REYK --compare
+
+# Session-by-session analysis with color coding
+tosGPS syncMeta --type gamit-stations RHOF
+
+# Batch operations with streamlined output
+tosGPS syncMeta --type gamit-stations REYK RHOF HOFN --no-compare
+```
+
+#### Visual Comparison Features
+
+- **Color Scheme**: Professional hierarchy with gray identical content, colored differences
+- **Session Organization**: Clear temporal grouping with period validation
+- **Field-Level Analysis**: Precise identification of differing columns
+- **Missing Data Handling**: Extra and missing sessions clearly identified
+- **Operational Focus**: Optimized for GPS metadata quality control workflows
+
 ## [0.2.3] - 2025-08-25
 
 ### 🚀 MAJOR: Production-Ready GAMIT Format & Robust Data Validation
