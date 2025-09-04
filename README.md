@@ -26,6 +26,9 @@ tosGPS rinex RHOF data/RHOF*.rnx
 # Generate IGS-compliant site log
 tosGPS sitelog RHOF --auto-filename --dir ./sitelogs
 
+# Synchronize and compare reference data
+tosGPS syncMeta --type gamit-stations RHOF
+
 # Validate GPS/GNSS standards compliance
 python scripts/update_standards.py --validate-only
 ```
@@ -167,7 +170,7 @@ echo $?  # Check exit code: 0=success, 1=discrepancies
 
 ### Metadata Synchronization
 
-The unified metadata sync system (`sync-meta`) provides automated downloading, validation, and comparison of external GPS/GNSS reference data files with operational-grade reliability.
+The unified metadata sync system (`syncMeta`) provides automated downloading, validation, and comparison of external GPS/GNSS reference data files with operational-grade reliability.
 
 **Key Features:**
 - **Multi-type support**: GAMIT stations, IGS logs, ANTEX data, etc.
@@ -178,26 +181,26 @@ The unified metadata sync system (`sync-meta`) provides automated downloading, v
 
 ```bash
 # Discovery and status
-tosGPS sync-meta --list-types          # Show available metadata types
-tosGPS sync-meta --list-servers        # Show configured servers  
-tosGPS sync-meta --status              # Show sync status of all types
+tosGPS syncMeta --list-types          # Show available metadata types
+tosGPS syncMeta --list-servers        # Show configured servers  
+tosGPS syncMeta --status              # Show sync status of all types
 
-# Basic operations (dry-run with comparison - default)
-tosGPS sync-meta --type gamit-stations RHOF                 # Check differences
-tosGPS sync-meta --type gamit-stations RHOF --update        # Update with confirmation
+# Basic operations (check differences - default)
+tosGPS syncMeta --type gamit-stations RHOF                 # Check differences
+tosGPS syncMeta --type gamit-stations RHOF --update        # Update with confirmation
 
 # Batch operations
-tosGPS sync-meta --type gamit-stations RHOF REYK HOFN --update --no-compare
-tosGPS sync-meta --type all --all-stations --dry-run        # Check all TOS stations
+tosGPS syncMeta --type gamit-stations RHOF REYK HOFN --update --no-compare
+tosGPS syncMeta --type all --all-stations                  # Check all TOS stations
 
 # Multi-type operations
-tosGPS sync-meta --type gamit-stations,igs-logs RHOF --dry-run
-tosGPS sync-meta --type gamit-stations,igs-logs RHOF --update --no-compare
+tosGPS syncMeta --type gamit-stations,igs-logs RHOF
+tosGPS syncMeta --type gamit-stations,igs-logs RHOF --update --no-compare
 
 # Advanced options  
-tosGPS sync-meta --type gamit-stations --server okada RHOF  # Force specific server
-tosGPS sync-meta --type gamit-stations RHOF --force-download # Bypass cache
-tosGPS sync-meta --type gamit-stations RHOF --backup        # Create backup
+tosGPS syncMeta --type gamit-stations --force-server okada RHOF  # Force specific server
+tosGPS syncMeta --type gamit-stations RHOF --force-download # Bypass cache
+tosGPS syncMeta --type gamit-stations RHOF --backup        # Create backup
 ```
 
 **Configuration Setup:**
