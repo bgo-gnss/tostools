@@ -26,8 +26,9 @@ tosGPS rinex RHOF data/RHOF*.rnx
 # Generate IGS-compliant site log with change detection
 tosGPS sitelog RHOF --auto-filename --date-in-name --dir ./sitelogs
 
-# Synchronize and compare reference data
-tosGPS syncMeta --type gamit-station-info RHOF
+# Synchronize and compare reference data (safe update system)
+tosGPS syncMeta --type gamit-station-info RHOF --update --dry-run      # Test mode
+tosGPS syncMeta --type gamit-station-info RHOF --update --interactive  # Safe production
 
 # Validate GPS/GNSS standards compliance
 python scripts/update_standards.py --validate-only
@@ -258,6 +259,56 @@ for station in REYK HOFN RHOF; do
     tosGPS sitelog $station --auto-filename --date-in-name --dir ./logs
 done
 ```
+
+### SyncMeta - Safe Reference Data Updates
+
+**🛡️ Production-Grade Safe Update System**
+
+The syncMeta safe update system provides enterprise-level reliability for updating critical reference files like `station.info.sopac.apr05` with multiple safety layers and rollback capabilities.
+
+```bash
+# Safe Update Workflow (Recommended)
+tosGPS syncMeta --type gamit-station-info RHOF --update --dry-run      # Test everything
+tosGPS syncMeta --type gamit-station-info RHOF --update --interactive  # Safe production
+
+# Production Mode (for automation/cron)
+tosGPS syncMeta --type gamit-station-info RHOF --update --production-mode
+
+# Backup Management
+tosGPS syncMeta --type gamit-station-info --list-backups              # Show available backups
+tosGPS syncMeta --type gamit-station-info --rollback 20250904_143022   # Restore from backup
+
+# File Integrity Checking
+tosGPS syncMeta --type gamit-station-info --verify-only               # Check file health
+```
+
+**🔒 Safety Features:**
+- ✅ **Fresh Download Verification** - Always uses latest server data with integrity checks
+- ✅ **Automatic Backups** - Timestamped backups with 10-version retention
+- ✅ **Change Verification** - Ensures only intended stations are modified
+- ✅ **Working Copy Isolation** - Edits in safe environment, never corrupts originals
+- ✅ **Pre-Upload Validation** - Comprehensive checks before any remote changes
+- ✅ **Rollback Capability** - Easy restoration from any backup version
+- ✅ **Test Mode** - Complete dry-run simulation without actual uploads
+- ✅ **Production Logging** - Structured logging for monitoring and alerting
+
+**🗂️ File Structure:**
+```
+data/station_config/
+├── station.info.sopac.apr05           # Current reference file
+├── backups/                           # Automatic versioned backups
+│   ├── station.info.sopac.apr05.backup.20250904_143022
+│   └── backup_registry.json          # Backup metadata tracking
+├── work/                              # Working copies for safe editing
+└── cache/                             # Fresh downloads and verification
+```
+
+**🎯 Use Cases:**
+- **Development**: `--dry-run` for safe testing of all operations
+- **Interactive**: `--interactive` for manual confirmation before uploads
+- **Production**: `--production-mode` for clean structured logging
+- **Recovery**: `--rollback <backup-id>` for instant restoration
+- **Monitoring**: `--verify-only` for health checks and integrity validation
 
 ## 🌐 TOS API Tools
 

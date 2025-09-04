@@ -129,15 +129,26 @@ Key dependencies managed through `pyproject.toml`:
 - **Country translation**: Iceland→ISL, NEI→NO, JÁ→YES with fallback handling
 - **Equipment tracking**: Integration with GAMIT session history
 
-## Current Capabilities (v0.2.5)
+## Current Capabilities (v0.2.6)
 
 ### ✅ Production Ready
+- **Safe Update System**: Enterprise-grade reference data updates with multiple safety layers
 - **Smart Site Log Generation**: IGS v2.0 compliant with automatic change detection and organized directory structure
 - **Intelligent Change Detection**: Skips file creation when no meaningful changes detected, perfect for automation
 - **Clean Terminal Output**: Minimal stderr messages optimized for cron jobs and automated workflows
 - **Rich Table Formatting**: Color-coded GPS data with optimal spacing
 - **GAMIT Integration**: Robust data validation prevents processing crashes
 - **RINEX Processing**: Validation, correction, and format compliance
+
+### 🛡️ Safe Update System Features
+- **Fresh Download Verification**: Always uses latest server data with integrity validation
+- **Automatic Backup System**: Timestamped backups with 10-version retention policy
+- **Change Verification**: Ensures only intended stations are modified, preserves file integrity
+- **Working Copy Isolation**: Safe editing environment prevents corruption of originals
+- **Pre-Upload Validation**: Comprehensive format and content checks before remote changes
+- **Rollback Capability**: Instant restoration from any backup version with full metadata
+- **Dry-Run Mode**: Complete workflow simulation without actual uploads for safe testing
+- **Production Logging**: Structured logging for monitoring, alerting, and operational visibility
 
 ### ⚠️ Known Issues & TODOs
 - **Contact Management**: Hardcoded IMO fallback needs architectural review

@@ -75,7 +75,7 @@ def generate_igs_sitelog_filename(
     from datetime import datetime
 
     station_id = f"{station_marker.upper()}{monument_number}{country_code.upper()}"
-    
+
     if create_station_subdir:
         output_dir = os.path.join(base_dir, station_id)
     else:
@@ -204,32 +204,32 @@ def has_meaningful_changes(current_content: str, previous_log_path: str) -> bool
     """
     import os
     import re
-    
+
     if not os.path.exists(previous_log_path):
         return True  # No previous log, so this is a new file
-        
+
     try:
         with open(previous_log_path, "r", encoding="utf-8") as f:
             previous_content = f.read()
     except Exception:
         return True  # Error reading previous file, assume changes
-        
+
     # Normalize both files for comparison by removing/standardizing elements that
     # commonly change but don't represent meaningful site log updates
     def normalize_content(content: str) -> str:
         """Normalize content for comparison by removing date prepared and minor formatting."""
         # Remove "Date Prepared" line which changes every run
         content = re.sub(r'^\s*Date Prepared\s*:\s*.*$', 'Date Prepared            : [NORMALIZED]', content, flags=re.MULTILINE)
-        
+
         # Normalize whitespace (but preserve structure)
         content = re.sub(r'\s+', ' ', content)
         content = re.sub(r'\s*\n\s*', '\n', content)
-        
+
         return content.strip()
-        
+
     current_normalized = normalize_content(current_content)
     previous_normalized = normalize_content(previous_content)
-    
+
     # Compare normalized content
     return current_normalized != previous_normalized
 
@@ -304,7 +304,7 @@ def _configure_logging(args):
     else:
         # Console only logging
         setup_console_logging(console_level)
-        
+
         # Force update all existing loggers to respect the new level
         # This is needed because legacy loggers don't propagate and have their own handlers
         root_logger = logging.getLogger()
@@ -713,6 +713,13 @@ Examples:
   tosGPS syncMeta --type gamit-station-info --force-server okada RHOF    # Force specific server
   tosGPS syncMeta --type gamit-station-info RHOF --force-download  # Bypass cache
   tosGPS syncMeta --type all --all-stations                   # Check all TOS stations
+  
+  # Safe Update System (enhanced reliability)
+  tosGPS syncMeta --type gamit-station-info RHOF --update --dry-run      # Test mode
+  tosGPS syncMeta --type gamit-station-info RHOF --update --interactive  # With prompts
+  tosGPS syncMeta --type gamit-station-info --list-backups              # Show backups
+  tosGPS syncMeta --type gamit-station-info --rollback 20250904_143022   # Restore backup
+  tosGPS syncMeta --type gamit-station-info --verify-only               # Check integrity
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -791,6 +798,37 @@ Examples:
         "--status",
         action="store_true",
         help="Show sync status of all configured metadata types",
+    )
+    advanced_group.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Test mode - perform all operations except upload (safe update system)",
+    )
+    advanced_group.add_argument(
+        "--interactive",
+        action="store_true", 
+        help="Prompt for confirmation before upload (safe update system)",
+    )
+    advanced_group.add_argument(
+        "--rollback",
+        type=str,
+        metavar="BACKUP_ID",
+        help="Rollback to specified backup ID (format: YYYYMMDD_HHMMSS)",
+    )
+    advanced_group.add_argument(
+        "--list-backups",
+        action="store_true",
+        help="List available backups for rollback",
+    )
+    advanced_group.add_argument(
+        "--verify-only",
+        action="store_true",
+        help="Only verify file integrity without making changes",
+    )
+    advanced_group.add_argument(
+        "--production-mode",
+        action="store_true",
+        help="Production mode - minimize console output, use structured logging only",
     )
 
     args = parser.parse_args()
@@ -1312,8 +1350,8 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
                     if not has_meaningful_changes(output_content, previous_log_path):
                         skip_unchanged = True
                         print(f"⏭️  No changes detected for {station} since {previous_log}, skipping file creation", file=sys.stderr)
-                        print(f"    Use --force-update to create file anyway", file=sys.stderr)
-                
+                        print("    Use --force-update to create file anyway", file=sys.stderr)
+
                 if not skip_unchanged:
                     # Write to file
                     try:
@@ -1498,8 +1536,8 @@ def _parse_station_info_file():
 
     if not station_info_path.exists():
         print(f"ERROR: Station info file not found at: {station_info_path}", file=sys.stderr)
-        print(f"Expected directory structure: <project_root>/data/station_config/", file=sys.stderr)
-        print(f"To fetch the file, run: tosGPS syncMeta --type gamit-station-info RHOF", file=sys.stderr)
+        print("Expected directory structure: <project_root>/data/station_config/", file=sys.stderr)
+        print("To fetch the file, run: tosGPS syncMeta --type gamit-station-info RHOF", file=sys.stderr)
         return None
 
     stations_data = {}
@@ -1787,6 +1825,19 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
         _show_sync_status()
         return
 
+    # Handle new safe update system commands
+    if args.list_backups:
+        _list_available_backups()
+        return
+    
+    if args.rollback:
+        _handle_rollback_command(args.rollback, args.type)
+        return
+    
+    if args.verify_only:
+        _handle_verify_only_command(args.type, stations)
+        return
+
     # Validate required arguments for sync operations
     if not args.type and not args.status:
         parser.error(
@@ -1832,17 +1883,44 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
     for metadata_type in metadata_types:
         print(f"\n=== Processing {metadata_type} ===", file=sys.stderr)
 
-        type_results = _process_metadata_type(
-            metadata_type=metadata_type,
-            stations=stations,
-            url=url,
-            log_level=log_level,
-            update_mode=args.update,
-            show_comparison=show_comparison,
-            force_download=args.force_download,
-            backup=args.backup,
-            forced_server=args.force_server,
-        )
+        # Use new safe update workflow if update mode is enabled and safe features are requested
+        if args.update and (args.dry_run or args.interactive or getattr(args, 'use_safe_update', True)):
+            if not getattr(args, 'production_mode', False):
+                print(f"🛡️  Using safe update workflow for {metadata_type}", file=sys.stderr)
+            
+            workflow_result = _safe_update_workflow(
+                stations=stations,
+                metadata_type=metadata_type,
+                url=url,
+                update_mode=args.update,
+                dry_run=args.dry_run,
+                interactive=args.interactive,
+                backup_required=args.backup or True,  # Default to backup for safety
+                production_mode=getattr(args, 'production_mode', False)
+            )
+            
+            # Convert workflow result to expected format
+            type_results = {
+                "success": workflow_result["success"],
+                "stations_processed": len(workflow_result["stations_processed"]),
+                "stations_updated": len(workflow_result["stations_updated"]),
+                "errors": workflow_result["errors"],
+                "safe_update_workflow": True,
+                "workflow_details": workflow_result
+            }
+        else:
+            # Use legacy workflow
+            type_results = _process_metadata_type(
+                metadata_type=metadata_type,
+                stations=stations,
+                url=url,
+                log_level=log_level,
+                update_mode=args.update,
+                show_comparison=show_comparison,
+                force_download=args.force_download,
+                backup=args.backup,
+                forced_server=args.force_server,
+            )
 
         results[metadata_type] = type_results
 
@@ -2104,12 +2182,12 @@ def _download_and_cache_reference_data(
         # Check if station info file exists, if not download it
         station_config_dir = _get_station_config_dir()
         station_info_path = station_config_dir / "station.info.sopac.apr05"
-        
+
         if not station_info_path.exists() or force_download:
             logger = get_logger(__name__)
             print(f"Station info file not found, downloading from {REFERENCE_DATA_CONFIG['station-info']['remote_host']}...", file=sys.stderr)
             _fetch_station_info(station_config_dir, logger)
-        
+
         return _parse_station_info_file()
 
     return None
@@ -2464,6 +2542,1535 @@ def _generate_sync_summary(results, metadata_types, stations):
                 print(f"\n{metadata_type} errors:", file=sys.stderr)
                 for error in errors:
                     print(f"  - {error}", file=sys.stderr)
+
+
+# ============================================================================
+# SAFE UPDATE SYSTEM - File Management and Versioning
+# ============================================================================
+
+def _get_backup_dir(base_dir):
+    """Get or create backup directory."""
+    backup_dir = base_dir / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    return backup_dir
+
+
+def _get_work_dir(base_dir):
+    """Get or create working directory for file edits."""
+    work_dir = base_dir / "work"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    return work_dir
+
+
+def _create_versioned_backup(original_file, backup_dir=None, metadata=None):
+    """
+    Create a timestamped backup with metadata tracking.
+    
+    Args:
+        original_file: Path to original file to backup
+        backup_dir: Directory for backups (default: original_file.parent/backups)
+        metadata: Additional metadata to store with backup
+        
+    Returns:
+        dict: Backup information with path, timestamp, checksum, etc.
+    """
+    import hashlib
+    import json
+    from datetime import datetime
+    from pathlib import Path
+    
+    original_file = Path(original_file)
+    
+    if not original_file.exists():
+        raise FileNotFoundError(f"Original file not found: {original_file}")
+    
+    # Default backup directory
+    if backup_dir is None:
+        backup_dir = _get_backup_dir(original_file.parent)
+    else:
+        backup_dir = Path(backup_dir)
+        backup_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate timestamp for backup
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_filename = f"{original_file.name}.backup.{timestamp}"
+    backup_path = backup_dir / backup_filename
+    
+    # Calculate checksum of original
+    with open(original_file, 'rb') as f:
+        checksum = hashlib.sha256(f.read()).hexdigest()
+    
+    # Copy original to backup location
+    import shutil
+    shutil.copy2(original_file, backup_path)
+    
+    # Create backup metadata
+    backup_info = {
+        "backup_id": timestamp,
+        "original_file": str(original_file),
+        "backup_path": str(backup_path),
+        "created_at": datetime.now().isoformat(),
+        "original_size": original_file.stat().st_size,
+        "original_checksum": checksum,
+        "metadata": metadata or {}
+    }
+    
+    # Update backup registry
+    _update_backup_registry(backup_dir, backup_info)
+    
+    return backup_info
+
+
+def _update_backup_registry(backup_dir, backup_info):
+    """Update the backup registry with new backup information."""
+    import json
+    
+    registry_path = backup_dir / "backup_registry.json"
+    
+    # Load existing registry or create new one
+    if registry_path.exists():
+        with open(registry_path, 'r') as f:
+            registry = json.load(f)
+    else:
+        registry = {"backups": []}
+    
+    # Add new backup info
+    registry["backups"].append(backup_info)
+    
+    # Sort by creation time (newest first)
+    registry["backups"].sort(key=lambda x: x["created_at"], reverse=True)
+    
+    # Implement retention policy (keep last 10 backups per file)
+    original_file = backup_info["original_file"]
+    file_backups = [b for b in registry["backups"] if b["original_file"] == original_file]
+    
+    if len(file_backups) > 10:
+        # Remove oldest backups beyond retention limit
+        to_remove = file_backups[10:]
+        for old_backup in to_remove:
+            try:
+                Path(old_backup["backup_path"]).unlink(missing_ok=True)
+                registry["backups"].remove(old_backup)
+            except Exception:
+                pass  # Ignore cleanup failures
+    
+    # Save updated registry
+    with open(registry_path, 'w') as f:
+        json.dump(registry, f, indent=2)
+
+
+def _list_backups(backup_dir, original_file=None):
+    """List available backups for a file or all backups."""
+    import json
+    
+    backup_dir = Path(backup_dir)
+    registry_path = backup_dir / "backup_registry.json"
+    
+    if not registry_path.exists():
+        return []
+    
+    with open(registry_path, 'r') as f:
+        registry = json.load(f)
+    
+    backups = registry.get("backups", [])
+    
+    if original_file:
+        backups = [b for b in backups if b["original_file"] == str(original_file)]
+    
+    return backups
+
+
+def _restore_from_backup(backup_id, target_path=None):
+    """
+    Restore a file from backup.
+    
+    Args:
+        backup_id: Timestamp ID of backup to restore
+        target_path: Where to restore (default: original location)
+        
+    Returns:
+        bool: Success status
+    """
+    import shutil
+    
+    # Find backup in registry
+    station_config_dir = _get_station_config_dir()
+    backup_dir = _get_backup_dir(station_config_dir)
+    backups = _list_backups(backup_dir)
+    
+    backup_info = None
+    for backup in backups:
+        if backup["backup_id"] == backup_id:
+            backup_info = backup
+            break
+    
+    if not backup_info:
+        raise ValueError(f"Backup with ID {backup_id} not found")
+    
+    backup_path = Path(backup_info["backup_path"])
+    if not backup_path.exists():
+        raise FileNotFoundError(f"Backup file not found: {backup_path}")
+    
+    # Determine restore target
+    if target_path is None:
+        target_path = Path(backup_info["original_file"])
+    else:
+        target_path = Path(target_path)
+    
+    # Create backup of current file before restoring
+    if target_path.exists():
+        _create_versioned_backup(
+            target_path, 
+            backup_dir,
+            metadata={"restore_operation": True, "restored_from": backup_id}
+        )
+    
+    # Restore from backup
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(backup_path, target_path)
+    
+    return True
+
+
+# ============================================================================
+# SAFE UPDATE SYSTEM - Download and Verification
+# ============================================================================
+
+def _download_fresh_reference(metadata_type, server_config, temp_dir, force_download=False):
+    """
+    Download a fresh copy of reference data with integrity checks.
+    
+    Args:
+        metadata_type: Type of metadata to download (e.g., 'gamit-station-info')
+        server_config: Server configuration dictionary
+        temp_dir: Temporary directory for downloads
+        force_download: Force download even if file exists and seems current
+        
+    Returns:
+        dict: Download result with path, metadata, integrity info
+    """
+    import hashlib
+    import subprocess
+    from datetime import datetime
+    from pathlib import Path
+    
+    logger = get_logger(__name__)
+    temp_dir = Path(temp_dir)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    
+    if metadata_type == "gamit-station-info":
+        config = REFERENCE_DATA_CONFIG["station-info"]
+        
+        # Generate unique filename for fresh download
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        temp_filename = f"station.info.sopac.apr05.fresh.{timestamp}"
+        temp_path = temp_dir / temp_filename
+        
+        print(f"Downloading fresh copy from {config['remote_host']}...", file=sys.stderr)
+        print(f"Remote: {config['remote_path']}", file=sys.stderr)
+        print(f"Temp: {temp_path}", file=sys.stderr)
+        
+        try:
+            # Use scp to fetch the file to temporary location
+            cmd = [
+                "scp",
+                f"{config['remote_host']}:{config['remote_path']}",
+                str(temp_path),
+            ]
+            
+            logger.info(f"Executing fresh download: {' '.join(cmd)}")
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,  # 2 minute timeout for fresh downloads
+            )
+            
+            if result.returncode != 0:
+                raise Exception(f"SCP failed: {result.stderr}")
+            
+            if not temp_path.exists():
+                raise Exception("Download completed but file not found")
+            
+            # Verify file integrity
+            file_size = temp_path.stat().st_size
+            if file_size == 0:
+                raise Exception("Downloaded file is empty")
+            
+            # Basic format validation for GAMIT files
+            if not _validate_gamit_file_format(temp_path):
+                raise Exception("Downloaded file failed format validation")
+            
+            # Calculate checksum
+            with open(temp_path, 'rb') as f:
+                checksum = hashlib.sha256(f.read()).hexdigest()
+            
+            # Compare with existing local file if it exists
+            local_path = _get_station_config_dir() / config["local_filename"]
+            changed = True
+            local_checksum = None
+            
+            if local_path.exists():
+                with open(local_path, 'rb') as f:
+                    local_checksum = hashlib.sha256(f.read()).hexdigest()
+                changed = (checksum != local_checksum)
+            
+            download_result = {
+                "success": True,
+                "temp_path": str(temp_path),
+                "file_size": file_size,
+                "checksum": checksum,
+                "local_checksum": local_checksum,
+                "changed": changed,
+                "download_time": datetime.now().isoformat(),
+                "metadata": {
+                    "metadata_type": metadata_type,
+                    "source_host": config['remote_host'],
+                    "source_path": config['remote_path']
+                }
+            }
+            
+            size_mb = file_size / (1024 * 1024)
+            if changed:
+                print(f"✓ Fresh copy downloaded ({size_mb:.1f} MB) - Changes detected", file=sys.stderr)
+            else:
+                print(f"✓ Fresh copy downloaded ({size_mb:.1f} MB) - No changes from local", file=sys.stderr)
+            
+            logger.info(f"Fresh download successful: {temp_path} ({size_mb:.1f} MB)")
+            return download_result
+            
+        except subprocess.TimeoutExpired:
+            error = "Download timeout (120s)"
+            print(f"✗ {error}", file=sys.stderr)
+            logger.error(error)
+            return {"success": False, "error": error}
+        except Exception as e:
+            error = f"Download error: {e}"
+            print(f"✗ {error}", file=sys.stderr)
+            logger.error(error)
+            return {"success": False, "error": str(e)}
+    
+    return {"success": False, "error": f"Unsupported metadata type: {metadata_type}"}
+
+
+def _validate_gamit_file_format(file_path):
+    """
+    Basic validation of GAMIT station.info file format.
+    
+    Args:
+        file_path: Path to file to validate
+        
+    Returns:
+        bool: True if file appears to be valid GAMIT format
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+        
+        if len(lines) < 5:
+            return False
+        
+        # Check for GAMIT header indicators
+        header_found = False
+        station_lines = 0
+        
+        for line in lines:
+            line = line.rstrip('\n\r')
+            
+            # Look for GAMIT header
+            if line.startswith('*SITE') and 'Station Name' in line:
+                header_found = True
+                continue
+            
+            # Skip comments and empty lines
+            if line.startswith('#') or line.startswith('*') or not line.strip():
+                continue
+            
+            # Count potential station lines
+            if len(line) > 100:  # GAMIT lines are long
+                station_lines += 1
+        
+        # Valid if we found header and reasonable number of station lines
+        return header_found and station_lines > 0
+        
+    except Exception:
+        return False
+
+
+def _compare_with_local(fresh_file_path, local_file_path):
+    """
+    Compare fresh download with local file to detect changes.
+    
+    Args:
+        fresh_file_path: Path to freshly downloaded file
+        local_file_path: Path to current local file
+        
+    Returns:
+        dict: Comparison results with differences summary
+    """
+    import hashlib
+    from pathlib import Path
+    
+    fresh_path = Path(fresh_file_path)
+    local_path = Path(local_file_path)
+    
+    if not fresh_path.exists():
+        return {"error": "Fresh file not found"}
+    
+    if not local_path.exists():
+        return {"changed": True, "reason": "Local file does not exist"}
+    
+    # Compare checksums first (quick check)
+    def get_checksum(path):
+        with open(path, 'rb') as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    
+    fresh_checksum = get_checksum(fresh_path)
+    local_checksum = get_checksum(local_path)
+    
+    if fresh_checksum == local_checksum:
+        return {"changed": False, "fresh_checksum": fresh_checksum, "local_checksum": local_checksum}
+    
+    # Files differ - analyze differences
+    try:
+        with open(fresh_path, 'r', encoding='utf-8', errors='ignore') as f:
+            fresh_lines = f.readlines()
+        with open(local_path, 'r', encoding='utf-8', errors='ignore') as f:
+            local_lines = f.readlines()
+        
+        differences = {
+            "changed": True,
+            "fresh_checksum": fresh_checksum,
+            "local_checksum": local_checksum,
+            "fresh_lines": len(fresh_lines),
+            "local_lines": len(local_lines),
+            "line_differences": []
+        }
+        
+        # Find specific line differences (sample up to 10)
+        max_lines = max(len(fresh_lines), len(local_lines))
+        diff_count = 0
+        
+        for i in range(min(max_lines, 1000)):  # Limit comparison to first 1000 lines
+            fresh_line = fresh_lines[i] if i < len(fresh_lines) else ""
+            local_line = local_lines[i] if i < len(local_lines) else ""
+            
+            if fresh_line != local_line and diff_count < 10:
+                differences["line_differences"].append({
+                    "line_num": i + 1,
+                    "fresh": fresh_line.rstrip(),
+                    "local": local_line.rstrip()
+                })
+                diff_count += 1
+        
+        return differences
+        
+    except Exception as e:
+        return {"changed": True, "error": f"Comparison failed: {e}"}
+
+
+# ============================================================================
+# SAFE UPDATE SYSTEM - Working Copy Management
+# ============================================================================
+
+def _create_working_copy(reference_file, work_dir, metadata=None):
+    """
+    Create an editable working copy with tracking.
+    
+    Args:
+        reference_file: Path to reference file to copy
+        work_dir: Working directory for edits
+        metadata: Additional metadata to track
+        
+    Returns:
+        dict: Working copy information with original checksum for verification
+    """
+    import hashlib
+    import shutil
+    from datetime import datetime
+    from pathlib import Path
+    
+    reference_file = Path(reference_file)
+    work_dir = Path(work_dir)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    
+    if not reference_file.exists():
+        raise FileNotFoundError(f"Reference file not found: {reference_file}")
+    
+    # Calculate original checksum
+    with open(reference_file, 'rb') as f:
+        original_checksum = hashlib.sha256(f.read()).hexdigest()
+    
+    # Create working copy filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    work_filename = f"{reference_file.name}.work.{timestamp}"
+    work_path = work_dir / work_filename
+    
+    # Copy to working location
+    shutil.copy2(reference_file, work_path)
+    
+    # Verify copy integrity
+    with open(work_path, 'rb') as f:
+        work_checksum = hashlib.sha256(f.read()).hexdigest()
+    
+    if original_checksum != work_checksum:
+        raise Exception("Working copy creation failed - checksum mismatch")
+    
+    work_info = {
+        "work_path": str(work_path),
+        "original_file": str(reference_file),
+        "original_checksum": original_checksum,
+        "work_checksum": work_checksum,
+        "created_at": datetime.now().isoformat(),
+        "metadata": metadata or {}
+    }
+    
+    return work_info
+
+
+def _apply_station_updates(work_file, station_updates, original_metadata):
+    """
+    Apply station-specific updates to working copy while preserving file structure.
+    
+    Args:
+        work_file: Path to working copy file
+        station_updates: Dict of station updates {station_id: [new_lines]}
+        original_metadata: Original file metadata for verification
+        
+    Returns:
+        dict: Update results with change summary
+    """
+    from pathlib import Path
+    
+    work_file = Path(work_file)
+    
+    if not work_file.exists():
+        raise FileNotFoundError(f"Working file not found: {work_file}")
+    
+    # Read current working file
+    with open(work_file, 'r', encoding='utf-8', errors='ignore') as f:
+        lines = f.readlines()
+    
+    # Track changes
+    changes_made = []
+    lines_modified = 0
+    lines_added = 0
+    lines_removed = 0
+    
+    # Parse existing stations for reference
+    existing_stations = {}
+    for i, line in enumerate(lines):
+        if line.startswith(' ') and len(line) > 100:  # GAMIT station line
+            station_id = line[1:5].strip()
+            if station_id:
+                if station_id not in existing_stations:
+                    existing_stations[station_id] = []
+                existing_stations[station_id].append(i)
+    
+    # Apply updates for each station
+    modified_lines = lines[:]  # Start with copy of all lines
+    
+    for station_id, new_station_lines in station_updates.items():
+        if station_id in existing_stations:
+            # Replace existing station lines
+            existing_indices = existing_stations[station_id]
+            
+            # Remove old lines (in reverse order to maintain indices)
+            for idx in sorted(existing_indices, reverse=True):
+                del modified_lines[idx]
+                lines_removed += 1
+            
+            # Find insertion point (after header/comments, before next station)
+            insert_point = len(modified_lines)
+            for i, line in enumerate(modified_lines):
+                if line.startswith(' ') and len(line) > 100:
+                    line_station = line[1:5].strip()
+                    if line_station > station_id:  # Maintain alphabetical order
+                        insert_point = i
+                        break
+            
+            # Insert new lines
+            for j, new_line in enumerate(new_station_lines):
+                if not new_line.endswith('\n'):
+                    new_line += '\n'
+                modified_lines.insert(insert_point + j, new_line)
+                lines_added += 1
+            
+            changes_made.append(f"Updated {len(new_station_lines)} lines for station {station_id}")
+            
+        else:
+            # Add new station lines
+            # Find appropriate insertion point to maintain order
+            insert_point = len(modified_lines)
+            for i, line in enumerate(modified_lines):
+                if line.startswith(' ') and len(line) > 100:
+                    line_station = line[1:5].strip()
+                    if line_station > station_id:
+                        insert_point = i
+                        break
+            
+            # Insert new station lines
+            for j, new_line in enumerate(new_station_lines):
+                if not new_line.endswith('\n'):
+                    new_line += '\n'
+                modified_lines.insert(insert_point + j, new_line)
+                lines_added += 1
+            
+            changes_made.append(f"Added {len(new_station_lines)} lines for new station {station_id}")
+    
+    # Write modified content back to working file
+    with open(work_file, 'w', encoding='utf-8') as f:
+        f.writelines(modified_lines)
+    
+    # Verify file is still valid GAMIT format
+    if not _validate_gamit_file_format(work_file):
+        raise Exception("Working file became invalid after updates")
+    
+    update_result = {
+        "success": True,
+        "changes_made": changes_made,
+        "stations_updated": list(station_updates.keys()),
+        "lines_added": lines_added,
+        "lines_removed": lines_removed,
+        "lines_modified": lines_modified,
+        "total_lines": len(modified_lines)
+    }
+    
+    return update_result
+
+
+def _generate_station_lines_from_tos(station_info):
+    """
+    Generate GAMIT-format lines from TOS station data.
+    
+    Args:
+        station_info: Station data from TOS API
+        
+    Returns:
+        list: GAMIT-formatted lines for the station
+    """
+    # Use existing function from gps_metadata_functions
+    try:
+        lines = gpsf.print_station_info(station_info, loglevel=logging.CRITICAL)
+        return lines
+    except Exception as e:
+        raise Exception(f"Failed to generate GAMIT lines from TOS data: {e}")
+
+
+def _cleanup_working_files(work_dir, max_age_hours=24):
+    """
+    Clean up old working files to prevent disk space issues.
+    
+    Args:
+        work_dir: Working directory to clean
+        max_age_hours: Maximum age of files to keep (default 24 hours)
+    """
+    import time
+    from pathlib import Path
+    
+    work_dir = Path(work_dir)
+    if not work_dir.exists():
+        return
+    
+    current_time = time.time()
+    max_age_seconds = max_age_hours * 3600
+    
+    for work_file in work_dir.glob("*.work.*"):
+        try:
+            file_age = current_time - work_file.stat().st_mtime
+            if file_age > max_age_seconds:
+                work_file.unlink()
+        except Exception:
+            pass  # Ignore cleanup failures
+
+
+# ============================================================================
+# SAFE UPDATE SYSTEM - Change Verification and Integrity
+# ============================================================================
+
+def _verify_intended_changes(original_file, modified_file, intended_stations, metadata=None):
+    """
+    Verify that only intended changes were made to the file.
+    
+    Args:
+        original_file: Path to original file
+        modified_file: Path to modified file
+        intended_stations: List of station IDs that should have changes
+        metadata: Additional verification metadata
+        
+    Returns:
+        dict: Verification results with detailed change analysis
+    """
+    import hashlib
+    from pathlib import Path
+    
+    original_file = Path(original_file)
+    modified_file = Path(modified_file)
+    
+    if not original_file.exists():
+        return {"success": False, "error": "Original file not found"}
+    if not modified_file.exists():
+        return {"success": False, "error": "Modified file not found"}
+    
+    # Read both files
+    try:
+        with open(original_file, 'r', encoding='utf-8', errors='ignore') as f:
+            original_lines = f.readlines()
+        with open(modified_file, 'r', encoding='utf-8', errors='ignore') as f:
+            modified_lines = f.readlines()
+    except Exception as e:
+        return {"success": False, "error": f"Failed to read files: {e}"}
+    
+    # Analyze changes
+    verification_result = {
+        "success": True,
+        "file_integrity_ok": True,
+        "intended_changes_only": True,
+        "change_summary": {
+            "lines_added": 0,
+            "lines_removed": 0,
+            "lines_modified": 0,
+            "stations_affected": [],
+            "unintended_changes": []
+        },
+        "checksums": {
+            "original": hashlib.sha256(original_file.read_bytes()).hexdigest(),
+            "modified": hashlib.sha256(modified_file.read_bytes()).hexdigest()
+        }
+    }
+    
+    # Parse stations from both files
+    original_stations = _parse_stations_from_lines(original_lines)
+    modified_stations = _parse_stations_from_lines(modified_lines)
+    
+    # Check file format integrity
+    if not _validate_gamit_file_format(modified_file):
+        verification_result["success"] = False
+        verification_result["file_integrity_ok"] = False
+        verification_result["error"] = "Modified file failed GAMIT format validation"
+        return verification_result
+    
+    # Analyze station-level changes
+    all_stations = set(original_stations.keys()) | set(modified_stations.keys())
+    intended_stations_set = set(intended_stations)
+    
+    for station_id in all_stations:
+        original_station_lines = original_stations.get(station_id, [])
+        modified_station_lines = modified_stations.get(station_id, [])
+        
+        if original_station_lines != modified_station_lines:
+            # This station has changes
+            verification_result["change_summary"]["stations_affected"].append(station_id)
+            
+            if station_id not in intended_stations_set:
+                # Unintended change detected
+                verification_result["intended_changes_only"] = False
+                verification_result["change_summary"]["unintended_changes"].append({
+                    "station_id": station_id,
+                    "change_type": "unexpected_modification",
+                    "original_lines": len(original_station_lines),
+                    "modified_lines": len(modified_station_lines)
+                })
+            
+            # Count line changes
+            if not original_station_lines:
+                verification_result["change_summary"]["lines_added"] += len(modified_station_lines)
+            elif not modified_station_lines:
+                verification_result["change_summary"]["lines_removed"] += len(original_station_lines)
+            else:
+                verification_result["change_summary"]["lines_modified"] += max(
+                    len(original_station_lines), len(modified_station_lines)
+                )
+    
+    # Check for changes in non-station parts (headers, comments)
+    original_non_station = _extract_non_station_lines(original_lines)
+    modified_non_station = _extract_non_station_lines(modified_lines)
+    
+    if original_non_station != modified_non_station:
+        verification_result["intended_changes_only"] = False
+        verification_result["change_summary"]["unintended_changes"].append({
+            "change_type": "header_or_comment_modified",
+            "details": "Non-station lines were unexpectedly modified"
+        })
+    
+    # Overall success determination
+    if not verification_result["file_integrity_ok"] or not verification_result["intended_changes_only"]:
+        verification_result["success"] = False
+    
+    return verification_result
+
+
+def _parse_stations_from_lines(lines):
+    """Parse station data from GAMIT file lines."""
+    stations = {}
+    
+    for line in lines:
+        if line.startswith(' ') and len(line) > 100:  # GAMIT station line
+            station_id = line[1:5].strip()
+            if station_id:
+                if station_id not in stations:
+                    stations[station_id] = []
+                stations[station_id].append(line)
+    
+    return stations
+
+
+def _extract_non_station_lines(lines):
+    """Extract non-station lines (headers, comments) from GAMIT file."""
+    non_station_lines = []
+    
+    for line in lines:
+        if not (line.startswith(' ') and len(line) > 100):  # Not a station line
+            non_station_lines.append(line)
+    
+    return non_station_lines
+
+
+def _validate_file_integrity_comprehensive(file_path, reference_checksums=None):
+    """
+    Comprehensive file integrity validation.
+    
+    Args:
+        file_path: Path to file to validate
+        reference_checksums: Optional reference checksums for comparison
+        
+    Returns:
+        dict: Comprehensive integrity check results
+    """
+    import hashlib
+    from pathlib import Path
+    
+    file_path = Path(file_path)
+    
+    if not file_path.exists():
+        return {"success": False, "error": "File not found"}
+    
+    integrity_result = {
+        "success": True,
+        "file_exists": True,
+        "file_readable": True,
+        "format_valid": False,
+        "size_bytes": 0,
+        "line_count": 0,
+        "station_count": 0,
+        "checksum": None,
+        "validation_errors": []
+    }
+    
+    try:
+        # Basic file properties
+        integrity_result["size_bytes"] = file_path.stat().st_size
+        
+        if integrity_result["size_bytes"] == 0:
+            integrity_result["success"] = False
+            integrity_result["validation_errors"].append("File is empty")
+            return integrity_result
+        
+        # Read and analyze file
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+        
+        integrity_result["line_count"] = len(lines)
+        
+        # Calculate checksum
+        with open(file_path, 'rb') as f:
+            integrity_result["checksum"] = hashlib.sha256(f.read()).hexdigest()
+        
+        # Format validation
+        integrity_result["format_valid"] = _validate_gamit_file_format(file_path)
+        if not integrity_result["format_valid"]:
+            integrity_result["validation_errors"].append("Invalid GAMIT file format")
+        
+        # Count stations
+        stations = _parse_stations_from_lines(lines)
+        integrity_result["station_count"] = len(stations)
+        
+        # Additional validations
+        if integrity_result["station_count"] == 0:
+            integrity_result["validation_errors"].append("No station data found")
+        
+        # Check for common formatting issues in station lines
+        station_line_count = 0
+        for i, line in enumerate(lines[:200]):  # Check first 200 lines
+            if line.startswith(' ') and len(line) > 100:  # Station line
+                station_line_count += 1
+                line_content = line.rstrip()
+                line_length = len(line_content)
+                
+                # GAMIT lines should be reasonably long with proper format
+                if line_length < 180:
+                    integrity_result["validation_errors"].append(
+                        f"Line {i+1}: Station line too short ({line_length} chars) - possible truncation"
+                    )
+                elif line_length > 220:
+                    integrity_result["validation_errors"].append(
+                        f"Line {i+1}: Station line too long ({line_length} chars) - possible format issue"
+                    )
+                
+                # Check basic GAMIT structure (station ID should be in positions 1-5)
+                if len(line_content) > 5:
+                    station_id = line_content[1:5].strip()
+                    if not station_id or len(station_id) < 3:
+                        integrity_result["validation_errors"].append(
+                            f"Line {i+1}: Invalid or missing station ID"
+                        )
+                
+                # Stop after checking reasonable number of station lines
+                if station_line_count >= 50 or len(integrity_result["validation_errors"]) >= 10:
+                    break
+        
+        # Compare with reference if provided
+        if reference_checksums:
+            if integrity_result["checksum"] not in reference_checksums:
+                integrity_result["validation_errors"].append("Checksum does not match reference")
+        
+        # Set success status
+        if integrity_result["validation_errors"]:
+            integrity_result["success"] = False
+    
+    except Exception as e:
+        integrity_result["success"] = False
+        integrity_result["file_readable"] = False
+        integrity_result["validation_errors"].append(f"Failed to validate file: {e}")
+    
+    return integrity_result
+
+
+def _generate_change_report(verification_result, work_info, update_result):
+    """
+    Generate a comprehensive change report for user review.
+    
+    Args:
+        verification_result: Results from change verification
+        work_info: Working copy information
+        update_result: Results from applying updates
+        
+    Returns:
+        str: Formatted change report
+    """
+    from datetime import datetime
+    
+    report = []
+    report.append("=" * 60)
+    report.append("SYNCMETA UPDATE VERIFICATION REPORT")
+    report.append("=" * 60)
+    report.append(f"Generated: {datetime.now().isoformat()}")
+    report.append(f"Working file: {work_info['work_path']}")
+    report.append(f"Original checksum: {work_info['original_checksum'][:16]}...")
+    report.append("")
+    
+    # Verification status
+    status = "✓ PASSED" if verification_result["success"] else "✗ FAILED"
+    report.append(f"Verification Status: {status}")
+    
+    if not verification_result["success"]:
+        report.append("ERRORS:")
+        for error in verification_result.get("validation_errors", []):
+            report.append(f"  - {error}")
+        if verification_result.get("error"):
+            report.append(f"  - {verification_result['error']}")
+        report.append("")
+    
+    # Change summary
+    summary = verification_result["change_summary"]
+    report.append("CHANGE SUMMARY:")
+    report.append(f"  Stations affected: {len(summary['stations_affected'])}")
+    report.append(f"  Lines added: {summary['lines_added']}")
+    report.append(f"  Lines removed: {summary['lines_removed']}")
+    report.append(f"  Lines modified: {summary['lines_modified']}")
+    
+    if summary["stations_affected"]:
+        report.append(f"  Affected stations: {', '.join(summary['stations_affected'])}")
+    
+    if summary["unintended_changes"]:
+        report.append("")
+        report.append("⚠️  UNINTENDED CHANGES DETECTED:")
+        for change in summary["unintended_changes"]:
+            report.append(f"  - {change.get('change_type', 'unknown')}: {change}")
+    
+    # Update details
+    if update_result.get("changes_made"):
+        report.append("")
+        report.append("CHANGES MADE:")
+        for change in update_result["changes_made"]:
+            report.append(f"  - {change}")
+    
+    report.append("")
+    report.append("=" * 60)
+    
+    return "\n".join(report)
+
+
+# ============================================================================
+# SAFE UPDATE SYSTEM - Upload and Rollback
+# ============================================================================
+
+def _safe_upload_with_rollback(local_file, remote_config, backup_info, metadata_type="gamit-station-info", dry_run=False):
+    """
+    Upload file with rollback capability.
+    
+    Args:
+        local_file: Path to local file to upload
+        remote_config: Remote server configuration
+        backup_info: Information about the backup created before changes
+        metadata_type: Type of metadata being uploaded
+        dry_run: If True, simulate upload without actually doing it
+        
+    Returns:
+        dict: Upload result with rollback information
+    """
+    import subprocess
+    from datetime import datetime
+    from pathlib import Path
+    
+    logger = get_logger(__name__)
+    local_file = Path(local_file)
+    
+    if not local_file.exists():
+        return {"success": False, "error": "Local file not found"}
+    
+    if metadata_type == "gamit-station-info":
+        config = REFERENCE_DATA_CONFIG["station-info"]
+        remote_path = config["remote_path"]
+        remote_host = config["remote_host"]
+        
+        upload_result = {
+            "success": False,
+            "dry_run": dry_run,
+            "local_file": str(local_file),
+            "remote_host": remote_host,
+            "remote_path": remote_path,
+            "upload_time": datetime.now().isoformat(),
+            "rollback_available": bool(backup_info)
+        }
+        
+        if dry_run:
+            # Simulate upload process
+            print(f"🧪 DRY RUN: Would upload {local_file}", file=sys.stderr)
+            print(f"🧪 DRY RUN: Target: {remote_host}:{remote_path}", file=sys.stderr)
+            
+            # Simulate validation steps
+            file_size = local_file.stat().st_size
+            print(f"🧪 DRY RUN: File size: {file_size / 1024 / 1024:.1f} MB", file=sys.stderr)
+            print(f"🧪 DRY RUN: Backup available for rollback: {backup_info is not None}", file=sys.stderr)
+            print(f"🧪 DRY RUN: Upload would succeed (simulated)", file=sys.stderr)
+            
+            upload_result["success"] = True
+            upload_result["simulated"] = True
+            return upload_result
+        
+        try:
+            # Create remote backup first
+            remote_backup_path = f"{remote_path}.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            print(f"Creating remote backup at {remote_host}:{remote_backup_path}...", file=sys.stderr)
+            backup_cmd = [
+                "ssh", remote_host.split('@')[0] + '@' + remote_host.split('@')[1],
+                f"cp '{remote_path}' '{remote_backup_path}'"
+            ]
+            
+            result = subprocess.run(backup_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                logger.warning(f"Remote backup creation failed: {result.stderr}")
+                print("⚠️  Warning: Could not create remote backup", file=sys.stderr)
+            else:
+                print("✓ Remote backup created", file=sys.stderr)
+                upload_result["remote_backup"] = remote_backup_path
+            
+            # Upload to temporary location first
+            temp_remote_path = f"{remote_path}.upload.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            print(f"Uploading to temporary location: {temp_remote_path}...", file=sys.stderr)
+            upload_cmd = ["scp", str(local_file), f"{remote_host}:{temp_remote_path}"]
+            
+            logger.info(f"Executing upload: {' '.join(upload_cmd)}")
+            result = subprocess.run(upload_cmd, capture_output=True, text=True, timeout=120)
+            
+            if result.returncode != 0:
+                raise Exception(f"Upload failed: {result.stderr}")
+            
+            # Verify upload integrity
+            print("Verifying upload integrity...", file=sys.stderr)
+            verify_cmd = [
+                "ssh", remote_host.split('@')[0] + '@' + remote_host.split('@')[1],
+                f"test -f '{temp_remote_path}' && wc -l '{temp_remote_path}'"
+            ]
+            
+            result = subprocess.run(verify_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                raise Exception("Upload verification failed")
+            
+            # Atomic move to final location
+            print("Moving to final location...", file=sys.stderr)
+            move_cmd = [
+                "ssh", remote_host.split('@')[0] + '@' + remote_host.split('@')[1],
+                f"mv '{temp_remote_path}' '{remote_path}'"
+            ]
+            
+            result = subprocess.run(move_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                raise Exception(f"Final move failed: {result.stderr}")
+            
+            file_size = local_file.stat().st_size
+            print(f"✓ Upload successful ({file_size / 1024 / 1024:.1f} MB)", file=sys.stderr)
+            
+            upload_result["success"] = True
+            upload_result["temp_path_used"] = temp_remote_path
+            logger.info(f"Upload successful: {local_file} -> {remote_host}:{remote_path}")
+            
+        except subprocess.TimeoutExpired:
+            error = "Upload timeout"
+            upload_result["error"] = error
+            logger.error(error)
+            print(f"✗ {error}", file=sys.stderr)
+        except Exception as e:
+            error = f"Upload failed: {e}"
+            upload_result["error"] = error
+            logger.error(error)
+            print(f"✗ {error}", file=sys.stderr)
+        
+        return upload_result
+    
+    return {"success": False, "error": f"Unsupported metadata type for upload"}
+
+
+def _rollback_remote_changes(upload_info, metadata_type="gamit-station-info"):
+    """
+    Rollback remote changes using backup.
+    
+    Args:
+        upload_info: Information from previous upload
+        metadata_type: Type of metadata that was uploaded
+        
+    Returns:
+        dict: Rollback result
+    """
+    import subprocess
+    from datetime import datetime
+    
+    logger = get_logger(__name__)
+    
+    if metadata_type == "gamit-station-info":
+        config = REFERENCE_DATA_CONFIG["station-info"]
+        remote_path = config["remote_path"]
+        remote_host = config["remote_host"]
+        
+        rollback_result = {
+            "success": False,
+            "rollback_time": datetime.now().isoformat(),
+            "remote_host": remote_host,
+            "remote_path": remote_path
+        }
+        
+        if "remote_backup" not in upload_info:
+            rollback_result["error"] = "No remote backup available for rollback"
+            return rollback_result
+        
+        remote_backup_path = upload_info["remote_backup"]
+        
+        try:
+            print(f"Rolling back from {remote_backup_path}...", file=sys.stderr)
+            rollback_cmd = [
+                "ssh", remote_host.split('@')[0] + '@' + remote_host.split('@')[1],
+                f"cp '{remote_backup_path}' '{remote_path}'"
+            ]
+            
+            result = subprocess.run(rollback_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                raise Exception(f"Rollback failed: {result.stderr}")
+            
+            print("✓ Rollback successful", file=sys.stderr)
+            rollback_result["success"] = True
+            logger.info(f"Rollback successful: {remote_backup_path} -> {remote_path}")
+            
+        except Exception as e:
+            error = f"Rollback failed: {e}"
+            rollback_result["error"] = error
+            logger.error(error)
+            print(f"✗ {error}", file=sys.stderr)
+        
+        return rollback_result
+    
+    return {"success": False, "error": f"Rollback not supported for {metadata_type}"}
+
+
+# ============================================================================
+# SAFE UPDATE SYSTEM - Main Workflow Integration
+# ============================================================================
+
+def _safe_update_workflow(
+    stations, metadata_type, url, update_mode=True, 
+    dry_run=False, interactive=False, backup_required=True, 
+    production_mode=False
+):
+    """
+    Main safe update workflow orchestrator.
+    
+    Args:
+        stations: List of station IDs to update
+        metadata_type: Type of metadata (e.g., 'gamit-station-info')
+        url: TOS API URL
+        update_mode: Whether to perform updates (vs just comparison)
+        dry_run: Test mode - no actual uploads
+        interactive: Prompt for confirmations
+        backup_required: Require backup before changes
+        
+    Returns:
+        dict: Complete workflow results
+    """
+    from pathlib import Path
+    
+    logger = get_logger(__name__)
+    workflow_result = {
+        "success": False,
+        "dry_run": dry_run,
+        "stations_requested": stations,
+        "stations_processed": [],
+        "stations_updated": [],
+        "errors": [],
+        "workflow_steps": []
+    }
+    
+    try:
+        # Step 1: Download fresh reference data
+        # Use structured logging for production + user feedback
+        def log_step(step_num, description, level="INFO", **extra_data):
+            """Log workflow step with both structured logging and user feedback."""
+            # Structured logging for production
+            logger.log(
+                getattr(logging, level),
+                f"Step {step_num}: {description}",
+                extra={
+                    "workflow": "safe_update",
+                    "step": step_num,
+                    "metadata_type": metadata_type,
+                    "dry_run": dry_run,
+                    **extra_data
+                }
+            )
+            
+            # User feedback (conditional based on mode)
+            if not production_mode and (not dry_run or interactive or logger.isEnabledFor(logging.INFO)):
+                step_emoji = {1: "📥", 2: "🗄️", 3: "🛠️", 4: "🔍", 5: "✏️", 6: "🔍", 7: "📤", 8: "🧹"}
+                emoji = step_emoji.get(step_num, "🔧")
+                print(f"{emoji} Step {step_num}: {description}...", file=sys.stderr)
+        
+        # Step 1: Download fresh reference data
+        log_step(1, "Downloading fresh reference data")
+        
+        station_config_dir = _get_station_config_dir()
+        temp_dir = station_config_dir / "cache"
+        
+        fresh_download = _download_fresh_reference(metadata_type, {}, temp_dir)
+        workflow_result["workflow_steps"].append({
+            "step": "fresh_download",
+            "success": fresh_download["success"],
+            "details": fresh_download
+        })
+        
+        if not fresh_download["success"]:
+            error_msg = f"Fresh download failed: {fresh_download.get('error')}"
+            logger.error(error_msg, extra={"step": 1, "workflow": "safe_update"})
+            workflow_result["errors"].append(error_msg)
+            return workflow_result
+        else:
+            logger.info("Fresh download completed successfully", extra={
+                "step": 1, "workflow": "safe_update", 
+                "file_size_mb": fresh_download.get("file_size", 0) / 1024 / 1024,
+                "changed": fresh_download.get("changed", False)
+            })
+        
+        # Step 2: Create backup if required
+        backup_info = None
+        if backup_required:
+            log_step(2, "Creating backup")
+            
+            local_reference = station_config_dir / "station.info.sopac.apr05"
+            if local_reference.exists():
+                try:
+                    backup_info = _create_versioned_backup(
+                        local_reference,
+                        metadata={"update_workflow": True, "stations": stations}
+                    )
+                    logger.info("Backup created successfully", extra={
+                        "step": 2, "workflow": "safe_update", 
+                        "backup_id": backup_info['backup_id']
+                    })
+                    workflow_result["workflow_steps"].append({
+                        "step": "backup_creation",
+                        "success": True,
+                        "backup_id": backup_info["backup_id"]
+                    })
+                except Exception as e:
+                    workflow_result["errors"].append(f"Backup creation failed: {e}")
+                    if backup_required:
+                        return workflow_result
+        
+        # Step 3: Create working copy
+        log_step(3, "Creating working copy")
+        
+        work_dir = _get_work_dir(station_config_dir)
+        work_info = _create_working_copy(
+            fresh_download["temp_path"],
+            work_dir,
+            metadata={"stations_to_update": stations}
+        )
+        
+        workflow_result["workflow_steps"].append({
+            "step": "working_copy",
+            "success": True,
+            "work_path": work_info["work_path"]
+        })
+        
+        # Step 4: Collect station updates
+        print("🔍 Step 4: Collecting station data from TOS...", file=sys.stderr)
+        
+        station_updates = {}
+        for station in stations:
+            try:
+                station_info = gpsqc.gps_metadata(station, url, loglevel=logging.CRITICAL)
+                if station_info:
+                    tos_lines = _generate_station_lines_from_tos(station_info)
+                    station_updates[station] = tos_lines
+                    workflow_result["stations_processed"].append(station)
+                    print(f"  ✓ {station}: {len(tos_lines)} lines", file=sys.stderr)
+                else:
+                    print(f"  ✗ {station}: No TOS data", file=sys.stderr)
+                    workflow_result["errors"].append(f"No TOS data for {station}")
+            except Exception as e:
+                print(f"  ✗ {station}: {e}", file=sys.stderr)
+                workflow_result["errors"].append(f"Error processing {station}: {e}")
+        
+        if not station_updates:
+            workflow_result["errors"].append("No valid station updates collected")
+            return workflow_result
+        
+        # Step 5: Apply updates to working copy
+        print("✏️  Step 5: Applying updates to working copy...", file=sys.stderr)
+        
+        try:
+            update_result = _apply_station_updates(
+                work_info["work_path"],
+                station_updates,
+                work_info
+            )
+            workflow_result["workflow_steps"].append({
+                "step": "apply_updates",
+                "success": update_result["success"],
+                "details": update_result
+            })
+        except Exception as e:
+            workflow_result["errors"].append(f"Failed to apply updates: {e}")
+            return workflow_result
+        
+        # Step 6: Verify changes
+        print("🔍 Step 6: Verifying changes...", file=sys.stderr)
+        
+        try:
+            verification = _verify_intended_changes(
+                fresh_download["temp_path"],
+                work_info["work_path"],
+                list(station_updates.keys())
+            )
+            
+            workflow_result["workflow_steps"].append({
+                "step": "verification",
+                "success": verification["success"],
+                "details": verification
+            })
+            
+            # Generate and display change report
+            change_report = _generate_change_report(verification, work_info, update_result)
+            
+            if dry_run or interactive:
+                print("\n" + change_report, file=sys.stderr)
+            
+            if not verification["success"]:
+                workflow_result["errors"].append("Change verification failed")
+                return workflow_result
+            
+        except Exception as e:
+            workflow_result["errors"].append(f"Change verification failed: {e}")
+            return workflow_result
+        
+        # Step 7: Upload (or simulate)
+        if update_mode:
+            print("📤 Step 7: Uploading changes...", file=sys.stderr)
+            
+            if interactive and not dry_run:
+                response = input("Proceed with upload? [y/N]: ")
+                if response.lower() != 'y':
+                    print("Upload cancelled by user", file=sys.stderr)
+                    workflow_result["success"] = True
+                    workflow_result["cancelled"] = True
+                    return workflow_result
+            
+            try:
+                upload_result = _safe_upload_with_rollback(
+                    work_info["work_path"],
+                    {},
+                    backup_info,
+                    metadata_type=metadata_type,
+                    dry_run=dry_run
+                )
+                
+                workflow_result["workflow_steps"].append({
+                    "step": "upload",
+                    "success": upload_result["success"],
+                    "details": upload_result
+                })
+                
+                if upload_result["success"]:
+                    workflow_result["stations_updated"] = list(station_updates.keys())
+                    if not dry_run:
+                        print("🎉 Update workflow completed successfully!", file=sys.stderr)
+                    else:
+                        print("🧪 Dry run completed successfully!", file=sys.stderr)
+                else:
+                    workflow_result["errors"].append(f"Upload failed: {upload_result.get('error')}")
+                    return workflow_result
+                
+            except Exception as e:
+                workflow_result["errors"].append(f"Upload step failed: {e}")
+                return workflow_result
+        
+        # Step 8: Cleanup
+        print("🧹 Step 8: Cleaning up temporary files...", file=sys.stderr)
+        _cleanup_working_files(work_dir, max_age_hours=1)  # Clean up immediately for this workflow
+        
+        workflow_result["success"] = True
+        
+    except Exception as e:
+        workflow_result["errors"].append(f"Workflow failed: {e}")
+        logger.error(f"Safe update workflow failed: {e}")
+    
+    finally:
+        # Always clean up temp files
+        try:
+            Path(fresh_download["temp_path"]).unlink(missing_ok=True)
+        except:
+            pass
+    
+    return workflow_result
+
+
+# ============================================================================
+# SAFE UPDATE SYSTEM - CLI Helper Functions
+# ============================================================================
+
+def _list_available_backups():
+    """List available backups for rollback."""
+    station_config_dir = _get_station_config_dir()
+    backup_dir = _get_backup_dir(station_config_dir)
+    
+    backups = _list_backups(backup_dir)
+    
+    if not backups:
+        print("No backups available.", file=sys.stderr)
+        return
+    
+    print("\nAvailable backups:", file=sys.stderr)
+    print("-" * 80, file=sys.stderr)
+    print(f"{'Backup ID':<20} {'Created':<20} {'Size (MB)':<10} {'Original File'}", file=sys.stderr)
+    print("-" * 80, file=sys.stderr)
+    
+    for backup in backups[:10]:  # Show last 10 backups
+        from pathlib import Path
+        backup_path = Path(backup["backup_path"])
+        size_mb = backup["original_size"] / (1024 * 1024) if backup["original_size"] else 0
+        created = backup["created_at"][:19]  # Truncate timestamp
+        original = Path(backup["original_file"]).name
+        
+        print(f"{backup['backup_id']:<20} {created:<20} {size_mb:<10.1f} {original}", file=sys.stderr)
+
+
+def _handle_rollback_command(backup_id, metadata_type):
+    """Handle rollback to specified backup."""
+    if not metadata_type:
+        print("Error: --type is required for rollback operations", file=sys.stderr)
+        return
+    
+    try:
+        print(f"Rolling back to backup: {backup_id}", file=sys.stderr)
+        
+        success = _restore_from_backup(backup_id)
+        
+        if success:
+            print(f"✓ Rollback successful: {backup_id}", file=sys.stderr)
+            print("Note: This restored the local file only. Remote file is unchanged.", file=sys.stderr)
+        else:
+            print(f"✗ Rollback failed: {backup_id}", file=sys.stderr)
+            
+    except Exception as e:
+        print(f"✗ Rollback error: {e}", file=sys.stderr)
+
+
+def _handle_verify_only_command(metadata_type, stations):
+    """Handle verify-only mode - check file integrity without changes."""
+    if not metadata_type:
+        print("Error: --type is required for verification", file=sys.stderr)
+        return
+    
+    if "gamit-station-info" in metadata_type:
+        station_config_dir = _get_station_config_dir()
+        local_file = station_config_dir / "station.info.sopac.apr05"
+        
+        print("=" * 80, file=sys.stderr)
+        print("GAMIT STATION INFO FILE INTEGRITY VERIFICATION", file=sys.stderr)
+        print("=" * 80, file=sys.stderr)
+        print(f"File being verified: {local_file}", file=sys.stderr)
+        print(f"Metadata type: {metadata_type}", file=sys.stderr)
+        
+        if not local_file.exists():
+            print(f"\n❌ ERROR: File does not exist at {local_file}", file=sys.stderr)
+            print("\nTo download the file, run:", file=sys.stderr)
+            print(f"  tosGPS syncMeta --type gamit-station-info RHOF", file=sys.stderr)
+            return
+        
+        # Show file modification time
+        import time
+        mod_time = time.ctime(local_file.stat().st_mtime)
+        print(f"Last modified: {mod_time}", file=sys.stderr)
+        print("", file=sys.stderr)
+        
+        print("🔍 Running integrity checks...", file=sys.stderr)
+        
+        integrity_result = _validate_file_integrity_comprehensive(local_file)
+        
+        print(f"\nFILE INTEGRITY REPORT", file=sys.stderr)
+        print("-" * 40, file=sys.stderr)
+        print(f"📁 File path: {local_file}", file=sys.stderr)
+        print(f"📊 File exists: {'✓ YES' if integrity_result['file_exists'] else '❌ NO'}", file=sys.stderr)
+        print(f"📖 File readable: {'✓ YES' if integrity_result['file_readable'] else '❌ NO'}", file=sys.stderr)
+        print(f"📋 GAMIT format valid: {'✓ YES' if integrity_result['format_valid'] else '❌ NO'}", file=sys.stderr)
+        print(f"📏 File size: {integrity_result['size_bytes'] / 1024 / 1024:.1f} MB ({integrity_result['size_bytes']:,} bytes)", file=sys.stderr)
+        print(f"📄 Total lines: {integrity_result['line_count']:,}", file=sys.stderr)
+        print(f"📡 Station entries: {integrity_result['station_count']:,}", file=sys.stderr)
+        
+        if integrity_result['checksum']:
+            print(f"🔐 SHA256 checksum: {integrity_result['checksum'][:16]}...{integrity_result['checksum'][-16:]}", file=sys.stderr)
+        else:
+            print(f"🔐 SHA256 checksum: Not available", file=sys.stderr)
+        
+        if integrity_result['validation_errors']:
+            print(f"\n⚠️  VALIDATION ISSUES FOUND ({len(integrity_result['validation_errors'])}):", file=sys.stderr)
+            for i, error in enumerate(integrity_result['validation_errors'][:10], 1):  # Show max 10 errors
+                print(f"  {i}. {error}", file=sys.stderr)
+            if len(integrity_result['validation_errors']) > 10:
+                print(f"  ... and {len(integrity_result['validation_errors']) - 10} more issues", file=sys.stderr)
+        
+        # Overall status with clear indication
+        status = "✅ PASSED" if integrity_result["success"] else "❌ FAILED"
+        print(f"\n{'='*20} VERIFICATION RESULT {'='*20}", file=sys.stderr)
+        print(f"Status: {status}", file=sys.stderr)
+        
+        if integrity_result["success"]:
+            print("The file appears to be valid and properly formatted.", file=sys.stderr)
+        else:
+            print("The file has integrity issues that need attention.", file=sys.stderr)
+        
+        print("=" * 80, file=sys.stderr)
 
 
 if __name__ == "__main__":
