@@ -23,8 +23,8 @@ tosGPS PrintTOS RHOF REYK --format gamit > stations.info
 # Validate RINEX files
 tosGPS rinex RHOF data/RHOF*.rnx
 
-# Generate IGS-compliant site log
-tosGPS sitelog RHOF --auto-filename --dir ./sitelogs
+# Generate IGS-compliant site log with change detection
+tosGPS sitelog RHOF --auto-filename --date-in-name --dir ./sitelogs
 
 # Synchronize and compare reference data
 tosGPS syncMeta --type gamit-stations RHOF
@@ -52,7 +52,7 @@ python scripts/update_standards.py --validate-only
 - **Rich Visual Display**: Color-coded equipment tables optimized for manual QC
 - **GAMIT/GLOBK Integration**: Production-ready format for GPS processing workflows  
 - **RINEX Validation**: Compare RINEX headers against TOS metadata
-- **Site Log Generation**: IGS-compliant site logs with complete station history
+- **Site Log Generation**: IGS-compliant site logs with complete station history and automatic change detection
 - **Reference Data Management**: Automated fetching and comparison with external datasets
 - **Robust Data Validation**: Prevents processing crashes with smart error handling
 
@@ -247,9 +247,15 @@ tosGPS sitelog RHOF | grep "Antenna"
 # Save to file
 tosGPS sitelog RHOF --output RHOF_site.log
 
+# Automated change detection (skips if no changes)
+tosGPS sitelog RHOF --auto-filename --date-in-name
+
+# Force creation even if no changes
+tosGPS sitelog RHOF --auto-filename --date-in-name --force-update
+
 # Process multiple stations
 for station in REYK HOFN RHOF; do
-    tosGPS sitelog $station --output logs/${station}.log
+    tosGPS sitelog $station --auto-filename --date-in-name --dir ./logs
 done
 ```
 

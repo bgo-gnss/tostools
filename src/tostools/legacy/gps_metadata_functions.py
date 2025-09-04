@@ -625,7 +625,6 @@ def get_radome(device_iter, date_from, date_to, loglevel=logging.WARNING):
     antenna_radome = "NONE"
     antenna_radome_serial = ""
 
-    print("\n", file=sys.stderr)
     for item in device_iter:
         module_logger.debug("item: \n%s", json_print(item))
         device = item["device"]
@@ -665,7 +664,6 @@ def get_monument_height(device_iter, date_from, date_to, loglevel=logging.WARNIN
     # NOTE: monument_height defaults to 0.0
     monument_height = 0.0
 
-    print("", file=sys.stderr)
     for item in device_iter:
         module_logger.debug("monument_item: \n%s", json_print(item))
         device = item["device"]
@@ -1049,7 +1047,7 @@ def site_log(
             f"     Antenna Cable Length     : {cable_length}\n"
             f"     Date Installed           : {date_installed}\n"
             f"     Date Removed             : {date_removed}\n"
-            f"     Additional Information   : {add_information}\n"
+            f"     Additional Information   : {add_information}\n\n"
         )
     # print(antenna_info)
 
@@ -1066,7 +1064,7 @@ def site_log(
         "     Accuracy (mm)            : (mm)\n"
         "     Survey method            : (GPS CAMPAIGN/TRILATERATION/TRIANGULATION/etc)\n"
         "     Date Measured            : (CCYY-MM-DDThh:mmZ)\n"
-        "     Additional Information   : (multiple lines)\n\n\n"
+        "     Additional Information   : (multiple lines)\n\n"
         "6.   Frequency Standard\n\n"
         "6.1  Standard Type            : (INTERNAL or EXTERNAL H-MASER/CESIUM/etc)\n"
         "       Input Frequency        : (if external)\n"
@@ -1075,7 +1073,7 @@ def site_log(
         "6.x  Standard Type            : (INTERNAL or EXTERNAL H-MASER/CESIUM/etc)\n"
         "       Input Frequency        : (if external)\n"
         "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Notes                  : (multiple lines)\n\n\n"
+        "       Notes                  : (multiple lines)\n\n"
         "7.   Collocation Information\n\n"
         "7.1  Instrumentation Type     : (GPS/GLONASS/DORIS/PRARE/SLR/VLBI/TIME/etc)\n"
         "       Status                 : (PERMANENT/MOBILE)\n"
@@ -1084,7 +1082,7 @@ def site_log(
         "7.x  Instrumentation Type     : (GPS/GLONASS/DORIS/PRARE/SLR/VLBI/TIME/etc)\n"
         "       Status                 : (PERMANENT/MOBILE)\n"
         "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Notes                  : (multiple lines)\n\n\n"
+        "       Notes                  : (multiple lines)\n\n"
         "8.   Meteorological Instrumentation\n\n"
         "8.1.1 Humidity Sensor Model   : \n"
         "       Manufacturer           : \n"
@@ -1160,8 +1158,8 @@ def site_log(
         "       Calibration date       : (CCYY-MM-DD)\n"
         "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
         "       Notes                  : (multiple lines)\n\n"
-        "8.5.1 Other Instrumentation   : (multiple lines)\n\n"
-        "8.5.x Other Instrumentation   : (multiple lines)\n\n\n"
+        "8.5.1 Other Instrumentation   : (multiple lines)\n"
+        "8.5.x Other Instrumentation   : (multiple lines)\n\n"
         "9.  Local Ongoing Conditions Possibly Affecting Computed Position\n\n"
         "9.1.1 Radio Interferences     : (TV/CELL PHONE ANTENNA/RADAR/etc)\n"
         "       Observed Degradations  : (SN RATIO/DATA GAPS/etc)\n"
@@ -1185,7 +1183,7 @@ def site_log(
         "       Additional Information : (multiple lines)\n\n"
         "10.  Local Episodic Effects Possibly Affecting Data Quality\n\n"
         "10.1 Date                     : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "     Event                    : (TREE CLEARING/CONSTRUCTION/etc)\n\n"
+        "     Event                    : (TREE CLEARING/CONSTRUCTION/etc)\n"
         "10.x Date                     : (CCYY-MM-DD/CCYY-MM-DD)\n"
         "     Event                    : (TREE CLEARING/CONSTRUCTION/etc)\n"
     )
@@ -1203,7 +1201,7 @@ def site_log(
     department = contact.get("department", "")
 
     contact_info = (
-        f"\n\n11.   On-Site, Point of Contact Agency Information\n\n"
+        f"\n11.   On-Site, Point of Contact Agency Information\n\n"
         f"     Agency                   : {agency}\n"
         f"                              : {department}\n"
         f"     Preferred Abbreviation   : {abbreviation}\n"
@@ -1252,7 +1250,7 @@ def site_log(
         department = contact.get("department", "")
 
     operator_info = (
-        f"\n\n\n12.  Responsible Agency (if different from 11.)\n\n"
+        f"\n\n12.  Responsible Agency (if different from 11.)\n\n"
         f"     Agency                   : {agency}\n"
         f"     Preferred Abbreviation   : {abbreviation}\n"
         f"     Mailing Address          : {address}\n"
@@ -1288,7 +1286,7 @@ def site_log(
     map_url = ""
 
     more_info = (
-        f"\n\n\n13.  More Information\n\n"
+        f"\n\n13.  More Information\n\n"
         f"     Primary Data Center      : {primary_data_center}\n"
         f"     Secondary Data Center    : {secondary_data_center}\n"
         f"     URL for More Information : {main_url}\n"
@@ -1312,14 +1310,14 @@ def site_log(
         f"     {marker}00ISL Site Information Form (site log v2.0)\n"
         f"     International GNSS Service\n"
         f"     See Instructions at:\n"
-        f"       https://files.igs.org/pub/station/general/sitelog_instr_v2.0.txt\n\n\n"
+        f"       https://files.igs.org/pub/station/general/sitelog_instr_v2.0.txt\n\n"
         f"0.   Form\n\n"
         f"     Prepared by (full name)  : {primary_contact} ({email})\n"
         f"     Date Prepared            : {dt.now().strftime('%Y-%m-%d')}\n"
         f"     Report Type              : {report_type}\n"
         f"     If Update:\n"
         f"      Previous Site Log       : {previous_log}\n"
-        f"      Modified/Added Sections : {modified_sections}\n\n\n"
+        f"      Modified/Added Sections : {modified_sections}\n\n"
         f"1.   Site Identification of the GNSS Monument\n\n"
         f"     Site Name                : {site_name}\n"
         f"     Nine Character ID        : {marker}00ISL\n"
@@ -1338,7 +1336,7 @@ def site_log(
         f"       Fracture Spacing       : {fracture_spacing}\n"
         f"       Fault zones nearby     : {fault_zone}\n"
         f"         Distance/activity    : \n"
-        f"     Additional Information   : \n\n\n"
+        f"     Additional Information   : \n\n"
         f"2.   Site Location Information\n\n"
         f"     City or Town             : {city}\n"
         f"     State or Province        : {state}\n"

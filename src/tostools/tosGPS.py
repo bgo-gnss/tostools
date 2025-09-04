@@ -51,6 +51,7 @@ def generate_igs_sitelog_filename(
     include_date: bool = False,
     base_dir: str = ".",
     custom_date: str = None,
+    create_station_subdir: bool = True,
 ) -> tuple[str, str]:
     """
     Generate IGS-compliant site log filename and directory path.
@@ -65,6 +66,7 @@ def generate_igs_sitelog_filename(
         monument_number: 2-digit monument number (default: "00" for main monument)
         include_date: Whether to include current date in filename
         base_dir: Base directory for site log storage
+        create_station_subdir: Whether to create station-specific subdirectory (default: True)
 
     Returns:
         Tuple of (full_path, filename_only)
@@ -73,7 +75,11 @@ def generate_igs_sitelog_filename(
     from datetime import datetime
 
     station_id = f"{station_marker.upper()}{monument_number}{country_code.upper()}"
-    station_dir = os.path.join(base_dir, station_id)
+    
+    if create_station_subdir:
+        output_dir = os.path.join(base_dir, station_id)
+    else:
+        output_dir = base_dir
 
     if include_date:
         if custom_date:
@@ -84,7 +90,7 @@ def generate_igs_sitelog_filename(
     else:
         filename = f"{station_id}.log"
 
-    full_path = os.path.join(station_dir, filename)
+    full_path = os.path.join(output_dir, filename)
     return full_path, filename
 
 
@@ -177,6 +183,55 @@ def detect_modified_sections(current_content: str, previous_log_path: str) -> st
     return (
         ",".join(modified) if modified else "1"
     )  # Default to "1" if no specific changes detected
+
+
+def has_meaningful_changes(current_content: str, previous_log_path: str) -> bool:
+    """
+    Check if there are meaningful changes between current and previous site log.
+    
+    This function performs a more thorough comparison than detect_modified_sections(),
+    specifically checking for substantive content changes while ignoring:
+    - Date prepared changes
+    - Minor formatting differences
+    - Whitespace variations
+    
+    Args:
+        current_content: Current site log content
+        previous_log_path: Path to previous site log file
+        
+    Returns:
+        True if meaningful changes detected, False if files are essentially identical
+    """
+    import os
+    import re
+    
+    if not os.path.exists(previous_log_path):
+        return True  # No previous log, so this is a new file
+        
+    try:
+        with open(previous_log_path, "r", encoding="utf-8") as f:
+            previous_content = f.read()
+    except Exception:
+        return True  # Error reading previous file, assume changes
+        
+    # Normalize both files for comparison by removing/standardizing elements that
+    # commonly change but don't represent meaningful site log updates
+    def normalize_content(content: str) -> str:
+        """Normalize content for comparison by removing date prepared and minor formatting."""
+        # Remove "Date Prepared" line which changes every run
+        content = re.sub(r'^\s*Date Prepared\s*:\s*.*$', 'Date Prepared            : [NORMALIZED]', content, flags=re.MULTILINE)
+        
+        # Normalize whitespace (but preserve structure)
+        content = re.sub(r'\s+', ' ', content)
+        content = re.sub(r'\s*\n\s*', '\n', content)
+        
+        return content.strip()
+        
+    current_normalized = normalize_content(current_content)
+    previous_normalized = normalize_content(previous_content)
+    
+    # Compare normalized content
+    return current_normalized != previous_normalized
 
 
 def _configure_logging(args):
@@ -541,6 +596,10 @@ Examples:
   # IGS-compliant filename (auto-generated: RHOF00ISL)
   tosGPS sitelog RHOF --auto-filename
   
+  # Dated filenames with change detection (skips if no changes)
+  tosGPS sitelog RHOF --auto-filename --date-in-name
+  tosGPS sitelog RHOF --auto-filename --date-in-name --force-update  # Force creation
+  
   # Validation with file output
   tosGPS sitelog RHOF --validate --output RHOF.log
   tosGPS sitelog RHOF --validate --auto-filename
@@ -583,7 +642,12 @@ Examples:
     sitelog_parser.add_argument(
         "--date-in-name",
         action="store_true",
-        help="Include creation date in filename (e.g., rhof00isl_20250825.log)",
+        help="Include creation date in filename and save to file (e.g., rhof00isl_20250825.log). Automatically skips file creation if no meaningful changes detected since the last site log. Implies --auto-filename behavior.",
+    )
+    sitelog_parser.add_argument(
+        "--force-update",
+        action="store_true",
+        help="Force file creation even when no changes detected (overrides automatic change detection when using --date-in-name).",
     )
     sitelog_parser.add_argument(
         "--modified-sections",
@@ -1179,17 +1243,36 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
             if args.output:
                 # Use specified output file
                 output_file = args.output
-            elif args.auto_filename:
-                # Generate IGS-compliant filename with new features
-                full_path, filename = generate_igs_sitelog_filename(
-                    station,
-                    include_date=args.date_in_name,
-                    base_dir=args.dir,
-                    custom_date=args.custom_date,
-                )
+            elif args.auto_filename or args.date_in_name:
+                # --date-in-name implies auto-filename behavior
+                if args.date_in_name:
+                    # Special directory structure for --date-in-name: base_dir/sitelog/STATION/file
+                    # Strip 'sitelog' from end of --dir if present to avoid duplication
+                    base_path = args.dir.rstrip('/')
+                    if base_path.endswith('sitelog'):
+                        sitelog_base = base_path
+                    else:
+                        sitelog_base = os.path.join(base_path, "sitelog")
+                    full_path, filename = generate_igs_sitelog_filename(
+                        station,
+                        include_date=True,
+                        base_dir=sitelog_base,
+                        custom_date=args.custom_date,
+                        create_station_subdir=True,  # Create STATION subdir under sitelog/
+                    )
+                else:
+                    # Regular --auto-filename behavior
+                    full_path, filename = generate_igs_sitelog_filename(
+                        station,
+                        include_date=False,
+                        base_dir=args.dir,
+                        custom_date=args.custom_date,
+                        create_station_subdir=False,
+                    )
 
-                # Create directory if it doesn't exist
-                os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                # Ensure output directory exists
+                output_dir = os.path.dirname(full_path) if os.path.dirname(full_path) else "."
+                os.makedirs(output_dir, exist_ok=True)
 
                 # Determine previous log and report type
                 station_id = f"{station.upper()}00ISL"
@@ -1205,35 +1288,45 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
                     )
 
                 output_file = full_path
-                print(f"Using IGS filename: {filename}", file=sys.stderr)
-                if previous_log:
-                    print(f"Previous log: {previous_log}", file=sys.stderr)
-                    print("Report type: UPDATE", file=sys.stderr)
-                    if modified_sections:
-                        print(
-                            f"Modified sections: {modified_sections}", file=sys.stderr
-                        )
-                else:
-                    print("Report type: NEW", file=sys.stderr)
+                # Quieter output for --date-in-name (automated workflows)
+                if args.date_in_name:
+                    print(f"Using IGS filename: {filename}", file=sys.stderr)
+                elif args.auto_filename:
+                    # Verbose output for manual workflows
+                    print(f"Using IGS filename: {filename}", file=sys.stderr)
+                    if previous_log:
+                        print(f"Previous log: {previous_log}", file=sys.stderr)
+                        print("Report type: UPDATE", file=sys.stderr)
+                        if modified_sections:
+                            print(
+                                f"Modified sections: {modified_sections}", file=sys.stderr
+                            )
+                    else:
+                        print("Report type: NEW", file=sys.stderr)
 
             if output_file:
-                # Write to file
-                try:
-                    with open(output_file, "w", encoding="utf-8") as f:
-                        f.write(output_content)
-                    # Send success message to stderr to keep stdout clean
-                    print(f"✓ Site log saved to {output_file}", file=sys.stderr)
-
-                    # Also output to stdout when using auto-filename (dual output)
-                    if args.auto_filename:
-                        print(output_content)  # Also send to stdout for piping
-
-                except Exception as e:
-                    print(f"Error writing site log: {e}", file=sys.stderr)
-                    # Still output to stdout if file write failed
-                    print(output_content)
+                # Change detection for --date-in-name: skip file creation if no changes
+                skip_unchanged = False
+                if args.date_in_name and previous_log and not getattr(args, 'force_update', False):
+                    previous_log_path = os.path.join(station_dir, previous_log)
+                    if not has_meaningful_changes(output_content, previous_log_path):
+                        skip_unchanged = True
+                        print(f"⏭️  No changes detected for {station} since {previous_log}, skipping file creation", file=sys.stderr)
+                        print(f"    Use --force-update to create file anyway", file=sys.stderr)
+                
+                if not skip_unchanged:
+                    # Write to file
+                    try:
+                        with open(output_file, "w", encoding="utf-8") as f:
+                            f.write(output_content)
+                        # Send success message to stderr to keep stdout clean
+                        print(f"✓ Site log saved to {output_file}", file=sys.stderr)
+                    except Exception as e:
+                        print(f"Error writing site log: {e}", file=sys.stderr)
+                        # Still output to stdout if file write failed
+                        print(output_content)
             else:
-                # Output to stdout only (pipe-friendly)
+                # No file output specified - output to stdout for piping
                 print(output_content)  # Clean output to stdout
                 # Optional: Send completion notice to stderr (only for multiple stations)
                 if len(stations) > 1:
