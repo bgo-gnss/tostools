@@ -13,6 +13,7 @@ tmp/
 
 # Reference data (downloaded on demand)
 reference_data/
+data/station_config/station.info.sopac.apr05
 
 # Python
 __pycache__/

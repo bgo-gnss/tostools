@@ -1499,7 +1499,7 @@ def _parse_station_info_file():
     if not station_info_path.exists():
         print(f"ERROR: Station info file not found at: {station_info_path}", file=sys.stderr)
         print(f"Expected directory structure: <project_root>/data/station_config/", file=sys.stderr)
-        print(f"To fetch the file, run: tosGPS sync-meta --type station-info", file=sys.stderr)
+        print(f"To fetch the file, run: tosGPS syncMeta --type gamit-stations RHOF", file=sys.stderr)
         return None
 
     stations_data = {}
@@ -2100,9 +2100,16 @@ def _download_and_cache_reference_data(
     metadata_type, type_config, force_download, forced_server
 ):
     """Download and cache reference data with validation."""
-    # This would implement the caching logic similar to the existing fetch functionality
-    # For now, use the existing reference data parsing as a fallback
     if metadata_type == "gamit-stations":
+        # Check if station info file exists, if not download it
+        station_config_dir = _get_station_config_dir()
+        station_info_path = station_config_dir / "station.info.sopac.apr05"
+        
+        if not station_info_path.exists() or force_download:
+            logger = get_logger(__name__)
+            print(f"Station info file not found, downloading from {REFERENCE_DATA_CONFIG['station-info']['remote_host']}...", file=sys.stderr)
+            _fetch_station_info(station_config_dir, logger)
+        
         return _parse_station_info_file()
 
     return None
