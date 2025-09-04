@@ -404,8 +404,8 @@ def print_station_info(station, loglevel=logging.WARNING, skip_validation=False)
                 critical_data_missing = True
                 skip_reasons.append("missing antenna type")
 
-            # Check antenna height (critical - must be > 0)
-            if antenna_height <= 0.0:
+            # Check antenna height (critical - must be valid float)
+            if antenna_height is None or not isinstance(antenna_height, (int, float)):
                 critical_data_missing = True
                 skip_reasons.append("invalid antenna height")
 
