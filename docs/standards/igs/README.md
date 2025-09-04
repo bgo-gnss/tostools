@@ -84,18 +84,31 @@ elif fault_zone in ["JÁ", "JA"]: fault_zone = "YES"
 ```
 
 ##### Professional Features
-- **Directory Management**: `--dir ./sitelogs` creates organized station subdirectories
-- **Intelligent Naming**: `--date-in-name` generates `rhof00isl_20250825.log`
+- **Smart Change Detection**: Automatic comparison with previous logs, skips creation if no changes
+- **Structured Directory Layout**: `--date-in-name` creates organized `sitelog/STATION/` structure
+- **Path Intelligence**: Prevents duplicate `sitelog` directories in paths
+- **Clean Terminal Output**: Minimal stderr for automated workflows
+- **Intelligent Naming**: `--date-in-name` generates `rhof00isl_20250904.log`
 - **Report Type Detection**: Automatic NEW/UPDATE based on previous log existence
 - **Modified Sections**: Auto-detection by comparing with previous logs
+- **Force Override**: `--force-update` bypasses change detection when needed
 
 ##### Usage Examples
 ```bash
-# Basic IGS site log generation
+# Basic IGS site log generation (stdout)
 tosGPS sitelog RHOF
 
-# Professional directory structure
-tosGPS sitelog RHOF --dir ./sitelogs --date-in-name
+# Smart change detection with organized structure
+tosGPS sitelog RHOF --date-in-name
+# → Creates: ./sitelog/RHOF00ISL/rhof00isl_20250904.log
+# → Skips creation if no changes since last run
+
+# Custom directory structure
+tosGPS sitelog RHOF --date-in-name --dir /data/logs
+# → Creates: /data/logs/sitelog/RHOF00ISL/rhof00isl_20250904.log
+
+# Force creation even if no changes detected
+tosGPS sitelog RHOF --date-in-name --force-update
 
 # With custom date for historical sessions
 tosGPS sitelog RHOF --auto-filename --custom-date 20010719

@@ -8,7 +8,7 @@ This is **tostools**, a Python3 command-line toolkit for GPS/GNSS station metada
 
 **Main Application**: `tosGPS` - GPS metadata quality control tool that queries TOS API and validates against RINEX files.
 
-**Current Version**: v0.2.4 (Professional Site Log Management & IGS v2.0 Compliance)
+**Current Version**: v0.2.5 (Enhanced Site Log Generation with Smart Change Detection)
 
 ### Core Components
 1. **Primary GPS Tools** (by Benedikt): GPS metadata QC, RINEX processing, station management
@@ -40,9 +40,9 @@ tosGPS PrintTOS RHOF --format table > data.csv
 tosGPS PrintTOS RHOF --format rich      # Color-coded for manual QC
 tosGPS PrintTOS RHOF --format gamit     # GPS processing format
 
-# Site log generation (IGS v2.0 compliant)
-tosGPS sitelog RHOF --auto-filename --dir ./sitelogs
-tosGPS sitelog RHOF | process_data.py
+# Site log generation with smart change detection
+tosGPS sitelog RHOF --date-in-name --dir ./logs  # Creates organized structure
+tosGPS sitelog RHOF | process_data.py           # Pipe to stdout for processing
 
 # RINEX validation and correction
 tosGPS rinex RHOF data/*.rnx --fix --backup
@@ -129,13 +129,14 @@ Key dependencies managed through `pyproject.toml`:
 - **Country translation**: Iceland→ISL, NEI→NO, JÁ→YES with fallback handling
 - **Equipment tracking**: Integration with GAMIT session history
 
-## Current Capabilities (v0.2.4)
+## Current Capabilities (v0.2.5)
 
 ### ✅ Production Ready
-- **Site Log Generation**: IGS v2.0 compliant with professional directory management
+- **Smart Site Log Generation**: IGS v2.0 compliant with automatic change detection and organized directory structure
+- **Intelligent Change Detection**: Skips file creation when no meaningful changes detected, perfect for automation
+- **Clean Terminal Output**: Minimal stderr messages optimized for cron jobs and automated workflows
 - **Rich Table Formatting**: Color-coded GPS data with optimal spacing
 - **GAMIT Integration**: Robust data validation prevents processing crashes
-- **Clean Output**: Silent by default, comprehensive logging available
 - **RINEX Processing**: Validation, correction, and format compliance
 
 ### ⚠️ Known Issues & TODOs
@@ -173,11 +174,11 @@ Integration with VS Code Todo Tree and Neovim todo-comments.nvim available.
 
 ## Quick Reference
 
-### Project Status: **Production Ready** (v0.2.4)
-### Main Focus: **GPS metadata quality control and IGS-compliant site log generation**
+### Project Status: **Production Ready** (v0.2.5)
+### Main Focus: **GPS metadata quality control with smart site log generation and change detection**
 ### Architecture: **Legacy modules (stable) + Modular components (active development)**
-### Key Strength: **Clean output by default, comprehensive when needed**
+### Key Strength: **Automated workflows with intelligent change detection and clean output**
 
 ---
 
-*Last updated: 2025-08-25 (Professional Site Log Management & IGS v2.0 Compliance)*
+*Last updated: 2025-09-04 (Enhanced Site Log Generation with Smart Change Detection)*

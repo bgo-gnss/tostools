@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2025-09-04
+
+### ✨ Enhanced Site Log Generation with Smart Change Detection
+
+#### Added
+
+- **Smart Change Detection System** (`src/tostools/tosGPS.py`)
+  - Automatic comparison between current and previous site logs
+  - Content normalization to ignore date stamps and minor formatting differences
+  - `has_meaningful_changes()` function for intelligent change detection
+  - Skip file creation when no substantive changes detected
+
+- **Clean Terminal Output**
+  - Eliminated verbose status messages for `--date-in-name` automated workflows
+  - Removed debug print statements from legacy functions
+  - Quieter stderr output optimized for cron jobs and automation
+
+- **Structured Directory Layout**
+  - `--date-in-name` now creates organized `sitelog/STATION/` directory structure
+  - Smart path handling to prevent duplicate `sitelog` directories
+  - Automatic directory creation with proper permissions
+
+- **New Command-Line Options**
+  - `--force-update`: Override change detection to force file creation
+  - Enhanced `--date-in-name`: Now implies file creation behavior (no stdout output)
+
+#### Improved
+
+- **Site Log Format Quality**
+  - Reduced excessive empty lines by removing triple newlines (`\n\n\n` → `\n\n`)
+  - Better section spacing while maintaining IGS v2.0 compliance
+  - Cleaner output format with 16.7% fewer empty lines
+
+- **Legacy Code Cleanup**
+  - Removed debug print statements from `get_radome()` and `get_monument_height()` functions
+  - Fixed terminal output clutter caused by stderr debug messages
+
+#### Breaking Changes
+
+- `--date-in-name` now implies file creation (no longer outputs to stdout by default)
+- `--date-in-name` creates `sitelog/STATION/` directory structure automatically
+- Change detection is enabled by default for `--date-in-name` workflows
+
+#### Examples
+
+```bash
+# Smart change detection (skips if unchanged)
+tosGPS sitelog RHOF --date-in-name
+# → Creates: ./sitelog/RHOF00ISL/rhof00isl_20250904.log
+
+# Organized structure with custom base path
+tosGPS sitelog RHOF --date-in-name --dir /data/logs
+# → Creates: /data/logs/sitelog/RHOF00ISL/rhof00isl_20250904.log
+
+# Force creation even if no changes
+tosGPS sitelog RHOF --date-in-name --force-update
+```
+
 ## [0.2.4] - 2025-09-04
 
 ### 🎨 Enhanced Visual Comparison System for syncMeta
