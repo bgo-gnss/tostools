@@ -631,9 +631,9 @@ def get_radome(device_iter, date_from, date_to, loglevel=logging.WARNING):
         device = item["device"]
         session_start = device["date_from"]
         session_end = device["date_to"]
-        module_logger.warning("-" * 50)
-        module_logger.warning("date input: %s - %s", date_from, date_to)
-        module_logger.warning("current session: %s - %s", session_start, session_end)
+        module_logger.debug("-" * 50)
+        module_logger.debug("date input: %s - %s", date_from, date_to)
+        module_logger.debug("current session: %s - %s", session_start, session_end)
 
         if date_to:
             if date_to > session_start:
@@ -641,16 +641,16 @@ def get_radome(device_iter, date_from, date_to, loglevel=logging.WARNING):
                     pass
                 else:
                     antenna_radome = device["model"]
-                    module_logger.warning("model: %s", antenna_radome)
+                    module_logger.debug("model: %s", antenna_radome)
         else:
             if session_end and session_end <= date_from:
                 pass
             else:
                 if date_from >= session_start:
                     antenna_radome = device["model"]
-                    module_logger.warning("model: %s", antenna_radome)
+                    module_logger.debug("model: %s", antenna_radome)
 
-    module_logger.warning("%s", "+" * 50)
+    module_logger.debug("%s", "+" * 50)
 
     return antenna_radome, antenna_radome_serial
 
@@ -672,9 +672,9 @@ def get_monument_height(device_iter, date_from, date_to, loglevel=logging.WARNIN
         session_start = device["date_from"]
         session_end = device["date_to"]
         module_logger.debug("date_to: %s ", date_to)
-        module_logger.warning("-" * 50)
-        module_logger.warning("date input: %s - %s", date_from, date_to)
-        module_logger.warning("current session: %s - %s", session_start, session_end)
+        module_logger.debug("-" * 50)
+        module_logger.debug("date input: %s - %s", date_from, date_to)
+        module_logger.debug("current session: %s - %s", session_start, session_end)
 
         if date_to:
             if date_to > session_start:
@@ -682,7 +682,7 @@ def get_monument_height(device_iter, date_from, date_to, loglevel=logging.WARNIN
                     pass
                 else:
                     monument_height = float(device["monument_height"])
-                    module_logger.warning(
+                    module_logger.debug(
                         "monument_height: %s", device["monument_height"]
                     )
         else:
@@ -691,11 +691,11 @@ def get_monument_height(device_iter, date_from, date_to, loglevel=logging.WARNIN
             else:
                 if date_from >= session_start:
                     monument_height = float(device["monument_height"])
-                    module_logger.warning(
+                    module_logger.debug(
                         "monument_height: %s", device["monument_height"]
                     )
 
-    module_logger.warning("%s", "+" * 50)
+    module_logger.debug("%s", "+" * 50)
 
     return monument_height
 
@@ -719,7 +719,7 @@ def site_log(
         station_identifier, gpsqc.URL_REST_TOS, loglevel=loglevel
     )
     # [NOTE: testing device history]
-    module_logger.info("devices_history: %s", json_print(devices_history))
+    module_logger.debug("devices_history: %s", json_print(devices_history))
     device_sessions = gpsqc.get_device_sessions(
         devices_history, gpsqc.URL_REST_TOS, loglevel=loglevel
     )
@@ -973,7 +973,7 @@ def site_log(
         monument_height_fl = get_monument_height(
             monument_iter, device["date_from"], device["date_to"]
         )
-        module_logger.warning("monument_height_fl: %s", monument_height_fl)
+        module_logger.debug("monument_height_fl: %s", monument_height_fl)
 
         antenna_height = "{0:.4f}".format(antenna_height + monument_height_fl)
 
@@ -1031,8 +1031,8 @@ def site_log(
             device["date_to"],
             loglevel=logging.WARNING,
         )
-        module_logger.warning("antenna_radome: %s", antenna_radome)
-        module_logger.warning("antenna_radome_serial: %s", antenna_radome_serial)
+        module_logger.debug("antenna_radome: %s", antenna_radome)
+        module_logger.debug("antenna_radome_serial: %s", antenna_radome_serial)
 
         antenna_info += (
             f"\n4.{session_nr + 1}  Antenna Type             : {device_type}    {antenna_radome}\n"
@@ -1546,14 +1546,14 @@ def file_list(
 
 
 # NOTE: extra functions
-def get_logger(name=__name__):
+def get_logger(name=__name__, level=logging.WARNING):
     """
     logger to use within the modules
     """
 
     # Create log handler
     logHandler = logging.StreamHandler()
-    # logHandler.setLevel(level)
+    logHandler.setLevel(level)
 
     # Set handler format
     logFormat = logging.Formatter("[%(levelname)s] %(funcName)s: %(message)s")
@@ -1561,7 +1561,7 @@ def get_logger(name=__name__):
 
     # Create logger
     logger = logging.getLogger(name)
-    # logger.setLevel(level)
+    logger.setLevel(level)
 
     if logger.hasHandlers():
         logger.handlers.clear()

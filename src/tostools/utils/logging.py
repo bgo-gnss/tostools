@@ -111,7 +111,7 @@ class LoggingConfig:
 
     def __init__(
         self,
-        console_level: int = logging.INFO,
+        console_level: int = logging.WARNING,
         file_level: int = logging.DEBUG,
         log_dir: Optional[Union[str, Path]] = None,
         console_format: str = "human",
@@ -363,7 +363,7 @@ class LoggerAdapter(logging.LoggerAdapter):
 
 
 # Convenience functions for different logging scenarios
-def setup_console_logging(level: int = logging.INFO) -> None:
+def setup_console_logging(level: int = logging.WARNING) -> None:
     """Quick setup for console-only logging."""
     configure_logging(
         LoggingConfig(console_level=level, log_dir=None), force_reconfigure=True
@@ -372,7 +372,7 @@ def setup_console_logging(level: int = logging.INFO) -> None:
 
 def setup_file_logging(
     log_dir: Union[str, Path],
-    console_level: int = logging.INFO,
+    console_level: int = logging.WARNING,
     file_level: int = logging.DEBUG,
 ) -> None:
     """Quick setup for file + console logging."""
@@ -388,7 +388,7 @@ def setup_development_logging(log_dir: Optional[Union[str, Path]] = "logs") -> N
     """Setup logging optimized for development work."""
     configure_logging(
         LoggingConfig(
-            console_level=logging.INFO,
+            console_level=logging.WARNING,
             file_level=logging.DEBUG,
             log_dir=log_dir,
             console_format="human",

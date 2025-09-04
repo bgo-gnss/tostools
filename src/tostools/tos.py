@@ -43,9 +43,10 @@ from .xmltools import compareSC3
 url_rest_tos = "https://vi-api.vedur.is:11223/tos/v1"
 
 # Set logging
-logging.basicConfig(
-    level=logging.INFO, format="%(levelname)s %(message)s"
-)  # Formatting
+# NOTE: Commented out to avoid interfering with main logging configuration
+# logging.basicConfig(
+#     level=logging.INFO, format="%(levelname)s %(message)s"
+# )  # Formatting
 
 
 def searchStation(station_identifier, url_rest, domains=None):

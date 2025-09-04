@@ -55,9 +55,9 @@ def generate_igs_sitelog_filename(
     """
     Generate IGS-compliant site log filename and directory path.
 
-    Format without date: {STATION}{MONUMENT}{COUNTRY}
+    Format without date: {STATION}{MONUMENT}{COUNTRY}.log
     Format with date: {station}{monument}{country}_{YYYYMMDD}.log
-    Example: RHOF00ISL or rhof00isl_20250825.log
+    Example: RHOF00ISL.log or rhof00isl_20250825.log
 
     Args:
         station_marker: 4-character station code (e.g., "RHOF")
@@ -82,7 +82,7 @@ def generate_igs_sitelog_filename(
             date_str = datetime.now().strftime("%Y%m%d")
         filename = f"{station_id.lower()}_{date_str}.log"
     else:
-        filename = station_id
+        filename = f"{station_id}.log"
 
     full_path = os.path.join(station_dir, filename)
     return full_path, filename
@@ -194,7 +194,9 @@ def _configure_logging(args):
         "sitelog",
     ]:
         # Manual QC commands: Keep console clean by default
-        if console_level == logging.INFO and not args.debug_all:
+        # Only force ERROR level if no explicit log level was provided
+        log_level_explicitly_set = any(arg in sys.argv for arg in ['--log-level', '--debug-all'])
+        if console_level == logging.INFO and not args.debug_all and not log_level_explicitly_set:
             console_level = (
                 logging.ERROR
             )  # Only show errors for clean output (warnings/errors can be enabled explicitly)
@@ -204,7 +206,7 @@ def _configure_logging(args):
         # When file logging is available, keep console at INFO level for readability
         # but enable DEBUG for files
         file_level = logging.DEBUG
-        if console_level == logging.WARNING:  # From manual QC logic above
+        if console_level == logging.ERROR:  # From manual QC logic above
             console_level = (
                 logging.INFO
             )  # Show some progress info when debug-all is requested
@@ -247,6 +249,21 @@ def _configure_logging(args):
     else:
         # Console only logging
         setup_console_logging(console_level)
+        
+        # Force update all existing loggers to respect the new level
+        # This is needed because legacy loggers don't propagate and have their own handlers
+        root_logger = logging.getLogger()
+        root_logger.setLevel(console_level)
+        for logger_name in logging.Logger.manager.loggerDict:
+            logger = logging.getLogger(logger_name)
+            # Force level update for all loggers, including non-propagating ones
+            logger.setLevel(console_level)
+            # Also update their handlers
+            for handler in logger.handlers:
+                handler.setLevel(console_level)
+        # Update root logger handlers too
+        for handler in root_logger.handlers:
+            handler.setLevel(console_level)
 
 
 def main():
@@ -1226,19 +1243,19 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
             print(f"Error generating site log for {station}: {e}", file=sys.stderr)
 
 
-def _get_reference_data_dir():
-    """Get the reference data directory relative to the project root."""
+def _get_station_config_dir():
+    """Get the station configuration data directory relative to the project root."""
     # Get the directory where this file is located (src/tostools/)
     current_dir = Path(__file__).parent
     # Go up to project root (../../ from src/tostools/)
     project_root = current_dir.parent.parent
-    return project_root / "reference_data"
+    return project_root / "data" / "station_config"
 
 
-def _fetch_station_info(reference_data_dir, logger):
+def _fetch_station_info(station_config_dir, logger):
     """Fetch station info file from okada server."""
     config = REFERENCE_DATA_CONFIG["station-info"]
-    local_path = reference_data_dir / config["local_filename"]
+    local_path = station_config_dir / config["local_filename"]
 
     # Show existing file info if it exists
     if local_path.exists():
@@ -1303,7 +1320,7 @@ def _handle_fetch_reference_subcommand(args, log_level):
     """
     Handle reference data fetching subcommand.
 
-    Downloads reference data files from remote servers to the local reference_data directory.
+    Downloads reference data files from remote servers to the local data/station_config directory.
     Supports status checking and automatic re-downloading.
 
     Args:
@@ -1311,16 +1328,16 @@ def _handle_fetch_reference_subcommand(args, log_level):
         log_level: Logging level for output control
     """
     logger = get_logger(__name__)
-    reference_data_dir = _get_reference_data_dir()
+    station_config_dir = _get_station_config_dir()
 
     if args.data_type == "station-info":
-        _fetch_station_info(reference_data_dir, logger)
+        _fetch_station_info(station_config_dir, logger)
 
 
-def _fetch_station_info(reference_data_dir, logger):
+def _fetch_station_info(station_config_dir, logger):
     """Fetch station info file from okada server."""
     config = REFERENCE_DATA_CONFIG["station-info"]
-    local_path = reference_data_dir / config["local_filename"]
+    local_path = station_config_dir / config["local_filename"]
 
     # Show existing file info if it exists
     if local_path.exists():
@@ -1383,10 +1400,13 @@ def _fetch_station_info(reference_data_dir, logger):
 
 def _parse_station_info_file():
     """Parse the SOPAC station.info file and return station data dictionary."""
-    reference_data_dir = _get_reference_data_dir()
-    station_info_path = reference_data_dir / "station.info.sopac.apr05"
+    station_config_dir = _get_station_config_dir()
+    station_info_path = station_config_dir / "station.info.sopac.apr05"
 
     if not station_info_path.exists():
+        print(f"ERROR: Station info file not found at: {station_info_path}", file=sys.stderr)
+        print(f"Expected directory structure: <project_root>/data/station_config/", file=sys.stderr)
+        print(f"To fetch the file, run: tosGPS sync-meta --type station-info", file=sys.stderr)
         return None
 
     stations_data = {}
