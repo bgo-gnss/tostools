@@ -716,7 +716,8 @@ Examples:
   
   # Safe Update System (enhanced reliability)
   tosGPS syncMeta --type gamit-station-info RHOF --update --dry-run      # Test mode
-  tosGPS syncMeta --type gamit-station-info RHOF --update --interactive  # With prompts
+  tosGPS syncMeta --type gamit-station-info RHOF --update                 # With prompts (default)
+  tosGPS syncMeta --type gamit-station-info RHOF --update --non-interactive  # Skip prompts
   tosGPS syncMeta --type gamit-station-info --list-backups              # Show backups
   tosGPS syncMeta --type gamit-station-info --rollback 20250904_143022   # Restore backup
   tosGPS syncMeta --type gamit-station-info --verify-only               # Check integrity
@@ -805,9 +806,9 @@ Examples:
         help="Test mode - perform all operations except upload (safe update system)",
     )
     advanced_group.add_argument(
-        "--interactive",
+        "--non-interactive",
         action="store_true", 
-        help="Prompt for confirmation before upload (safe update system)",
+        help="Skip confirmation prompts before upload (safe update system)",
     )
     advanced_group.add_argument(
         "--rollback",
@@ -1884,7 +1885,7 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
         print(f"\n=== Processing {metadata_type} ===", file=sys.stderr)
 
         # Use new safe update workflow if update mode is enabled and safe features are requested
-        if args.update and (args.dry_run or args.interactive or getattr(args, 'use_safe_update', True)):
+        if args.update and (args.dry_run or not args.non_interactive or getattr(args, 'use_safe_update', True)):
             if not getattr(args, 'production_mode', False):
                 print(f"🛡️  Using safe update workflow for {metadata_type}", file=sys.stderr)
             
@@ -1894,7 +1895,7 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
                 url=url,
                 update_mode=args.update,
                 dry_run=args.dry_run,
-                interactive=args.interactive,
+                interactive=not args.non_interactive,
                 backup_required=args.backup or True,  # Default to backup for safety
                 production_mode=getattr(args, 'production_mode', False)
             )
@@ -3701,7 +3702,7 @@ def _rollback_remote_changes(upload_info, metadata_type="gamit-station-info"):
 
 def _safe_update_workflow(
     stations, metadata_type, url, update_mode=True, 
-    dry_run=False, interactive=False, backup_required=True, 
+    dry_run=False, interactive=True, backup_required=True, 
     production_mode=False
 ):
     """
@@ -3713,7 +3714,7 @@ def _safe_update_workflow(
         url: TOS API URL
         update_mode: Whether to perform updates (vs just comparison)
         dry_run: Test mode - no actual uploads
-        interactive: Prompt for confirmations
+        interactive: Prompt for confirmations (default: True)
         backup_required: Require backup before changes
         
     Returns:

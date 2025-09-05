@@ -28,7 +28,7 @@ tosGPS sitelog RHOF --auto-filename --date-in-name --dir ./sitelogs
 
 # Synchronize and compare reference data (safe update system)
 tosGPS syncMeta --type gamit-station-info RHOF --update --dry-run      # Test mode
-tosGPS syncMeta --type gamit-station-info RHOF --update --interactive  # Safe production
+tosGPS syncMeta --type gamit-station-info RHOF --update  # Safe production (interactive by default)
 
 # Validate GPS/GNSS standards compliance
 python scripts/update_standards.py --validate-only
@@ -269,7 +269,7 @@ The syncMeta safe update system provides enterprise-level reliability for updati
 ```bash
 # Safe Update Workflow (Recommended)
 tosGPS syncMeta --type gamit-station-info RHOF --update --dry-run      # Test everything
-tosGPS syncMeta --type gamit-station-info RHOF --update --interactive  # Safe production
+tosGPS syncMeta --type gamit-station-info RHOF --update  # Safe production (interactive by default)
 
 # Production Mode (for automation/cron)
 tosGPS syncMeta --type gamit-station-info RHOF --update --production-mode
@@ -305,7 +305,7 @@ data/station_config/
 
 **🎯 Use Cases:**
 - **Development**: `--dry-run` for safe testing of all operations
-- **Interactive**: `--interactive` for manual confirmation before uploads
+- **Non-Interactive**: `--non-interactive` to skip confirmation prompts (interactive is default)
 - **Production**: `--production-mode` for clean structured logging
 - **Recovery**: `--rollback <backup-id>` for instant restoration
 - **Monitoring**: `--verify-only` for health checks and integrity validation
