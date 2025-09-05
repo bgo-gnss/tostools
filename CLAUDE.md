@@ -160,9 +160,14 @@ Key dependencies managed through `pyproject.toml`:
 
 ### Next Phase Tasks
 1. **Standards Documentation System**: Create local repository of ITRF/IGS/EPN standards
-2. **Period Filtering**: Add `--date-from --date-to` flags for session filtering  
-3. **Project Cleanup**: Organize tmp/ directory and improve file structure
-4. **Contact System Review**: Resolve architectural issues in contact management
+2. **Receivers Package Integration**: Auto-update stations.cfg for receivers package
+   - Populate router/receiver connection details from TOS API operational data
+   - Bridge TOS API → gps_parser → receivers workflow
+   - Enable seamless station configuration management
+   - Eliminate manual maintenance of receiver connection parameters
+3. **Period Filtering**: Add `--date-from --date-to` flags for session filtering  
+4. **Project Cleanup**: Organize tmp/ directory and improve file structure
+5. **Contact System Review**: Resolve architectural issues in contact management
 
 ### Long-term Architecture
 - **Modular Migration**: Gradual transition from legacy/ to modular components
