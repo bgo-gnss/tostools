@@ -1655,8 +1655,8 @@ def _analyze_line_differences(tos_lines, ref_lines):
         ("SwVer", 137, 143),  # "5.30  "
         ("Receiver SN", 144, 161),  # "3012366               "
         ("Antenna Type", 162, 179),  # "SEPCHOKE_B3E6    "
-        ("Dome", 180, 185),  # "NONE   " vs "SPKE   "
-        ("Antenna SN", 186, -1),  # "antenna-eldc-2020012" vs "0000" (to end of line)
+        ("Dome", 187, 191),         # "SPKE" (4-character radome code) - 1-based: 186+1=187 
+        ("Antenna SN", 194, -1)      # "antenna-eldc-2020012" vs "0000" (to end of line) - 1-based: 193+1=194
     ]
 
     # Find best matches between lines (by station code and rough timing)
