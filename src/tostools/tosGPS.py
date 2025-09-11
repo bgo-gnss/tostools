@@ -2417,6 +2417,8 @@ def _highlight_differences(session, other_session, colors, is_reference=False):
         ("start_date", 25, 43, colors["RED"]),  # Session start date
         ("end_date", 44, 62, colors["RED"]),  # Session end date
         ("antenna_height", 63, 71, colors["RED"]),  # Antenna height (critical)
+        ("receiver_fw", 118, 138, colors["CYAN"]),  # Receiver firmware
+        ("sw_version", 139, 146, colors["CYAN"]),  # Software version
         ("receiver_sn", 146, 163, colors["YELLOW"]),  # Receiver serial number
         (
             "antenna_sn",
