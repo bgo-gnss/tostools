@@ -480,10 +480,9 @@ def get_contacts(id_entity_parent, url_rest, loglevel=logging.WARNING):
         )
 
     if contact["owner"]["name"] == "Landmælingar Íslands":
-        contact["operator"] = {
-            "role_is": "Rekstraraðili stöðvar",
-            "name": "Landmælingar Íslands",
-        }
+        contact["operator"] = contact["owner"].copy()
+        contact["operator"]["role"] = "operator"
+        contact["operator"]["role_is"] = "Rekstraraðili stöðvar"
         module_logger.info(
             "Setting role of contact: %s: %s",
             contact["operator"]["role_is"],
