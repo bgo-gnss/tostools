@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🔄 Interactive Behavior Changes
+
+#### Changed
+- **syncMeta Default Behavior**: Changed from non-interactive to interactive by default
+  - Interactive prompts are now enabled by default for safer operations
+  - Replaced `--interactive` flag with `--non-interactive` flag to disable prompts
+  - Updated all documentation and examples to reflect new behavior
+
+#### Migration Guide
+- **Before**: `tosGPS syncMeta --type gamit-station-info RHOF --update --interactive`
+- **After**: `tosGPS syncMeta --type gamit-station-info RHOF --update` (interactive by default)
+- **To skip prompts**: `tosGPS syncMeta --type gamit-station-info RHOF --update --non-interactive`
+
 ## [0.2.5] - 2025-09-04
 
 ### ✨ Enhanced Site Log Generation with Smart Change Detection

@@ -716,7 +716,8 @@ Examples:
   
   # Safe Update System (enhanced reliability)
   tosGPS syncMeta --type gamit-station-info RHOF --update --dry-run      # Test mode
-  tosGPS syncMeta --type gamit-station-info RHOF --update --interactive  # With prompts
+  tosGPS syncMeta --type gamit-station-info RHOF --update                 # With prompts (default)
+  tosGPS syncMeta --type gamit-station-info RHOF --update --non-interactive  # Skip prompts
   tosGPS syncMeta --type gamit-station-info --list-backups              # Show backups
   tosGPS syncMeta --type gamit-station-info --rollback 20250904_143022   # Restore backup
   tosGPS syncMeta --type gamit-station-info --verify-only               # Check integrity
@@ -805,9 +806,9 @@ Examples:
         help="Test mode - perform all operations except upload (safe update system)",
     )
     advanced_group.add_argument(
-        "--interactive",
+        "--non-interactive",
         action="store_true", 
-        help="Prompt for confirmation before upload (safe update system)",
+        help="Skip confirmation prompts before upload (safe update system)",
     )
     advanced_group.add_argument(
         "--rollback",
@@ -1654,8 +1655,8 @@ def _analyze_line_differences(tos_lines, ref_lines):
         ("SwVer", 137, 143),  # "5.30  "
         ("Receiver SN", 144, 161),  # "3012366               "
         ("Antenna Type", 162, 179),  # "SEPCHOKE_B3E6    "
-        ("Dome", 180, 185),  # "NONE   " vs "SPKE   "
-        ("Antenna SN", 186, -1),  # "antenna-eldc-2020012" vs "0000" (to end of line)
+        ("Dome", 187, 191),         # "SPKE" (4-character radome code) - 1-based: 186+1=187 
+        ("Antenna SN", 194, -1)      # "antenna-eldc-2020012" vs "0000" (to end of line) - 1-based: 193+1=194
     ]
 
     # Find best matches between lines (by station code and rough timing)
@@ -1884,7 +1885,7 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
         print(f"\n=== Processing {metadata_type} ===", file=sys.stderr)
 
         # Use new safe update workflow if update mode is enabled and safe features are requested
-        if args.update and (args.dry_run or args.interactive or getattr(args, 'use_safe_update', True)):
+        if args.update and (args.dry_run or not args.non_interactive or getattr(args, 'use_safe_update', True)):
             if not getattr(args, 'production_mode', False):
                 print(f"🛡️  Using safe update workflow for {metadata_type}", file=sys.stderr)
             
@@ -1894,7 +1895,7 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
                 url=url,
                 update_mode=args.update,
                 dry_run=args.dry_run,
-                interactive=args.interactive,
+                interactive=not args.non_interactive,
                 backup_required=args.backup or True,  # Default to backup for safety
                 production_mode=getattr(args, 'production_mode', False)
             )
@@ -2416,6 +2417,8 @@ def _highlight_differences(session, other_session, colors, is_reference=False):
         ("start_date", 25, 43, colors["RED"]),  # Session start date
         ("end_date", 44, 62, colors["RED"]),  # Session end date
         ("antenna_height", 63, 71, colors["RED"]),  # Antenna height (critical)
+        ("receiver_fw", 118, 138, colors["CYAN"]),  # Receiver firmware
+        ("sw_version", 139, 146, colors["CYAN"]),  # Software version
         ("receiver_sn", 146, 163, colors["YELLOW"]),  # Receiver serial number
         (
             "antenna_sn",
@@ -3701,7 +3704,7 @@ def _rollback_remote_changes(upload_info, metadata_type="gamit-station-info"):
 
 def _safe_update_workflow(
     stations, metadata_type, url, update_mode=True, 
-    dry_run=False, interactive=False, backup_required=True, 
+    dry_run=False, interactive=True, backup_required=True, 
     production_mode=False
 ):
     """
@@ -3713,7 +3716,7 @@ def _safe_update_workflow(
         url: TOS API URL
         update_mode: Whether to perform updates (vs just comparison)
         dry_run: Test mode - no actual uploads
-        interactive: Prompt for confirmations
+        interactive: Prompt for confirmations (default: True)
         backup_required: Require backup before changes
         
     Returns:
