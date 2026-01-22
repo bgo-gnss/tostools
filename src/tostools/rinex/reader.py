@@ -71,19 +71,23 @@ def read_rinex_file(
     elif path.suffix in [".rnx", ".obs", ".nav", ""]:
         content = read_text_file(path, loglevel)
         return content.encode() if content else None
-    # Check for RINEX day-of-year format (e.g., .24D)
-    elif (
-        len(path.suffix) == 4
-        and path.suffix[1:3].isdigit()
-        and path.suffix[3].upper() == "D"
-    ):
-        content = read_text_file(path, loglevel)
-        return content.encode() if content else None
+    # Check for RINEX 2 short-name format (e.g., .24o, .24d, .24n, .24D, .26oT)
+    # Format: .YYx or .YYxT where YY=year, x=file type, T=temp suffix
+    elif len(path.suffix) >= 4 and path.suffix[1:3].isdigit():
+        # Valid RINEX 2 file types: o=obs, d=hatanaka, n=nav, m=met, g=glonass, etc.
+        file_type = path.suffix[3].upper()
+        is_temp = len(path.suffix) == 5 and path.suffix[4].upper() == "T"
+        if file_type in "ODNMGLP" or is_temp:
+            content = read_text_file(path, loglevel)
+            return content.encode() if content else None
+        # Fall through to unknown format handler
     else:
-        logger.warning(f"Unknown file format: {path.suffix}")
-        # Try as text file anyway
-        content = read_text_file(path, loglevel)
-        return content.encode() if content else None
+        pass  # Fall through to unknown format handler
+
+    # Unknown format - warn but try anyway
+    logger.warning(f"Unknown file format: {path.suffix}")
+    content = read_text_file(path, loglevel)
+    return content.encode() if content else None
 
 
 def read_rinex_header(
