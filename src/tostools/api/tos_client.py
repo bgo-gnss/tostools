@@ -13,7 +13,7 @@ import requests
 from ..utils.logging import get_logger
 
 # TOS API Configuration
-DEFAULT_TOS_URL = "https://vi-api.vedur.is:11223/tos/v1"
+DEFAULT_TOS_URL = "https://vi-api.vedur.is/tos/v1"
 DEFAULT_TIMEOUT = 10
 
 
