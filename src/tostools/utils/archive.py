@@ -37,11 +37,9 @@ class ArchiveLocation(Enum):
 class CompressionValidator(Protocol):
     """Protocol for compression-format magic-byte validators."""
 
-    def validate_magic_bytes(self, file_path: Path) -> bool:
-        ...
+    def validate_magic_bytes(self, file_path: Path) -> bool: ...
 
-    def get_extension(self) -> str:
-        ...
+    def get_extension(self) -> str: ...
 
 
 class GzipValidator:
@@ -90,7 +88,10 @@ class ArchiveValidator:
             file_size = file_path.stat().st_size
             if file_size < self.min_file_size:
                 self.logger.debug(
-                    f"File too small ({file_size} bytes, minimum {self.min_file_size}): {file_path}"
+                    "File too small (%s bytes, minimum %s): %s",
+                    file_size,
+                    self.min_file_size,
+                    file_path,
                 )
                 return False
 
@@ -99,7 +100,9 @@ class ArchiveValidator:
                 validator = self._compression_validators[file_extension]
                 if not validator.validate_magic_bytes(file_path):
                     self.logger.debug(
-                        f"File doesn't have valid {file_extension} magic header: {file_path}"
+                        "File doesn't have valid %s magic header: %s",
+                        file_extension,
+                        file_path,
                     )
                     return False
 
@@ -136,7 +139,9 @@ class ArchiveValidator:
                     return True
                 except (OSError, gzip.BadGzipFile) as e:
                     self.logger.debug(
-                        f"Tmp file gzip integrity FAILED (partial?): {file_path.name} - {e}"
+                        "Tmp file gzip integrity FAILED (partial?): %s - %s",
+                        file_path.name,
+                        e,
                     )
                     return False
             else:
@@ -219,10 +224,16 @@ class ArchiveValidator:
             )
         if files_in_tmp_dict:
             self.logger.info(
-                f"Found {len(files_in_tmp_dict)} files in tmp directory that need archiving"
+                "Found %s files in tmp directory that need archiving",
+                len(files_in_tmp_dict),
             )
 
-        return missing_files_dict, files_found_in_archive, validated_files, files_in_tmp_dict
+        return (
+            missing_files_dict,
+            files_found_in_archive,
+            validated_files,
+            files_in_tmp_dict,
+        )
 
     def get_compression_extensions(self) -> List[str]:
         return list(self._compression_validators.keys())
@@ -266,9 +277,7 @@ class ArchiveValidator:
             validator = self._compression_validators[file_extension]
             report["compression_valid"] = validator.validate_magic_bytes(file_path)
             if not report["compression_valid"]:
-                report["errors"].append(
-                    f"Invalid {file_extension} compression format"
-                )
+                report["errors"].append(f"Invalid {file_extension} compression format")
 
         report["valid"] = len(report["errors"]) == 0
         return report

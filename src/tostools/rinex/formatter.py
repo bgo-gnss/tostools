@@ -15,7 +15,6 @@ ecosystem, not just receivers.
 
 from typing import Any, Dict, Optional, Tuple
 
-
 # RINEX header field specifications: (Fortran format, total width).
 # Based on the RINEX 3.x spec and tostools.rinex.reader column layouts.
 RINEX_FIELD_SPECS: Dict[str, Tuple[str, int]] = {

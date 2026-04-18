@@ -1,7 +1,5 @@
 """Tests for tostools.rinex.formatter (migrated from receivers)."""
 
-import pytest
-
 from tostools.rinex.formatter import (
     RINEX_FIELD_SPECS,
     format_antenna_type_with_radome,
@@ -51,9 +49,7 @@ class TestFormatRinexField:
         assert len(result) == 60
 
     def test_ant_type_with_radome(self):
-        result = format_rinex_field(
-            "ANT # / TYPE", ("CR6200", "ASH701945C_M    SCIS")
-        )
+        result = format_rinex_field("ANT # / TYPE", ("CR6200", "ASH701945C_M    SCIS"))
         assert result is not None
         assert result.startswith("CR6200")
         assert "ASH701945C_M" in result
