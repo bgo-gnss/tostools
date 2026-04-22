@@ -21,7 +21,11 @@ from .legacy import gps_metadata_functions as gpsf
 # Use the comprehensive legacy site log generator
 # from .core.site_log import generate_igs_site_log
 from .rinex.editor import update_rinex_files
-from .rinex.reader import extract_header_info, read_rinex_header
+from .rinex.reader import (
+    extract_header_info,
+    find_most_recent_rinex,
+    read_rinex_header,
+)
 from .rinex.validator import compare_rinex_to_tos
 from .utils.data_quality import data_quality_manager
 
@@ -549,7 +553,17 @@ Examples:
     rinex_parser.add_argument(
         "stations", nargs="+", help="GPS stations to validate against"
     )
-    rinex_parser.add_argument("rinex_files", nargs="+", help="RINEX files to validate")
+    rinex_parser.add_argument(
+        "rinex_files",
+        nargs="*",
+        help="RINEX files to validate (if omitted, the most recent daily file per station is resolved from --rinex-base-dir)",
+    )
+    rinex_parser.add_argument(
+        "--rinex-base-dir",
+        type=str,
+        default="/mnt_data/rawgpsdata",
+        help="Archive root when rinex_files is omitted (default: /mnt_data/rawgpsdata)",
+    )
     rinex_parser.add_argument(
         "--fix", action="store_true", help="Apply corrections to RINEX headers"
     )
@@ -1111,8 +1125,22 @@ def _handle_rinex_subcommand(args, stations, url, log_level):
             print(f"Error retrieving station data: {e}", file=sys.stderr)
             continue
 
+        # Resolve the list of RINEX files: explicit args, or most-recent-from-archive
+        if args.rinex_files:
+            files_for_station = list(args.rinex_files)
+        else:
+            resolved = find_most_recent_rinex(station, base_dir=args.rinex_base_dir)
+            if resolved is None:
+                print(
+                    f"Warning: No RINEX file found for {station} under {args.rinex_base_dir}",
+                    file=sys.stderr,
+                )
+                continue
+            print(f"Using most recent RINEX file: {resolved}", file=sys.stderr)
+            files_for_station = [str(resolved)]
+
         # Validate each RINEX file
-        for rinex_file in args.rinex_files:
+        for rinex_file in files_for_station:
             rinex_path = Path(rinex_file)
             if not rinex_path.exists():
                 print(f"Warning: RINEX file {rinex_file} not found", file=sys.stderr)
