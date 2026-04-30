@@ -163,8 +163,9 @@ class ArchiveValidator:
             if self.validate_archived_file(archive_path_obj):
                 return True, archive_path_obj, ArchiveLocation.ARCHIVE
             else:
+                size = archive_path_obj.stat().st_size
                 self.logger.warning(
-                    f"Archived file failed validation: {archive_path_obj}"
+                    f"Corrupt archive ({size:,} bytes), will re-download: {archive_path_obj}"
                 )
 
         for ext, _validator in self._compression_validators.items():
@@ -173,8 +174,9 @@ class ArchiveValidator:
                 if self.validate_archived_file(compressed_path):
                     return True, compressed_path, ArchiveLocation.ARCHIVE_COMPRESSED
                 else:
+                    size = compressed_path.stat().st_size
                     self.logger.warning(
-                        f"Compressed archived file failed validation: {compressed_path}"
+                        f"Corrupt compressed archive ({size:,} bytes), will re-download: {compressed_path}"
                     )
 
         if tmp_dir:
