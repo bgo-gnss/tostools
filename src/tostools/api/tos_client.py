@@ -287,6 +287,10 @@ class TOSClient:
         # Add processed device history
         station["device_history"] = processed_history
 
+        # Expose station entity ID so callers can resolve TOS write targets
+        if "id_entity" in station_data:
+            station["id_entity"] = station_data["id_entity"]
+
         # Add contact information (always include, even if empty)
         station["contact"] = {}
         if "id_entity" in station_data:
