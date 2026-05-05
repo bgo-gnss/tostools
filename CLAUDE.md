@@ -8,7 +8,7 @@ This is **tostools**, a Python3 command-line toolkit for GPS/GNSS station metada
 
 **Main Application**: `tosGPS` - GPS metadata quality control tool that queries TOS API and validates against RINEX files.
 
-**Current Version**: v0.2.5 (Enhanced Site Log Generation with Smart Change Detection)
+**Current Version**: v0.3.5 (TOS read/write API client with IGS equipment standard support)
 
 ### Core Components
 1. **Primary GPS Tools** (by Benedikt): GPS metadata QC, RINEX processing, station management
@@ -71,6 +71,8 @@ src/tostools/
 │   ├── gps_metadata_qc.py         # Quality control and validation
 │   └── gps_rinex.py               # RINEX file processing
 ├── api/tos_client.py            # TOS API client (class-based)
+├── api/tos_writer.py            # Authenticated write client (JWT, PATCH/POST attribute values)
+├── standards/igs_equipment.py   # IGS rcvr_ant.tab equipment name lookup (write-path conversion)
 ├── core/                        # Business logic & data models
 ├── rinex/                       # RINEX processing modules
 ├── io/                          # File I/O and formatting utilities
@@ -87,6 +89,17 @@ src/tostools/
 - Meteorological stations  
 - Geophysical/seismic stations (SIL network)
 - Hydrological and remote sensing platforms
+
+## TOS Write API
+
+The `api/tos_writer.py` module provides authenticated write access to TOS. Key design decisions:
+
+- **Dry-run by default**: `TOSWriter(dry_run=True)` logs but does not send mutating requests. Confirm payloads before setting `dry_run=False`.
+- **Credential resolution**: constructor args → `TOS_USERNAME`/`TOS_PASSWORD` env vars → `[tos]` section in `database.cfg` → interactive prompt. Configure `[tos]` in `database.cfg` for non-TTY use.
+- **Temporal model**: TOS is a temporal attribute store. Use PATCH to correct an existing value in-place; use POST to add a new period (e.g. instrument change). See `docs/architecture/tos-write-api.md` for full patterns.
+- **IGS names**: TOS stores IGS rcvr_ant.tab format names (`"SEPT POLARX5"`, `"NONE"` for no radome). `tostools.standards.igs_equipment` converts from health-reported short names.
+
+See `docs/architecture/tos-write-api.md` for the complete API reference, write patterns, and gotchas.
 
 ## Development Workflow
 
@@ -159,15 +172,10 @@ Key dependencies managed through `pyproject.toml`:
 ## Future Development Priorities
 
 ### Next Phase Tasks
-1. **Standards Documentation System**: Create local repository of ITRF/IGS/EPN standards
-2. **Receivers Package Integration**: Auto-update stations.cfg for receivers package
-   - Populate router/receiver connection details from TOS API operational data
-   - Bridge TOS API → gps_parser → receivers workflow
-   - Enable seamless station configuration management
-   - Eliminate manual maintenance of receiver connection parameters
-3. **Period Filtering**: Add `--date-from --date-to` flags for session filtering  
-4. **Project Cleanup**: Organize tmp/ directory and improve file structure
-5. **Contact System Review**: Resolve architectural issues in contact management
+1. **Pattern 2 writes (instrument change)**: `TOSWriter` has `patch_attribute_value` and `add_attribute_value` but `receivers cfg reconcile --push-tos` only uses Pattern 1 (correct open value). Extend to close old period + open new one for firmware/instrument changes.
+2. **Pattern 4 (historical corrections)**: Add `date_hint` parameter to `upsert_attribute_value` to target a specific closed historical period rather than always the most recent open value.
+3. **Device entity writes**: `--push-tos` currently writes to station entity only. Receiver model/serial/firmware require resolving the gnss_receiver child entity.
+4. **Web/phone interface**: CLI is the primary interface; a REST API wrapper (`receivers` package) will serve web and mobile UIs.
 
 ### Long-term Architecture
 - **Modular Migration**: Gradual transition from legacy/ to modular components
@@ -190,11 +198,11 @@ Integration with VS Code Todo Tree and Neovim todo-comments.nvim available.
 
 ## Quick Reference
 
-### Project Status: **Production Ready** (v0.2.5)
-### Main Focus: **GPS metadata quality control with smart site log generation and change detection**
+### Project Status: **Active Development** (v0.3.5)
+### Main Focus: **TOS read/write integration and GPS station metadata management**
 ### Architecture: **Legacy modules (stable) + Modular components (active development)**
 ### Key Strength: **Automated workflows with intelligent change detection and clean output**
 
 ---
 
-*Last updated: 2025-09-04 (Enhanced Site Log Generation with Smart Change Detection)*
+*Last updated: 2026-05-05*
