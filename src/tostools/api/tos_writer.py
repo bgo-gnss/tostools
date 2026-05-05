@@ -351,21 +351,10 @@ class TOSWriter:
     ) -> List[Dict[str, Any]]:
         """Return attribute values for an entity, optionally filtered by code.
 
-        Tries GET /attribute_values?id_entity=X first (returns records with
-        their ``id`` fields, needed for PATCH).  Falls back to entity history
-        if the dedicated endpoint is unavailable.
+        Uses the entity history endpoint.  Attribute records include
+        ``id_attribute_value`` which is used by :meth:`upsert_attribute_value`
+        to PATCH existing records in-place.
         """
-        try:
-            params: Dict[str, Any] = {"id_entity": id_entity}
-            if code is not None:
-                params["code"] = code
-            result = self._request("GET", "/attribute_values", params=params)
-            if isinstance(result, list):
-                return result
-        except Exception:
-            pass
-
-        # Fallback: history endpoint (no id on attribute records)
         history = self.get_entity_history(id_entity)
         if not history:
             return []
@@ -402,6 +391,19 @@ class TOSWriter:
                 data={"entity_subtype": entity_subtype, "attributes": attributes},
             )
 
+    @staticmethod
+    def _tos_date(dt: Optional[str]) -> Optional[str]:
+        """Normalise a date string to TOS format ``YYYY-MM-DDTHH:MM:SS``.
+
+        TOS rejects timezone offsets (+00:00 / Z). Strip them here so callers
+        can pass standard ISO-8601 strings without worrying about the format.
+        """
+        if dt is None:
+            return None
+        # Remove trailing timezone: +HH:MM, -HH:MM, or Z
+        import re as _re
+        return _re.sub(r"([+-]\d{2}:\d{2}|Z)$", "", dt)
+
     def add_attribute_value(
         self,
         id_entity: int,
@@ -422,8 +424,8 @@ class TOSWriter:
                 "id_entity": id_entity,
                 "code": code,
                 "value": value,
-                "date_from": date_from,
-                "date_to": date_to,
+                "date_from": self._tos_date(date_from),
+                "date_to": self._tos_date(date_to),
             },
         )
 
@@ -443,9 +445,9 @@ class TOSWriter:
         if value is not None:
             body["value"] = value
         if date_from is not None:
-            body["date_from"] = date_from
+            body["date_from"] = self._tos_date(date_from)
         if date_to is not None:
-            body["date_to"] = date_to
+            body["date_to"] = self._tos_date(date_to)
         if not body:
             raise ValueError(
                 "patch_attribute_value: at least one field must be provided"
@@ -478,7 +480,7 @@ class TOSWriter:
             current = max(open_values, key=lambda a: a.get("date_from", ""))
             if current.get("value") == value:
                 return current  # already correct, skip PATCH
-            id_av = current.get("id")
+            id_av = current.get("id_attribute_value")
             if id_av is None:
                 self._logger.warning(
                     "upsert_attribute_value: open value for %s/%s has no id"
