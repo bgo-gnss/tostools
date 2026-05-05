@@ -92,27 +92,58 @@ def _find_database_cfg() -> Optional[Path]:
     return None
 
 
-def _load_from_pass(pass_path: str) -> Optional[str]:
-    """Return the first line of a pass(1) entry, or None on any error.
+def _load_from_pass(pass_spec: str) -> Optional[str]:
+    """Return a value from a pass(1) entry, or None on any error.
 
-    Calls ``pass show <pass_path>`` and returns the first non-empty line.
-    The subprocess stdout is captured and never logged. Stderr is discarded
-    to avoid leaking path information to logs.
+    ``pass_spec`` is either a bare entry path (returns the first line, i.e.
+    the password) or ``entry_path:field_name`` (returns the value of a named
+    field from the multiline body).
 
-    Returns None if pass is not installed, the entry does not exist, or the
-    GPG key is unavailable (e.g. on a headless server without a GPG agent).
+    Conventional pass multiline format::
+
+        <password>          ← first line, returned when no field given
+        username: bgo       ← returned when field='username'
+        url: https://...
+
+    Examples::
+
+        _load_from_pass("accounts/bgo")             → password (first line)
+        _load_from_pass("accounts/bgo:username")     → "bgo"
+
+    The subprocess stdout is captured and never logged. Stderr is discarded.
+    Returns None if pass is not installed, the entry does not exist, the GPG
+    key is unavailable, or the requested field is not found in the entry.
     """
+    # Split path:field — a bare path has no colon (Windows paths notwithstanding;
+    # pass entries use slash-only paths so a colon always means a field name).
+    if ":" in pass_spec:
+        entry_path, field_name = pass_spec.split(":", 1)
+        entry_path = entry_path.strip()
+        field_name = field_name.strip().lower()
+    else:
+        entry_path = pass_spec.strip()
+        field_name = None
+
     try:
         result = subprocess.run(
-            ["pass", "show", pass_path],
+            ["pass", "show", entry_path],
             capture_output=True,
             text=True,
             timeout=10,
         )
         if result.returncode != 0:
             return None
-        first_line = result.stdout.split("\n")[0].strip()
-        return first_line or None
+        lines = result.stdout.split("\n")
+        if field_name is None:
+            # No field requested → return the first non-empty line (the password)
+            return lines[0].strip() or None
+        # Named field → search subsequent lines for "field: value"
+        for line in lines[1:]:
+            stripped = line.strip()
+            if stripped.lower().startswith(field_name + ":"):
+                value = stripped[len(field_name) + 1:].strip()
+                return value or None
+        return None
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return None
 
@@ -122,23 +153,30 @@ def _load_credentials_from_cfg(
 ) -> tuple[Optional[str], Optional[str]]:
     """Return (username, password) from database.cfg [tos] section, or (None, None).
 
-    Supports two forms in the ``[tos]`` section:
+    Supports three forms in the ``[tos]`` section:
 
-    Plain text (convenient for non-sensitive username, avoid for password)::
+    Plain text (avoid for password)::
 
         [tos]
         username = bgo
         password = secret
 
-    Pass-store references (recommended — password never written to disk)::
+    Separate pass entries::
 
         [tos]
         username = bgo
-        password_pass_path = database/tos_password
+        password_pass_path = accounts/bgo
 
-    Both ``username_pass_path`` and ``password_pass_path`` may be set to
-    retrieve both values from the pass store.  Plain-text ``username`` /
-    ``password`` are used as fallbacks when the pass-path key is absent.
+    Single shared pass entry (recommended when one account spans services)::
+
+        [tos]
+        username_pass_path = accounts/bgo:username
+        password_pass_path = accounts/bgo
+
+    The ``path:field`` syntax reads a named field from the multiline pass
+    entry body (e.g. ``username: bgo``). Without a field suffix the first
+    line (the password) is returned. Plain-text ``username`` / ``password``
+    are used as fallbacks when the pass-path key is absent.
     """
     path = cfg_path or _find_database_cfg()
     if path is None:
