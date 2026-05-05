@@ -6,8 +6,10 @@ write operations via the TOS REST API.
 Credential resolution order (highest wins):
 1. Constructor args ``username`` / ``password``
 2. ``TOS_USERNAME`` / ``TOS_PASSWORD`` environment variables
-3. ``[tos]`` section in ``database.cfg``
-4. Interactive ``getpass`` prompt
+3. ``[tos]`` section in ``database.cfg``:
+   - ``password_pass_path`` / ``username_pass_path`` — retrieve from pass(1) store
+   - ``username`` / ``password`` — plaintext fallback (avoid for password)
+4. Interactive ``getpass`` prompt (always available as last resort)
 
 The JWT token is kept in memory only — never written to disk. Expiry is
 read from the ``exp`` claim in the response body; the client re-logs in
@@ -26,6 +28,7 @@ import getpass
 import json
 import logging
 import os
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,19 +92,78 @@ def _find_database_cfg() -> Optional[Path]:
     return None
 
 
+def _load_from_pass(pass_path: str) -> Optional[str]:
+    """Return the first line of a pass(1) entry, or None on any error.
+
+    Calls ``pass show <pass_path>`` and returns the first non-empty line.
+    The subprocess stdout is captured and never logged. Stderr is discarded
+    to avoid leaking path information to logs.
+
+    Returns None if pass is not installed, the entry does not exist, or the
+    GPG key is unavailable (e.g. on a headless server without a GPG agent).
+    """
+    try:
+        result = subprocess.run(
+            ["pass", "show", pass_path],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return None
+        first_line = result.stdout.split("\n")[0].strip()
+        return first_line or None
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+
+
 def _load_credentials_from_cfg(
     cfg_path: Optional[Path] = None,
 ) -> tuple[Optional[str], Optional[str]]:
-    """Return (username, password) from database.cfg [tos] section, or (None, None)."""
+    """Return (username, password) from database.cfg [tos] section, or (None, None).
+
+    Supports two forms in the ``[tos]`` section:
+
+    Plain text (convenient for non-sensitive username, avoid for password)::
+
+        [tos]
+        username = bgo
+        password = secret
+
+    Pass-store references (recommended — password never written to disk)::
+
+        [tos]
+        username = bgo
+        password_pass_path = database/tos_password
+
+    Both ``username_pass_path`` and ``password_pass_path`` may be set to
+    retrieve both values from the pass store.  Plain-text ``username`` /
+    ``password`` are used as fallbacks when the pass-path key is absent.
+    """
     path = cfg_path or _find_database_cfg()
     if path is None:
         return None, None
     try:
         cp = configparser.ConfigParser()
         cp.read(path)
-        username = cp.get("tos", "username", fallback=None)
-        password = cp.get("tos", "password", fallback=None)
-        return username or None, password or None
+
+        # Username: prefer pass-path, fall back to plaintext
+        username: Optional[str] = None
+        u_pass_path = cp.get("tos", "username_pass_path", fallback=None)
+        if u_pass_path:
+            username = _load_from_pass(u_pass_path.strip())
+        if not username:
+            username = cp.get("tos", "username", fallback=None) or None
+
+        # Password: prefer pass-path, fall back to plaintext
+        password: Optional[str] = None
+        p_pass_path = cp.get("tos", "password_pass_path", fallback=None)
+        if p_pass_path:
+            password = _load_from_pass(p_pass_path.strip())
+        if not password:
+            password = cp.get("tos", "password", fallback=None) or None
+
+        return username, password
     except Exception:
         return None, None
 
