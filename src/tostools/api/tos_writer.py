@@ -309,7 +309,14 @@ class TOSWriter:
                 method, endpoint, data=data, params=params, _retry=False
             )
 
-        resp.raise_for_status()
+        if not resp.ok:
+            body = ""
+            try:
+                body = f" — body: {resp.text[:500]}"
+            except Exception:
+                pass
+            resp.reason = f"{resp.reason}{body}"
+            resp.raise_for_status()
 
         if resp.content:
             return resp.json()
@@ -344,9 +351,21 @@ class TOSWriter:
     ) -> List[Dict[str, Any]]:
         """Return attribute values for an entity, optionally filtered by code.
 
-        Uses the entity history endpoint (which returns ``attributes`` list)
-        since TOS doesn't expose a flat attribute-values search endpoint.
+        Tries GET /attribute_values?id_entity=X first (returns records with
+        their ``id`` fields, needed for PATCH).  Falls back to entity history
+        if the dedicated endpoint is unavailable.
         """
+        try:
+            params: Dict[str, Any] = {"id_entity": id_entity}
+            if code is not None:
+                params["code"] = code
+            result = self._request("GET", "/attribute_values", params=params)
+            if isinstance(result, list):
+                return result
+        except Exception:
+            pass
+
+        # Fallback: history endpoint (no id on attribute records)
         history = self.get_entity_history(id_entity)
         if not history:
             return []
