@@ -208,20 +208,31 @@ class TOSWriter:
         resp.raise_for_status()
 
         data = resp.json()
-        token = data.get("token")
-        exp = data.get("exp")
+        # TOS login response uses 'sid' for the JWT and 'ttl' (seconds) for expiry.
+        token = data.get("sid") or data.get("token")
         if not token:
-            raise ValueError(f"TOS login response missing 'token': {data}")
+            raise ValueError(f"TOS login response missing 'sid'/'token': {data}")
 
-        scope = data.get("scope", [])
-        if "TOS" not in scope:
+        profile = data.get("profile", {})
+        scope = profile.get("scope") or data.get("scope", [])
+        tos_scopes = {"API.TOS.Admin", "API.TOS.User", "TOS"}
+        if not any(s in tos_scopes for s in scope):
             self._logger.warning("TOS token scope %r may not permit writes", scope)
 
+        ttl = data.get("ttl")
+        exp = data.get("exp")
+        if ttl is not None:
+            self._token_exp = time.time() + float(ttl)
+        elif exp is not None:
+            self._token_exp = float(exp)
+        else:
+            self._token_exp = self._parse_exp_from_jwt(token)
+
         self._token = token
-        self._token_exp = float(exp) if exp else self._parse_exp_from_jwt(token)
+        user = data.get("user") or profile.get("user")
         self._logger.info(
             "TOS login OK — user=%s, exp=%s, scope=%s",
-            data.get("user"),
+            user,
             self._token_exp,
             scope,
         )
