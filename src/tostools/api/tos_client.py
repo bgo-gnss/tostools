@@ -221,32 +221,80 @@ class TOSClient:
         # Step 2: Process device sessions (makes additional API calls)
         device_sessions = self.get_device_sessions(device_history)
 
-        # Step 3: Sort by date (legacy behavior)
-        device_sessions.sort(key=lambda d: d["device"]["date_from"])
-
         self.logger.info(
             f"Found {len(device_sessions)} device sessions for {station_identifier}"
         )
 
-        # Step 4: Process into legacy format device history
-        processed_history = self._process_device_history(device_sessions)
+        # Step 3: Build station history from connection periods (bypasses legacy
+        # pairing algorithm which breaks when start/end counts coincide).
+        built_history = self._build_history_from_connections(device_sessions)
 
-        # Step 5: Create final station structure (matching legacy format)
+        # Step 4: Create final station structure
         final_station = self._create_legacy_station_structure(
-            station_data, device_history, processed_history
+            station_data, device_history, built_history
         )
 
         return final_station
 
-    def _process_device_history(self, device_sessions: List[Dict]) -> List[Dict]:
-        """
-        Process device sessions into legacy-compatible device history format.
-        Replicates get_device_history() logic.
-        """
-        from ..legacy.gps_metadata_qc import get_device_history
+    def _build_history_from_connections(
+        self, device_sessions: List[Dict]
+    ) -> List[Dict]:
+        """Build device history by grouping on connection (time_from, time_to).
 
-        # Use legacy function to maintain exact compatibility
-        return get_device_history(device_sessions)
+        The legacy ``get_device_history()`` pairs sorted start/end dates across
+        all device types, which breaks for long-lived stations where many dates
+        coincide (e.g. an antenna connection ending on the same date a new
+        receiver connection starts).  This method uses the connection's own
+        ``time_from``/``time_to`` fields — set by TOS when the device was
+        physically attached — so the open/closed status is always correct.
+        """
+        from datetime import datetime
+
+        from ..legacy.gps_metadata_qc import device_structure
+
+        # Map (time_from, time_to) → {subtype: device_dict}
+        periods: Dict[Any, Dict[str, Any]] = {}
+
+        for session in device_sessions:
+            time_from = session.get("time_from")
+            time_to = session.get("time_to")
+            device = session["device"]
+            subtype = device.get("code_entity_subtype")
+            if not subtype:
+                continue
+            key = (time_from, time_to)
+            if key not in periods:
+                periods[key] = {}
+            # Prefer the entry whose attribute period is still open (date_to=None).
+            existing = periods[key].get(subtype)
+            if existing is None or device.get("date_to") is None:
+                try:
+                    periods[key][subtype] = device_structure(device.copy())
+                except (KeyError, TypeError):
+                    pass
+
+        result = []
+        for (time_from, time_to), devices in sorted(
+            periods.items(), key=lambda x: x[0][0] or ""
+        ):
+            if not devices:
+                continue
+            session_dict: Dict[str, Any] = {
+                "time_from": (
+                    datetime.strptime(time_from, "%Y-%m-%dT%H:%M:%S")
+                    if time_from
+                    else None
+                ),
+                "time_to": (
+                    datetime.strptime(time_to, "%Y-%m-%dT%H:%M:%S")
+                    if time_to
+                    else None
+                ),
+            }
+            session_dict.update(devices)
+            result.append(session_dict)
+
+        return result
 
     def _create_legacy_station_structure(
         self, station_data: Dict, device_history: Dict, processed_history: List[Dict]
@@ -409,11 +457,22 @@ class TOSClient:
             )
         except Exception as e:
             self.logger.warning(f"Legacy device_attribute_history failed: {e}")
-            # Fallback: return device as-is with date stamps
-            device_copy = device.copy()
-            device_copy["date_from"] = session_start
-            device_copy["date_to"] = session_end
-            return [device_copy]
+            # Build a schema-correct dict that device_structure() can consume.
+            # Sort attributes by date_from so later values overwrite earlier ones.
+            result: Dict[str, Any] = {
+                "id_entity": device.get("id_entity"),
+                "code_entity_subtype": device.get("code_entity_subtype"),
+                "date_from": session_start,
+                "date_to": session_end,
+            }
+            for attr in sorted(
+                device.get("attributes", []),
+                key=lambda a: a.get("date_from") or "",
+            ):
+                code = attr.get("code")
+                if code:
+                    result[code] = attr.get("value")
+            return [result]
 
 
 # Convenience functions for backward compatibility

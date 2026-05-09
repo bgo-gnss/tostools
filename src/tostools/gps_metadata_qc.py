@@ -330,6 +330,17 @@ def device_attribute_history(device, session_start, session_end, loglevel=loggin
         tmp_connections.append(connection.copy())
 
     module_logger.debug("tmp_connections:\n%s", gpsf.json_print(tmp_connections))
+
+    # All attributes fell outside the session period — nothing to return.
+    if not tmp_connections:
+        module_logger.warning(
+            "No attribute data within session %s-%s for entity %s",
+            session_start,
+            session_end,
+            device.get("id_entity"),
+        )
+        return connections
+
     dates_from = [attribute["date_from"] for attribute in tmp_connections]
     dates_to = [attribute["date_to"] for attribute in tmp_connections]
     module_logger.debug("dates_from: %s" % dates_from)
@@ -343,18 +354,19 @@ def device_attribute_history(device, session_start, session_end, loglevel=loggin
     module_logger.info("sub_sessions: %s", sub_sessions)
 
     full_session = (session_start, session_end)
-    full_session_dict = tmp_connections.pop(
-        tmp_connections.index(
-            [
-                connection
-                for connection in tmp_connections
-                if (connection["date_from"], connection["date_to"]) == full_session
-            ][-1]
-        )
-    )
-    for key, value in full_session_dict.items():
-        if value:
-            collection[key] = value
+    matching = [
+        c for c in tmp_connections if (c["date_from"], c["date_to"]) == full_session
+    ]
+    if not matching:
+        # Attribute periods don't span session exactly (e.g. firmware update
+        # mid-session moves date_from away from session_start).  Use the
+        # most-recent open connection as the base.
+        matching = [c for c in tmp_connections if c.get("date_to") is None]
+    if matching:
+        full_session_dict = tmp_connections.pop(tmp_connections.index(matching[-1]))
+        for key, value in full_session_dict.items():
+            if value:
+                collection[key] = value
     sub_sessions.discard(full_session)
     module_logger.debug("tmp_connections: %s", gpsf.json_print(tmp_connections))
 

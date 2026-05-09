@@ -219,11 +219,6 @@ class ArchiveValidator:
 
             missing_files_dict[filename] = remote_dir
 
-        if files_found_in_archive > 0:
-            self.logger.info(
-                f"Found {files_found_in_archive} files already archived, "
-                f"skipping re-download"
-            )
         if files_in_tmp_dict:
             self.logger.info(
                 "Found %s files in tmp directory that need archiving",
