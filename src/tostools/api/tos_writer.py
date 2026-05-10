@@ -366,18 +366,21 @@ class TOSWriter:
         params: Optional[Dict[str, Any]] = None,
         *,
         _retry: bool = True,
+        _force_send: bool = False,
     ) -> Any:
         """Send an authenticated HTTP request.
 
         GET requests are always sent (reads are safe). Mutating requests
-        (POST, PATCH, PUT, DELETE) are intercepted in dry-run mode.
+        (POST, PATCH, PUT, DELETE) are intercepted in dry-run mode unless
+        ``_force_send=True`` — used for read-only POST endpoints like
+        ``/basic_search/``.
         """
         self._ensure_authenticated()
 
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         is_mutating = method.upper() not in ("GET", "HEAD", "OPTIONS")
 
-        if is_mutating and self.dry_run:
+        if is_mutating and self.dry_run and not _force_send:
             self._logger.info(
                 "[DRY-RUN] %s %s — payload: %s",
                 method.upper(),
@@ -444,6 +447,54 @@ class TOSWriter:
         """Return the full history dict for an entity."""
         return self._request("GET", f"/history/entity/{id_entity}/")
 
+    def find_device_by_serial(
+        self,
+        entity_subtype: str,
+        serial_number: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Look up a device entity by serial number, filtered to a subtype.
+
+        Uses ``POST /basic_search/`` to find entities by serial_number, then
+        ``GET /entity/{id}/`` on each candidate to verify the
+        ``code_entity_subtype`` matches. Match is exact (case-sensitive, no
+        whitespace normalization).
+
+        Args:
+            entity_subtype: e.g. ``"gnss_receiver"``, ``"antenna"``, ``"radome"``.
+            serial_number: serial to search for. Empty/None returns ``None``.
+
+        Returns:
+            First matching entity dict (``id_entity``, ``code_entity_subtype``,
+            ``attributes``, ...) or ``None`` if no device with that
+            (subtype, serial) exists.
+        """
+        if not serial_number:
+            return None
+
+        results = self._request(
+            "POST",
+            "/basic_search/",
+            data={"search_term": serial_number},
+            _force_send=True,
+        )
+        if not isinstance(results, list):
+            return None
+
+        for hit in results:
+            if hit.get("code") != "serial_number":
+                continue
+            if hit.get("distance") != 0:
+                continue
+            if hit.get("value_varchar") != serial_number:
+                continue
+            device_id = hit.get("id_lvl_three")
+            if not device_id:
+                continue
+            entity = self._request("GET", f"/entity/{device_id}/")
+            if entity and entity.get("code_entity_subtype") == entity_subtype:
+                return entity
+        return None
+
     def get_attribute_values(
         self,
         id_entity: int,
@@ -490,6 +541,64 @@ class TOSWriter:
                 "/entities",
                 data={"entity_subtype": entity_subtype, "attributes": attributes},
             )
+
+    def create_device(
+        self,
+        entity_subtype: str,
+        attributes: List[Dict[str, Any]],
+        *,
+        force: bool = False,
+        dry_run: Optional[bool] = None,
+    ) -> Any:
+        """Create a device entity (gnss_receiver, antenna, radome, ...).
+
+        Wraps :meth:`create_entity` with a duplicate-serial guard:
+        :meth:`find_device_by_serial` is called before POSTing. A
+        :class:`ValueError` is raised if the (subtype, serial_number) pair
+        already exists. Pass ``force=True`` to override — should be a manual
+        conscious decision (warranty replacement, manufacturer reusing a
+        serial across product lines, etc.).
+
+        Args:
+            entity_subtype: device subtype, e.g. ``"gnss_receiver"``.
+            attributes: list of ``{code, value, date_from, date_to?}`` dicts;
+                must include a ``serial_number`` attribute.
+            force: skip the duplicate-serial guard.
+            dry_run: per-call override of instance-level dry_run.
+
+        Returns:
+            API response dict from :meth:`create_entity`, or
+            :class:`DryRunResult` in dry-run mode.
+
+        Raises:
+            ValueError: no ``serial_number`` attribute in ``attributes``;
+                or duplicate (subtype, serial_number) exists and not ``force``.
+        """
+        serial = next(
+            (a.get("value") for a in attributes if a.get("code") == "serial_number"),
+            None,
+        )
+        if serial is None or serial == "":
+            raise ValueError(
+                "create_device requires a non-empty 'serial_number' attribute "
+                "(use create_entity to bypass the duplicate-serial guard)"
+            )
+
+        if not force:
+            existing = self.find_device_by_serial(entity_subtype, str(serial))
+            if existing is not None:
+                existing_id = existing.get("id_entity")
+                raise ValueError(
+                    f"Device with serial_number={serial!r} already exists "
+                    f"as {entity_subtype} (id_entity={existing_id}). "
+                    f"Pass force=True to add a duplicate."
+                )
+
+        return self.create_entity(
+            entity_subtype=entity_subtype,
+            attributes=attributes,
+            dry_run=dry_run,
+        )
 
     @staticmethod
     def _tos_date(dt: Optional[str]) -> Optional[str]:
