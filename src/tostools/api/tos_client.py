@@ -376,6 +376,27 @@ class TOSClient:
         result = self._make_request(f"entity_contacts/{entity_id}/")
         return result if result else []
 
+    def basic_search(self, search_term: str) -> List[Dict[str, Any]]:
+        """
+        Substring search across TOS attribute values.
+
+        POSTs to /basic_search/ and returns the raw hit list. Each hit
+        describes an attribute (e.g. code='owner', value_varchar='...')
+        attached to an entity, plus the entity it belongs to. Used by the
+        owners module to verify that recognized owner labels are still in
+        use in TOS.
+
+        Args:
+            search_term: substring to match (case- and diacritic-sensitive)
+
+        Returns:
+            List of attribute hits; empty list on error or no match.
+        """
+        result = self._make_request(
+            "/basic_search/", method="POST", data={"search_term": search_term}
+        )
+        return result if isinstance(result, list) else []
+
     def get_device_sessions(
         self, device_history: Dict[str, Any]
     ) -> List[Dict[str, Any]]:

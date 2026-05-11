@@ -1700,8 +1700,85 @@ def generateFDSNXML(station_list=None):
     # inv.write("station.txt", format="stationtxt")
 
 
-if __name__ == "__main__":
+KNOWN_SUBCOMMANDS = {"owners"}
 
+
+def _owners_main(argv):
+    """Handle `tos owners ...` subcommands."""
+    from .owners import KNOWN_OWNERS, OwnersCache
+    from .api.tos_client import TOSClient
+
+    p = argparse.ArgumentParser(
+        prog="tos owners",
+        description="Manage the recognized TOS device-owner allow-list.",
+    )
+    sub = p.add_subparsers(dest="action", required=True)
+
+    p_list = sub.add_parser("list", help="List recognized owner labels.")
+    p_list.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Probe TOS to verify each owner is still in use; rewrites the cache.",
+    )
+    p_list.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of plain text."
+    )
+    p_list.add_argument(
+        "--cache-path",
+        help="Override the cache file path (default: ~/.config/tostools/owners.yaml).",
+    )
+    p_list.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_list.add_argument("--port", type=int, default=443)
+
+    args = p.parse_args(argv)
+
+    if args.action != "list":
+        p.error(f"unknown action: {args.action}")
+        return 2
+
+    cache_path = args.cache_path
+    cache = OwnersCache(cache_path) if cache_path else OwnersCache()
+
+    if args.refresh:
+        scheme = "https" if args.port == 443 else "http"
+        base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+        client = TOSClient(base_url=base_url)
+        result = cache.refresh(client)
+        owners = result.in_use
+        missing = result.missing
+    else:
+        owners = cache.load()
+        missing = []
+
+    if args.json:
+        import json as _json
+
+        payload = {
+            "owners": owners,
+            "missing": missing,
+            "cache_path": str(cache.cache_path),
+            "seed": list(KNOWN_OWNERS),
+        }
+        print(_json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        for o in owners:
+            print(o)
+        if missing:
+            print(
+                "\nMissing from TOS (not found via basic_search):",
+                file=sys.stderr,
+            )
+            for o in missing:
+                print(f"  - {o}", file=sys.stderr)
+    return 0
+
+
+def _legacy_main(argv):
+    """Pre-subcommand flat-arg behavior — kept for backward compatibility."""
     parser = argparse.ArgumentParser(
         add_help=True, description="TOS tools - Version 0.3"
     )
@@ -1764,14 +1841,26 @@ if __name__ == "__main__":
     # parser.add_argument('-p', '--pdf', action="store_true", help='Export PDF')
     # parser.add_argument('-l', '--language', help='Language for output. Default IS')
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Check args
-    if not len(sys.argv) > 1:
-        logging.error("No arguments passed, see --help")
-        sys.exit(2)
+    if not argv:
+        parser.print_help(sys.stderr)
+        return 2
 
-    elif args.serial_number:
+    # Detect flag-only invocation (no action selected, no identifiers).
+    action_selected = (
+        args.serial_number
+        or args.galvos
+        or args.sc3ml
+        or args.fdsnxml
+        or bool(args.identifiers)
+    )
+    if not action_selected:
+        parser.print_help(sys.stderr)
+        return 2
+
+    if args.serial_number:
         if args.exclude:
             logging.warning("Ignoring option --exclude with serial_number search")
         devices = []
@@ -1809,7 +1898,7 @@ if __name__ == "__main__":
                 logging.critical(
                     f"Unsupported XML schema version {args.schema_version}"
                 )
-                sys.exit()
+                return 2
 
         if args.identifiers:
             sc3ml = generateSC3ML(args.identifiers, args.schema_version)
@@ -1861,3 +1950,20 @@ if __name__ == "__main__":
 
         for station in stations:
             display(station, args.output, args.tablefmt)
+
+    return 0
+
+
+def main(argv=None):
+    """Entry point — dispatches to `tos owners ...` or the legacy flat-arg CLI."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in KNOWN_SUBCOMMANDS:
+        subcmd = argv[0]
+        rest = argv[1:]
+        if subcmd == "owners":
+            return _owners_main(rest)
+    return _legacy_main(argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

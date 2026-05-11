@@ -338,3 +338,187 @@ def test_request_retries_on_401():
 
     assert mock_req.call_count == 2
     assert result == {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# TOSWriter — find_device_by_serial / create_device duplicate-serial guard
+# ---------------------------------------------------------------------------
+
+
+def _basic_search_hit(
+    serial: str,
+    device_id: int,
+    code: str = "serial_number",
+    distance: int = 0,
+) -> dict:
+    return {
+        "code": code,
+        "value_varchar": serial,
+        "distance": distance,
+        "id_lvl_three": device_id,
+    }
+
+
+def test_find_device_by_serial_returns_match_when_subtype_matches():
+    w = _logged_in_writer(dry_run=False)
+    search_results = [_basic_search_hit("SN123", device_id=999)]
+    entity = {
+        "id_entity": 999,
+        "code_entity_subtype": "gnss_receiver",
+        "attributes": [],
+    }
+
+    with patch.object(w, "_request") as mock_req:
+        mock_req.side_effect = [search_results, entity]
+        result = w.find_device_by_serial("gnss_receiver", "SN123")
+
+    assert result is entity
+    assert mock_req.call_count == 2
+    # First call should be the search; second the entity GET
+    assert mock_req.call_args_list[0].args[0] == "POST"
+    assert "/basic_search" in mock_req.call_args_list[0].args[1]
+    assert mock_req.call_args_list[1].args[0] == "GET"
+    assert mock_req.call_args_list[1].args[1] == "/entity/999/"
+
+
+def test_find_device_by_serial_returns_none_when_no_hits():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request", return_value=[]):
+        assert w.find_device_by_serial("gnss_receiver", "SN-MISSING") is None
+
+
+def test_find_device_by_serial_skips_subtype_mismatch():
+    w = _logged_in_writer(dry_run=False)
+    search_results = [_basic_search_hit("SN123", device_id=999)]
+    entity_wrong_subtype = {
+        "id_entity": 999,
+        "code_entity_subtype": "antenna",
+        "attributes": [],
+    }
+
+    with patch.object(w, "_request") as mock_req:
+        mock_req.side_effect = [search_results, entity_wrong_subtype]
+        result = w.find_device_by_serial("gnss_receiver", "SN123")
+
+    assert result is None
+
+
+def test_find_device_by_serial_filters_distance_and_code():
+    w = _logged_in_writer(dry_run=False)
+    search_results = [
+        # wrong code (matches a model field, not a serial)
+        _basic_search_hit("SN123", device_id=111, code="model"),
+        # right code but distance > 0 (fuzzy match)
+        _basic_search_hit("SN123", device_id=222, distance=2),
+        # exact value-mismatch even though code matches
+        {"code": "serial_number", "value_varchar": "SN999", "distance": 0,
+         "id_lvl_three": 333},
+        # the real exact match
+        _basic_search_hit("SN123", device_id=444),
+    ]
+    entity = {"id_entity": 444, "code_entity_subtype": "gnss_receiver"}
+
+    with patch.object(w, "_request") as mock_req:
+        mock_req.side_effect = [search_results, entity]
+        result = w.find_device_by_serial("gnss_receiver", "SN123")
+
+    assert result is entity
+    # Only 1 entity GET — confirms the other hits were filtered out
+    get_calls = [c for c in mock_req.call_args_list if c.args[0] == "GET"]
+    assert len(get_calls) == 1
+
+
+def test_find_device_by_serial_empty_serial_short_circuits():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request") as mock_req:
+        assert w.find_device_by_serial("gnss_receiver", "") is None
+    mock_req.assert_not_called()
+
+
+def test_find_device_by_serial_search_runs_in_dry_run_mode():
+    """The basic_search POST must bypass dry-run interception."""
+    w = _logged_in_writer(dry_run=True)
+    with patch("requests.request") as mock_req:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.content = b"[]"
+        mock_resp.json.return_value = []
+        mock_resp.raise_for_status = MagicMock()
+        mock_req.return_value = mock_resp
+        result = w.find_device_by_serial("gnss_receiver", "SN123")
+
+    assert result is None
+    # Confirms an actual HTTP POST was sent despite dry_run=True
+    assert mock_req.called
+    assert mock_req.call_args.args[0] == "POST"
+
+
+def test_create_device_rejects_duplicate_serial():
+    w = _logged_in_writer(dry_run=True)
+    existing = {
+        "id_entity": 19140,
+        "code_entity_subtype": "gnss_receiver",
+        "attributes": [],
+    }
+    with patch.object(w, "find_device_by_serial", return_value=existing):
+        with pytest.raises(ValueError, match=r"already exists.*id_entity=19140"):
+            w.create_device(
+                "gnss_receiver",
+                [{"code": "serial_number", "value": "SN123",
+                  "date_from": "2026-05-10T00:00:00"}],
+            )
+
+
+def test_create_device_force_bypasses_duplicate_check():
+    w = _logged_in_writer(dry_run=True)
+    with patch.object(w, "find_device_by_serial") as mock_find:
+        with patch.object(w, "create_entity", return_value={"id_entity": 99}) as mock_create:
+            result = w.create_device(
+                "gnss_receiver",
+                [{"code": "serial_number", "value": "SN123",
+                  "date_from": "2026-05-10T00:00:00"}],
+                force=True,
+            )
+
+    mock_find.assert_not_called()
+    mock_create.assert_called_once()
+    assert result == {"id_entity": 99}
+
+
+def test_create_device_creates_when_no_duplicate():
+    w = _logged_in_writer(dry_run=True)
+    with patch.object(w, "find_device_by_serial", return_value=None):
+        with patch.object(w, "create_entity",
+                          return_value=DryRunResult("POST", "/entities", {})) as mock_create:
+            result = w.create_device(
+                "antenna",
+                [{"code": "serial_number", "value": "ANT-1",
+                  "date_from": "2026-05-10T00:00:00"},
+                 {"code": "model", "value": "TRM57971.00",
+                  "date_from": "2026-05-10T00:00:00"}],
+            )
+
+    mock_create.assert_called_once()
+    call = mock_create.call_args
+    assert call.kwargs["entity_subtype"] == "antenna"
+    assert isinstance(result, DryRunResult)
+
+
+def test_create_device_raises_without_serial():
+    w = _logged_in_writer(dry_run=True)
+    with pytest.raises(ValueError, match="non-empty 'serial_number'"):
+        w.create_device(
+            "gnss_receiver",
+            [{"code": "model", "value": "SEPT POLARX5",
+              "date_from": "2026-05-10T00:00:00"}],
+        )
+
+
+def test_create_device_raises_with_empty_serial():
+    w = _logged_in_writer(dry_run=True)
+    with pytest.raises(ValueError, match="non-empty 'serial_number'"):
+        w.create_device(
+            "gnss_receiver",
+            [{"code": "serial_number", "value": "",
+              "date_from": "2026-05-10T00:00:00"}],
+        )
