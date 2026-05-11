@@ -1700,7 +1700,7 @@ def generateFDSNXML(station_list=None):
     # inv.write("station.txt", format="stationtxt")
 
 
-KNOWN_SUBCOMMANDS = {"owners"}
+KNOWN_SUBCOMMANDS = {"owners", "device"}
 
 
 def _owners_main(argv):
@@ -1774,6 +1774,196 @@ def _owners_main(argv):
             )
             for o in missing:
                 print(f"  - {o}", file=sys.stderr)
+    return 0
+
+
+def _device_main(argv):
+    """Handle ``tos device ...`` subcommands.
+
+    Step 3 of the device-warehouse interface — adds a brand-new device entity
+    (gnss_receiver, antenna, radome, monument) to TOS with strict input
+    validation, owner allow-list checking, IGS model normalisation, and a
+    duplicate-serial guard (bypassable with ``--force``). Defaults to dry-run.
+    """
+    from . import device as device_helpers
+    from .api.tos_writer import TOSWriter
+    from .owners import OwnersCache
+
+    p = argparse.ArgumentParser(
+        prog="tos device",
+        description="Manage TOS device entities (warehouse intake).",
+    )
+    sub = p.add_subparsers(dest="action", required=True)
+
+    p_add = sub.add_parser("add", help="Add a new device entity to TOS.")
+    p_add.add_argument(
+        "--subtype",
+        required=True,
+        choices=device_helpers.VALID_SUBTYPES,
+        help="Device subtype.",
+    )
+    p_add.add_argument("--serial", required=True, help="Device serial number.")
+    p_add.add_argument(
+        "--model",
+        required=True,
+        help="Equipment model. Normalised to IGS rcvr_ant.tab format.",
+    )
+    p_add.add_argument(
+        "--owner",
+        required=True,
+        help="Owner label; must match an entry in the OwnersCache.",
+    )
+    p_add.add_argument("--location", required=True, help="Physical location.")
+    p_add.add_argument(
+        "--date-start",
+        required=True,
+        help="Start date for all attribute values (YYYY-MM-DD or "
+        "YYYY-MM-DDTHH:MM:SS).",
+    )
+    p_add.add_argument("--firmware", help="Optional firmware_version attribute.")
+    p_add.add_argument("--comment", help="Optional free-form comment attribute.")
+    p_add.add_argument(
+        "--galvos", help="Optional galvos (inventory/registration) number."
+    )
+    p_add.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass the duplicate-serial guard from create_device.",
+    )
+    p_add.add_argument(
+        "--no-dry-run",
+        action="store_true",
+        help="Commit the writes. Without this flag, payloads are logged only.",
+    )
+    p_add.add_argument(
+        "--owners-cache",
+        help="Override the owners cache path "
+        "(default: ~/.config/tostools/owners.yaml).",
+    )
+    p_add.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_add.add_argument("--port", type=int, default=443)
+    p_add.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a structured JSON summary instead of plain text.",
+    )
+
+    args = p.parse_args(argv)
+    if args.action != "add":
+        p.error(f"unknown action: {args.action}")
+        return 2
+
+    # ---- Input validation ------------------------------------------------
+    try:
+        date_start = device_helpers.normalize_date_start(args.date_start)
+    except ValueError as e:
+        print(f"Invalid --date-start: {e}", file=sys.stderr)
+        return 2
+
+    cache = (
+        OwnersCache(args.owners_cache) if args.owners_cache else OwnersCache()
+    )
+    known_owners = cache.load()
+    if args.owner not in known_owners:
+        print(
+            f"Unknown owner: {args.owner!r}. "
+            f"Run 'tos owners list' to see allowed values, or "
+            f"'tos owners list --refresh' if you recently added one in TOS.",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        igs_model = device_helpers.validate_model(args.subtype, args.model)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
+    required = device_helpers.build_required_attributes(
+        serial=args.serial,
+        model=igs_model,
+        owner=args.owner,
+        location=args.location,
+        date_start=date_start,
+    )
+    optional = device_helpers.iter_optional_attributes(
+        firmware=args.firmware,
+        comment=args.comment,
+        galvos=args.galvos,
+    )
+
+    # ---- Writer setup ----------------------------------------------------
+    scheme = "https" if args.port == 443 else "http"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    dry_run = not args.no_dry_run
+    writer = TOSWriter(base_url=base_url, dry_run=dry_run)
+
+    # ---- Create entity ---------------------------------------------------
+    try:
+        response = writer.create_device(
+            args.subtype, required, force=args.force
+        )
+    except ValueError as e:
+        msg = str(e)
+        if "already exists" in msg and not args.force:
+            print(f"{msg}\nPass --force to add the duplicate anyway.", file=sys.stderr)
+        else:
+            print(msg, file=sys.stderr)
+        return 1
+
+    # In dry-run, response is a DryRunResult (no id_entity). In live mode,
+    # response is the TOS API dict containing id_entity for the new entity.
+    id_entity = None
+    if isinstance(response, dict):
+        id_entity = response.get("id_entity")
+
+    # ---- Optional attributes --------------------------------------------
+    upsert_responses = []
+    for code, value in optional:
+        if dry_run or id_entity is None:
+            print(
+                f"DRY RUN: would upsert {code}={value!r} "
+                f"from {date_start} on id_entity="
+                f"{id_entity if id_entity is not None else '<new entity>'}"
+            )
+            upsert_responses.append({"code": code, "value": value, "dry_run": True})
+        else:
+            r = writer.upsert_attribute_value(
+                id_entity, code=code, value=value, date_from=date_start
+            )
+            upsert_responses.append({"code": code, "value": value, "response": r})
+
+    # ---- Summary ---------------------------------------------------------
+    if args.json:
+        import json as _json
+
+        payload = {
+            "subtype": args.subtype,
+            "serial": args.serial,
+            "model": igs_model,
+            "owner": args.owner,
+            "location": args.location,
+            "date_start": date_start,
+            "id_entity": id_entity,
+            "dry_run": dry_run,
+            "required_attributes": required,
+            "optional_attributes": [
+                {"code": c, "value": v} for c, v in optional
+            ],
+            "upsert_results": upsert_responses,
+        }
+        print(_json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        suffix = " (dry-run)" if dry_run else ""
+        id_str = id_entity if id_entity is not None else "<would be assigned>"
+        print(
+            f"Created {args.subtype} serial={args.serial} "
+            f"id_entity={id_str}{suffix}"
+        )
     return 0
 
 
@@ -1955,13 +2145,15 @@ def _legacy_main(argv):
 
 
 def main(argv=None):
-    """Entry point — dispatches to `tos owners ...` or the legacy flat-arg CLI."""
+    """Entry point — dispatches to `tos <subcommand> ...` or the legacy CLI."""
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] in KNOWN_SUBCOMMANDS:
         subcmd = argv[0]
         rest = argv[1:]
         if subcmd == "owners":
             return _owners_main(rest)
+        if subcmd == "device":
+            return _device_main(rest)
     return _legacy_main(argv)
 
 
