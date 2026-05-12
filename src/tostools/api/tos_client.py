@@ -286,9 +286,7 @@ class TOSClient:
                     else None
                 ),
                 "time_to": (
-                    datetime.strptime(time_to, "%Y-%m-%dT%H:%M:%S")
-                    if time_to
-                    else None
+                    datetime.strptime(time_to, "%Y-%m-%dT%H:%M:%S") if time_to else None
                 ),
             }
             session_dict.update(devices)
@@ -375,6 +373,18 @@ class TOSClient:
         """
         result = self._make_request(f"entity_contacts/{entity_id}/")
         return result if result else []
+
+    def get_entity_history(self, id_entity: int) -> Optional[Dict[str, Any]]:
+        """Return the full history dict for an entity (read-only, no auth).
+
+        Calls ``/history/entity/<id>/`` and returns the response. For a station
+        entity the dict carries ``attributes`` (all periods) and
+        ``children_connections`` (one entry per child join). For a device
+        entity it carries ``attributes`` plus ``id_entity_parent`` (the most
+        recent parent); device-side ``parents_connections`` is not exposed by
+        TOS.
+        """
+        return self._make_request(f"/history/entity/{id_entity}/")
 
     def basic_search(self, search_term: str) -> List[Dict[str, Any]]:
         """

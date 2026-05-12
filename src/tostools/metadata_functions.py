@@ -145,7 +145,6 @@ def printStationHistory(station, raw_format=False, loglevel=logging.WARNING):
 def printStationInfo(station):
     """ """
 
-    header = "*SITE  Station Name      Session Start      Session Stop       Ant Ht   HtCod  Ant N    Ant E    Receiver Type         Vers                  SwVer  Receiver SN           Antenna Type     Dome   Antenna SN"
     # print(header)
 
     stationInfo_list = []

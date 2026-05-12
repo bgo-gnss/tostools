@@ -120,7 +120,10 @@ def correct_rinex_from_tos(
         if valid_from_str:
             try:
                 config_valid_from = datetime.strptime(valid_from_str, "%Y-%m-%d")
-                if observation_date and observation_date.date() >= config_valid_from.date():
+                if (
+                    observation_date
+                    and observation_date.date() >= config_valid_from.date()
+                ):
                     use_config = True
                     logger.debug(
                         f"Using station.cfg for {station_id} "
@@ -134,18 +137,14 @@ def correct_rinex_from_tos(
         corrections = _get_corrections_from_config(station_id, station_config, logger)
     else:
         logger.debug(f"Querying TOS for {station_id} metadata")
-        corrections = _get_corrections_from_tos(
-            station_id, observation_date, loglevel
-        )
+        corrections = _get_corrections_from_tos(station_id, observation_date, loglevel)
 
     if not corrections:
         logger.warning(f"No corrections available for {station_id}")
         return rinex_file  # Return original file unchanged
 
     # Apply corrections
-    corrected_file = _apply_corrections(
-        rinex_file, corrections, output_file, logger
-    )
+    corrected_file = _apply_corrections(rinex_file, corrections, output_file, logger)
 
     return corrected_file
 
@@ -244,13 +243,25 @@ def _get_corrections_from_tos(
 
             # Check if observation date falls within session
             if observation_date:
-                obs_date = observation_date.replace(tzinfo=None) if observation_date.tzinfo else observation_date
+                obs_date = (
+                    observation_date.replace(tzinfo=None)
+                    if observation_date.tzinfo
+                    else observation_date
+                )
                 if time_from:
-                    tf = time_from.replace(tzinfo=None) if hasattr(time_from, 'tzinfo') and time_from.tzinfo else time_from
+                    tf = (
+                        time_from.replace(tzinfo=None)
+                        if hasattr(time_from, "tzinfo") and time_from.tzinfo
+                        else time_from
+                    )
                     if obs_date < tf:
                         continue
                 if time_to:
-                    tt = time_to.replace(tzinfo=None) if hasattr(time_to, 'tzinfo') and time_to.tzinfo else time_to
+                    tt = (
+                        time_to.replace(tzinfo=None)
+                        if hasattr(time_to, "tzinfo") and time_to.tzinfo
+                        else time_to
+                    )
                     if obs_date > tt:
                         continue
             session = s
@@ -264,7 +275,9 @@ def _get_corrections_from_tos(
         if session is None:
             return {}
 
-        logger.info(f"Found TOS session for {station_id}: {session.get('time_from')} - {session.get('time_to')}")
+        logger.info(
+            f"Found TOS session for {station_id}: {session.get('time_from')} - {session.get('time_to')}"
+        )
 
         # Extract corrections from TOS session
         # TOS uses keys like 'gnss_receiver', 'antenna', 'radome', 'monument'
@@ -307,6 +320,7 @@ def _get_corrections_from_tos(
     except Exception as e:
         logger.error(f"TOS query failed for {station_id}: {e}")
         import traceback
+
         logger.debug(traceback.format_exc())
         return {}
 
@@ -444,6 +458,7 @@ def _write_rinex_file(
             content = f.read()
     elif is_z_compressed:
         import subprocess
+
         result = subprocess.run(
             ["zcat", str(original_file)],
             capture_output=True,
@@ -502,7 +517,7 @@ def _extract_date_from_rinex(rinex_file: Path) -> Optional[datetime]:
         name = rinex_file.name
         for ext in [".gz", ".Z"]:
             if name.endswith(ext):
-                name = name[:-len(ext)]
+                name = name[: -len(ext)]
 
         dates = datefRinex([name])
         if dates and dates[0]:

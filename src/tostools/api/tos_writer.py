@@ -141,7 +141,7 @@ def _load_from_pass(pass_spec: str) -> Optional[str]:
         for line in lines[1:]:
             stripped = line.strip()
             if stripped.lower().startswith(field_name + ":"):
-                value = stripped[len(field_name) + 1:].strip()
+                value = stripped[len(field_name) + 1 :].strip()
                 return value or None
         return None
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
@@ -611,6 +611,7 @@ class TOSWriter:
             return None
         # Remove trailing timezone: +HH:MM, -HH:MM, or Z
         import re as _re
+
         return _re.sub(r"([+-]\d{2}:\d{2}|Z)$", "", dt)
 
     def add_attribute_value(

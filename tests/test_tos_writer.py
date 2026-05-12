@@ -32,9 +32,11 @@ def _make_writer(**kwargs: object) -> TOSWriter:
 
 def _jwt_for(exp: float) -> str:
     """Build a minimal JWT with the given exp timestamp."""
-    payload = base64.urlsafe_b64encode(
-        json.dumps({"exp": exp}).encode()
-    ).rstrip(b"=").decode()
+    payload = (
+        base64.urlsafe_b64encode(json.dumps({"exp": exp}).encode())
+        .rstrip(b"=")
+        .decode()
+    )
     return f"header.{payload}.sig"
 
 
@@ -155,7 +157,7 @@ def test_login_raises_on_missing_token():
     mock_resp.raise_for_status = MagicMock()
 
     with patch("requests.post", return_value=mock_resp):
-        with pytest.raises(ValueError, match="missing 'token'"):
+        with pytest.raises(ValueError, match=r"missing 'sid'/'token'"):
             w.login()
 
 
@@ -214,7 +216,7 @@ def test_dry_run_get_still_sends_request():
     w = _logged_in_writer(dry_run=True)
     mock_resp = MagicMock()
     mock_resp.status_code = 200
-    mock_resp.content = b'[]'
+    mock_resp.content = b"[]"
     mock_resp.json.return_value = []
     mock_resp.raise_for_status = MagicMock()
 
@@ -268,7 +270,11 @@ def test_patch_entity_connection_raises_with_no_kwargs():
 
 def test_upsert_patches_when_open_value_exists():
     w = _logged_in_writer(dry_run=False)
-    existing = [{"id": 55, "code": "marker", "value": "old", "date_to": None}]
+    # TOSWriter.upsert_attribute_value reads `id_attribute_value` (the field
+    # name used by the TOS API), not `id`.
+    existing = [
+        {"id_attribute_value": 55, "code": "marker", "value": "old", "date_to": None}
+    ]
 
     with patch.object(w, "get_attribute_values", return_value=existing):
         with patch.object(w, "_request") as mock_req:
@@ -288,7 +294,9 @@ def test_upsert_noop_when_value_already_matches():
 
     with patch.object(w, "get_attribute_values", return_value=existing):
         with patch.object(w, "_request") as mock_req:
-            result = w.upsert_attribute_value(1, "marker", "eldc", "2022-01-01T00:00:00")
+            result = w.upsert_attribute_value(
+                1, "marker", "eldc", "2022-01-01T00:00:00"
+            )
 
     mock_req.assert_not_called()
     assert result["id"] == 55
@@ -411,8 +419,12 @@ def test_find_device_by_serial_filters_distance_and_code():
         # right code but distance > 0 (fuzzy match)
         _basic_search_hit("SN123", device_id=222, distance=2),
         # exact value-mismatch even though code matches
-        {"code": "serial_number", "value_varchar": "SN999", "distance": 0,
-         "id_lvl_three": 333},
+        {
+            "code": "serial_number",
+            "value_varchar": "SN999",
+            "distance": 0,
+            "id_lvl_three": 333,
+        },
         # the real exact match
         _basic_search_hit("SN123", device_id=444),
     ]
@@ -464,19 +476,31 @@ def test_create_device_rejects_duplicate_serial():
         with pytest.raises(ValueError, match=r"already exists.*id_entity=19140"):
             w.create_device(
                 "gnss_receiver",
-                [{"code": "serial_number", "value": "SN123",
-                  "date_from": "2026-05-10T00:00:00"}],
+                [
+                    {
+                        "code": "serial_number",
+                        "value": "SN123",
+                        "date_from": "2026-05-10T00:00:00",
+                    }
+                ],
             )
 
 
 def test_create_device_force_bypasses_duplicate_check():
     w = _logged_in_writer(dry_run=True)
     with patch.object(w, "find_device_by_serial") as mock_find:
-        with patch.object(w, "create_entity", return_value={"id_entity": 99}) as mock_create:
+        with patch.object(
+            w, "create_entity", return_value={"id_entity": 99}
+        ) as mock_create:
             result = w.create_device(
                 "gnss_receiver",
-                [{"code": "serial_number", "value": "SN123",
-                  "date_from": "2026-05-10T00:00:00"}],
+                [
+                    {
+                        "code": "serial_number",
+                        "value": "SN123",
+                        "date_from": "2026-05-10T00:00:00",
+                    }
+                ],
                 force=True,
             )
 
@@ -488,14 +512,23 @@ def test_create_device_force_bypasses_duplicate_check():
 def test_create_device_creates_when_no_duplicate():
     w = _logged_in_writer(dry_run=True)
     with patch.object(w, "find_device_by_serial", return_value=None):
-        with patch.object(w, "create_entity",
-                          return_value=DryRunResult("POST", "/entities", {})) as mock_create:
+        with patch.object(
+            w, "create_entity", return_value=DryRunResult("POST", "/entities", {})
+        ) as mock_create:
             result = w.create_device(
                 "antenna",
-                [{"code": "serial_number", "value": "ANT-1",
-                  "date_from": "2026-05-10T00:00:00"},
-                 {"code": "model", "value": "TRM57971.00",
-                  "date_from": "2026-05-10T00:00:00"}],
+                [
+                    {
+                        "code": "serial_number",
+                        "value": "ANT-1",
+                        "date_from": "2026-05-10T00:00:00",
+                    },
+                    {
+                        "code": "model",
+                        "value": "TRM57971.00",
+                        "date_from": "2026-05-10T00:00:00",
+                    },
+                ],
             )
 
     mock_create.assert_called_once()
@@ -509,8 +542,13 @@ def test_create_device_raises_without_serial():
     with pytest.raises(ValueError, match="non-empty 'serial_number'"):
         w.create_device(
             "gnss_receiver",
-            [{"code": "model", "value": "SEPT POLARX5",
-              "date_from": "2026-05-10T00:00:00"}],
+            [
+                {
+                    "code": "model",
+                    "value": "SEPT POLARX5",
+                    "date_from": "2026-05-10T00:00:00",
+                }
+            ],
         )
 
 
@@ -519,6 +557,11 @@ def test_create_device_raises_with_empty_serial():
     with pytest.raises(ValueError, match="non-empty 'serial_number'"):
         w.create_device(
             "gnss_receiver",
-            [{"code": "serial_number", "value": "",
-              "date_from": "2026-05-10T00:00:00"}],
+            [
+                {
+                    "code": "serial_number",
+                    "value": "",
+                    "date_from": "2026-05-10T00:00:00",
+                }
+            ],
         )
