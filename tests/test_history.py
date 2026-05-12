@@ -465,3 +465,541 @@ def test_default_station_cfg_path_returns_none_when_missing(
     monkeypatch.delenv("GPS_CONFIG_PATH", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))  # no .config/gpsconfig under here
     assert default_station_cfg_path() is None
+
+
+# ===========================================================================
+# Step 3 — Join, JoinIndex, DeviceTimeline, Gap, build_join_index
+# ===========================================================================
+
+
+from tostools.history import (  # noqa: E402  re-import to keep step-3 block self-contained
+    DeviceTimeline,
+    Gap,
+    Join,
+    JoinIndex,
+    _connection_to_join,
+    _parse_iso,
+    build_join_index,
+)
+
+
+def _join(
+    child: int,
+    parent: int,
+    time_from: str,
+    time_to: Optional[str] = None,
+    *,
+    connection_id: int = 0,
+) -> Join:
+    return Join(
+        id_entity_connection=connection_id,
+        id_entity_parent=parent,
+        id_entity_child=child,
+        time_from=time_from,
+        time_to=time_to,
+    )
+
+
+def _parent(
+    id_entity: int,
+    *,
+    role: str = "station",
+    subtype: str = "geophysical",
+    name: Optional[str] = None,
+) -> ParentEntity:
+    return ParentEntity(
+        id_entity=id_entity,
+        name=name,
+        code_subtype=subtype,
+        role=role,
+    )
+
+
+def _parent_history_with_conns(
+    id_entity: int,
+    conns: List[Dict[str, Any]],
+    subtype: str = "geophysical",
+) -> Dict[str, Any]:
+    return {
+        "id_entity": id_entity,
+        "code_entity_subtype": subtype,
+        "attributes": [],
+        "children_connections": conns,
+    }
+
+
+def _conn(
+    *,
+    id_entity_connection: int,
+    parent: int,
+    child: int,
+    time_from: str,
+    time_to: Optional[str] = None,
+) -> Dict[str, Any]:
+    return {
+        "id_entity_connection": id_entity_connection,
+        "id_entity_parent": parent,
+        "id_entity_child": child,
+        "time_from": time_from,
+        "time_to": time_to,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Join
+# ---------------------------------------------------------------------------
+
+
+def test_join_is_open_when_time_to_is_none():
+    j = _join(100, 50, "2025-03-15")
+    assert j.is_open is True
+
+
+def test_join_is_closed_when_time_to_is_set():
+    j = _join(100, 50, "2025-03-15", "2025-06-30")
+    assert j.is_open is False
+
+
+# ---------------------------------------------------------------------------
+# _parse_iso
+# ---------------------------------------------------------------------------
+
+
+def test_parse_iso_standard_datetime():
+    dt = _parse_iso("2025-11-05T00:00:00")
+    assert dt is not None
+    assert dt.year == 2025 and dt.month == 11 and dt.day == 5
+
+
+def test_parse_iso_with_z_suffix():
+    dt = _parse_iso("2025-11-05T00:00:00Z")
+    assert dt is not None
+    assert dt.year == 2025
+
+
+def test_parse_iso_date_only_fallback():
+    """If TOS ever returns a date without time, we still parse."""
+    dt = _parse_iso("2025-11-05")
+    assert dt is not None
+    assert dt.year == 2025
+
+
+def test_parse_iso_returns_none_for_garbage():
+    assert _parse_iso("not-a-date") is None
+    assert _parse_iso(None) is None
+    assert _parse_iso("") is None
+
+
+# ---------------------------------------------------------------------------
+# _connection_to_join
+# ---------------------------------------------------------------------------
+
+
+def test_connection_to_join_uses_connection_parent_id():
+    """When the conn has id_entity_parent, that's what we use (not the
+    fallback). Real TOS data always carries this."""
+    conn = _conn(
+        id_entity_connection=42,
+        parent=50,
+        child=100,
+        time_from="2025-03-15",
+    )
+    j = _connection_to_join(conn, fallback_parent_id=999)
+    assert j is not None
+    assert j.id_entity_parent == 50  # from conn, not fallback
+    assert j.id_entity_child == 100
+    assert j.id_entity_connection == 42
+
+
+def test_connection_to_join_falls_back_to_walked_parent_id_when_missing():
+    """Some legacy connection rows omit id_entity_parent; we fall back to
+    the parent we're currently walking."""
+    conn = {
+        "id_entity_connection": 42,
+        "id_entity_child": 100,
+        "time_from": "2025-03-15",
+        "time_to": None,
+    }
+    j = _connection_to_join(conn, fallback_parent_id=999)
+    assert j is not None
+    assert j.id_entity_parent == 999
+
+
+def test_connection_to_join_returns_none_for_missing_child_id():
+    conn = {
+        "id_entity_parent": 50,
+        "time_from": "2025-03-15",
+        "time_to": None,
+    }
+    j = _connection_to_join(conn, fallback_parent_id=999)
+    assert j is None
+
+
+# ---------------------------------------------------------------------------
+# DeviceTimeline — sorting and properties
+# ---------------------------------------------------------------------------
+
+
+def test_timeline_sorts_joins_by_time_from():
+    """Joins arrive from arbitrary parents in any order; the timeline
+    must sort them chronologically for gap detection to work."""
+    tl = DeviceTimeline(
+        100,
+        [
+            _join(100, 60, "2025-06-30", None),
+            _join(100, 50, "2020-01-01", "2025-05-15"),
+            _join(100, 70, "2018-04-01", "2019-12-31"),
+        ],
+    )
+    times = [j.time_from for j in tl.joins]
+    assert times == sorted(times)
+
+
+def test_timeline_open_and_closed_partition():
+    tl = DeviceTimeline(
+        100,
+        [
+            _join(100, 50, "2020-01-01", "2025-05-15"),
+            _join(100, 60, "2025-06-30", None),
+        ],
+    )
+    assert len(tl.open_joins) == 1
+    assert tl.open_joins[0].id_entity_parent == 60
+    assert len(tl.closed_joins) == 1
+    assert tl.closed_joins[0].id_entity_parent == 50
+
+
+def test_timeline_is_currently_attached_when_any_open_join():
+    tl = DeviceTimeline(100, [_join(100, 60, "2025-06-30", None)])
+    assert tl.is_currently_attached is True
+
+
+def test_timeline_is_truly_orphan_when_joins_but_none_open():
+    """The audit's I1-orphan signal, but derived from full index."""
+    tl = DeviceTimeline(
+        100,
+        [_join(100, 50, "2020-01-01", "2025-05-15")],
+    )
+    assert tl.is_truly_orphan is True
+    assert tl.is_currently_attached is False
+
+
+def test_timeline_empty_is_not_orphan():
+    """A device with NO joins anywhere isn't 'orphan' — it's not in the
+    index at all. is_truly_orphan requires joins-but-none-open."""
+    tl = DeviceTimeline(100, [])
+    assert tl.is_truly_orphan is False
+    assert tl.is_currently_attached is False
+
+
+# ---------------------------------------------------------------------------
+# DeviceTimeline.gaps
+# ---------------------------------------------------------------------------
+
+
+def test_gaps_empty_when_fewer_than_two_joins():
+    tl = DeviceTimeline(100, [_join(100, 50, "2025-03-15")])
+    assert tl.gaps() == []
+
+
+def test_gaps_detects_simple_gap():
+    """Models device 19969 (Grindavík vestur close 2025-05-05 → Grindavík
+    miðja open 2025-11-05 = ~184-day gap)."""
+    tl = DeviceTimeline(
+        19969,
+        [
+            _join(19969, 19968, "2023-11-15T00:00:00", "2025-05-05T00:00:00"),
+            _join(19969, 19964, "2025-11-05T00:00:00", None),
+        ],
+    )
+    gaps = tl.gaps()
+    assert len(gaps) == 1
+    g = gaps[0]
+    assert g.id_entity == 19969
+    assert g.after.id_entity_parent == 19968
+    assert g.before.id_entity_parent == 19964
+    assert 180 < g.duration_days < 190
+    assert g.time_from == "2025-05-05T00:00:00"
+    assert g.time_to == "2025-11-05T00:00:00"
+
+
+def test_gaps_min_days_threshold_filters_short_artifacts():
+    """1–30 day "gaps" are typically date-rounding artifacts (per advisor
+    caveat). The threshold drops them."""
+    tl = DeviceTimeline(
+        100,
+        [
+            _join(100, 50, "2020-01-01", "2020-06-01"),
+            _join(100, 60, "2020-06-05", None),  # 4-day gap
+        ],
+    )
+    assert len(tl.gaps(min_days=0)) == 1
+    assert tl.gaps(min_days=30) == []
+
+
+def test_gaps_ignores_overlap_as_gap():
+    """When the next join starts BEFORE the previous one closes, that's
+    overlap (an I2-style anomaly), not a gap."""
+    tl = DeviceTimeline(
+        100,
+        [
+            _join(100, 50, "2020-01-01", "2025-12-31"),
+            _join(100, 60, "2024-06-15", None),  # starts inside join-1
+        ],
+    )
+    assert tl.gaps() == []
+
+
+def test_gaps_ignores_pair_starting_with_open_join():
+    """Two opens (or open-then-closed) is multi-open territory, not a gap."""
+    tl = DeviceTimeline(
+        100,
+        [
+            _join(100, 50, "2020-01-01", None),  # open
+            _join(100, 60, "2025-06-30", None),  # open
+        ],
+    )
+    assert tl.gaps() == []
+
+
+def test_gaps_handles_unparseable_dates():
+    """If TOS ever returns malformed dates, skip the affected gap rather
+    than crashing."""
+    tl = DeviceTimeline(
+        100,
+        [
+            _join(100, 50, "2020-01-01", "garbage"),
+            _join(100, 60, "2025-06-30", None),
+        ],
+    )
+    # Bad close date → no gap surfaced, no exception.
+    assert tl.gaps() == []
+
+
+def test_gaps_multiple_gaps_in_one_timeline():
+    """A device that bounced through several stations with gaps between."""
+    tl = DeviceTimeline(
+        100,
+        [
+            _join(100, 50, "2018-01-01", "2019-06-30"),
+            _join(100, 60, "2020-01-15", "2022-08-15"),  # gap 1: ~6.5 months
+            _join(100, 70, "2024-03-01", None),  # gap 2: ~18.5 months
+        ],
+    )
+    gaps = tl.gaps(min_days=30)
+    assert len(gaps) == 2
+    # First gap is between 50-close and 60-open
+    assert gaps[0].after.id_entity_parent == 50
+    assert gaps[0].before.id_entity_parent == 60
+    # Second between 60-close and 70-open
+    assert gaps[1].after.id_entity_parent == 60
+    assert gaps[1].before.id_entity_parent == 70
+
+
+# ---------------------------------------------------------------------------
+# JoinIndex
+# ---------------------------------------------------------------------------
+
+
+def test_join_index_timeline_for_known_device():
+    idx = JoinIndex(
+        by_child={
+            100: [
+                _join(100, 50, "2020-01-01", "2025-05-15"),
+                _join(100, 60, "2025-06-30", None),
+            ]
+        }
+    )
+    tl = idx.timeline(100)
+    assert isinstance(tl, DeviceTimeline)
+    assert len(tl.joins) == 2
+
+
+def test_join_index_timeline_for_unknown_device_returns_empty():
+    idx = JoinIndex()
+    tl = idx.timeline(999)
+    assert tl.joins == []
+    assert tl.is_currently_attached is False
+
+
+def test_join_index_total_joins_counts_across_all_devices():
+    idx = JoinIndex(
+        by_child={
+            100: [_join(100, 50, "2020-01-01")],
+            200: [
+                _join(200, 50, "2020-01-01", "2022-01-01"),
+                _join(200, 60, "2022-02-01", None),
+            ],
+        }
+    )
+    assert idx.total_joins == 3
+
+
+def test_join_index_device_ids_returns_sorted_unique():
+    idx = JoinIndex(
+        by_child={
+            200: [_join(200, 50, "2020-01-01")],
+            100: [_join(100, 50, "2020-01-01")],
+        }
+    )
+    assert idx.device_ids == [100, 200]
+
+
+# ---------------------------------------------------------------------------
+# build_join_index
+# ---------------------------------------------------------------------------
+
+
+def test_build_join_index_aggregates_across_parents():
+    """A device joined to parent A then to parent B shows both joins in
+    its timeline after one full index build."""
+    h_a = _parent_history_with_conns(
+        50,
+        conns=[
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2020-01-01",
+                time_to="2022-05-15",
+            )
+        ],
+    )
+    h_b = _parent_history_with_conns(
+        60,
+        conns=[
+            _conn(
+                id_entity_connection=2,
+                parent=60,
+                child=100,
+                time_from="2023-03-15",
+                time_to=None,
+            )
+        ],
+    )
+    client = MagicMock()
+    client.get_entity_history.side_effect = lambda i: {50: h_a, 60: h_b}.get(int(i))
+
+    idx = build_join_index(client, parents=[_parent(50), _parent(60)])
+
+    assert idx.parents_walked == 2
+    assert idx.parents_failed == 0
+    tl = idx.timeline(100)
+    assert len(tl.joins) == 2
+    # Sorted chronologically
+    assert tl.joins[0].id_entity_parent == 50
+    assert tl.joins[1].id_entity_parent == 60
+    # Closed → Open transition is a recoverable gap
+    gaps = tl.gaps()
+    assert len(gaps) == 1
+
+
+def test_build_join_index_skips_unreadable_parent():
+    """A parent whose history returns None (deleted? transient error?) is
+    counted as failed; the rest of the index is unaffected."""
+    h_b = _parent_history_with_conns(
+        60,
+        conns=[
+            _conn(
+                id_entity_connection=2,
+                parent=60,
+                child=100,
+                time_from="2023-03-15",
+            )
+        ],
+    )
+    client = MagicMock()
+    client.get_entity_history.side_effect = lambda i: {60: h_b}.get(int(i))
+
+    idx = build_join_index(client, parents=[_parent(50), _parent(60)])
+
+    assert idx.parents_walked == 1
+    assert idx.parents_failed == 1
+    assert idx.timeline(100).joins[0].id_entity_parent == 60
+
+
+def test_build_join_index_progress_callback_fires_per_parent():
+    h = _parent_history_with_conns(50, conns=[])
+    client = MagicMock()
+    client.get_entity_history.return_value = h
+
+    calls: List[tuple] = []
+    idx = build_join_index(
+        client,
+        parents=[_parent(50), _parent(60), _parent(70)],
+        progress=lambda i, total: calls.append((i, total)),
+    )
+    _ = idx  # unused
+    assert calls == [(1, 3), (2, 3), (3, 3)]
+
+
+def test_build_join_index_handles_get_entity_history_exception():
+    """A network error reading one parent should NOT abort the whole
+    index build."""
+    h_good = _parent_history_with_conns(60, conns=[])
+
+    def hist(i):
+        if int(i) == 50:
+            raise RuntimeError("transient TOS error")
+        return h_good if int(i) == 60 else None
+
+    client = MagicMock()
+    client.get_entity_history.side_effect = hist
+
+    idx = build_join_index(client, parents=[_parent(50), _parent(60)])
+
+    assert idx.parents_walked == 1
+    assert idx.parents_failed == 1
+
+
+def test_build_join_index_calls_enumerate_known_parents_when_none(monkeypatch):
+    """The convenience case ``parents=None`` calls enumerate_known_parents
+    so callers don't need to wire it up themselves."""
+    import tostools.history as histmod
+
+    sentinel = [_parent(4, role="warehouse", subtype="area")]
+    h = _parent_history_with_conns(4, conns=[], subtype="area")
+    client = MagicMock()
+    client.get_entity_history.return_value = h
+
+    monkeypatch.setattr(histmod, "enumerate_known_parents", lambda c: sentinel)
+    idx = build_join_index(client)
+
+    assert idx.parents_walked == 1
+
+
+def test_build_join_index_ignores_malformed_connection_rows():
+    """A row missing id_entity_child is dropped; index still built from
+    the well-formed rows."""
+    h = _parent_history_with_conns(
+        50,
+        conns=[
+            {"id_entity_connection": 1, "time_from": "2020-01-01"},  # no child
+            _conn(
+                id_entity_connection=2,
+                parent=50,
+                child=100,
+                time_from="2021-01-01",
+            ),
+        ],
+    )
+    client = MagicMock()
+    client.get_entity_history.return_value = h
+
+    idx = build_join_index(client, parents=[_parent(50)])
+
+    assert idx.total_joins == 1
+    assert 100 in idx.device_ids
+
+
+# ---------------------------------------------------------------------------
+# Gap dataclass
+# ---------------------------------------------------------------------------
+
+
+def test_gap_time_from_and_time_to_properties():
+    j_after = _join(100, 50, "2020-01-01", "2022-05-15")
+    j_before = _join(100, 60, "2023-03-15", None)
+    g = Gap(id_entity=100, after=j_after, before=j_before, duration_days=304.0)
+    assert g.time_from == "2022-05-15"
+    assert g.time_to == "2023-03-15"

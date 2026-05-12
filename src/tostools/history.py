@@ -1,22 +1,21 @@
-"""Device-history-reconstruction primitives (step 2 of the synthesis plan).
+"""Device-history-reconstruction primitives (synthesis plan §5 steps 2 & 3).
 
 This module owns the read-only primitives used to walk and reconstruct the
-full join history of GNSS devices in TOS. The first deliverable here is
-:func:`enumerate_known_parents` — the "bootstrap parent list" needed by the
-forthcoming :func:`build_join_index` (step 3 of the synthesis).
+full join history of GNSS devices in TOS.
 
 Why a separate module
 ---------------------
 TOS exposes ``children_connections`` only from the parent side; a device's
 own ``id_entity_parent`` attribute can be stale (see GitHub issue #17, fixed
-in PR #18). So to reconstruct a device's complete timeline we have to walk
-every parent the device might have touched. That requires knowing the parent
-set up front.
+in PR #18). To reconstruct a device's complete timeline we have to walk
+every parent it might have touched — :func:`build_join_index` does that
+once and gives us O(1) per-device lookup afterwards via
+:meth:`JoinIndex.timeline`. Gap detection on the timeline surfaces the
+"device was somewhere unrecorded" cases the user cares about.
 
 The synthesis note
 ``~/notes/bgovault/2.Areas/VI_GPS_Library/1778612553-tostools-history-reconstruction-leverage.md``
-captures the full design (§2.3 for the join index, §5 step 2 for this
-enumeration).
+captures the full design.
 
 What this module is NOT
 -----------------------
@@ -28,12 +27,24 @@ What this module is NOT
 
 API surface
 -----------
+Parent enumeration (§5 step 2):
+
 * :class:`ParentEntity` — frozen dataclass describing one parent.
 * :data:`KNOWN_INFRASTRUCTURE_IDS` — hardcoded entity IDs for the warehouse
   network + graveyard. Stable across deployments.
-* :func:`enumerate_known_parents` — top-level entry point. Returns the
-  bootstrap parent list (infrastructure + stations from ``stations.cfg``,
-  optionally augmented).
+* :func:`enumerate_known_parents` — returns the bootstrap parent list
+  (infrastructure + stations from ``stations.cfg``, optionally augmented).
+
+Join index + device timeline (§5 step 3):
+
+* :class:`Join` — one parent→child join from a parent's children_connections.
+* :class:`JoinIndex` — global child→[joins] map, dict-backed.
+* :class:`DeviceTimeline` — one device's full chronologically-sorted joins,
+  with ``open_joins``, ``closed_joins``, ``is_currently_attached``,
+  ``is_truly_orphan`` properties and ``gaps(min_days=…)`` detection.
+* :class:`Gap` — one unrecorded period between two adjacent closed→any joins.
+* :func:`build_join_index` — walk parents, return JoinIndex (~10s for the
+  IMO fleet).
 """
 
 from __future__ import annotations
@@ -41,8 +52,9 @@ from __future__ import annotations
 import configparser
 import logging
 import os
-from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from .api.tos_client import TOSClient
 
@@ -351,3 +363,295 @@ def enumerate_known_parents(
         _add(int(eid))
 
     return list(seen.values())
+
+
+# ---------------------------------------------------------------------------
+# Join records, indexed by child
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Join:
+    """One parent→child join, sourced from a parent's ``children_connections``.
+
+    The shape mirrors the raw TOS payload directly — we don't enrich with
+    parent_name or child_subtype here (audit.JoinRecord does that). Keeping
+    Join lean lets the index stay cheap to build.
+    """
+
+    id_entity_connection: int
+    id_entity_parent: int
+    id_entity_child: int
+    time_from: str  # ISO 8601 datetime string from TOS
+    time_to: Optional[str]  # None = currently open
+
+    @property
+    def is_open(self) -> bool:
+        return self.time_to is None
+
+
+@dataclass(frozen=True)
+class Gap:
+    """A period during which the device has no recorded parent.
+
+    Bounded by the close of ``after`` (the preceding closed join) and the
+    open of ``before`` (the next join, open or closed). The user's
+    "device was at B9 but the move was never recorded" case shows up here.
+    """
+
+    id_entity: int
+    after: Join  # the closed join that ends the previous coverage
+    before: Join  # the next join that starts a new coverage period
+    duration_days: float  # decimal days between after.time_to and before.time_from
+
+    @property
+    def time_from(self) -> Optional[str]:
+        """The start of the gap (when the previous join closed)."""
+        return self.after.time_to
+
+    @property
+    def time_to(self) -> str:
+        """The end of the gap (when the next join opens)."""
+        return self.before.time_from
+
+
+class DeviceTimeline:
+    """The complete join history of one device, sorted chronologically.
+
+    Constructed by :meth:`JoinIndex.timeline`. Provides gap detection and
+    "is this device currently attached?" queries.
+    """
+
+    __slots__ = ("id_entity", "joins")
+
+    def __init__(self, id_entity: int, joins: Sequence[Join]):
+        self.id_entity = int(id_entity)
+        # Stable order: by time_from, with open joins after closed ones at
+        # the same time_from (so the chronological narrative reads
+        # "closed-then-opened" not "opened-then-closed").
+        self.joins: List[Join] = sorted(
+            joins,
+            key=lambda j: (j.time_from or "", 0 if not j.is_open else 1),
+        )
+
+    def __repr__(self) -> str:
+        return f"DeviceTimeline(id_entity={self.id_entity}, n_joins={len(self.joins)})"
+
+    @property
+    def open_joins(self) -> List[Join]:
+        return [j for j in self.joins if j.is_open]
+
+    @property
+    def closed_joins(self) -> List[Join]:
+        return [j for j in self.joins if not j.is_open]
+
+    @property
+    def is_currently_attached(self) -> bool:
+        """True if at least one open join exists."""
+        return any(j.is_open for j in self.joins)
+
+    @property
+    def is_truly_orphan(self) -> bool:
+        """True if the device has joins (so we know about it) but none open
+        (no current parent in TOS — the audit's I1-orphan signal, but
+        derived from the full index rather than ``id_entity_parent``).
+        """
+        return bool(self.joins) and not self.is_currently_attached
+
+    def gaps(self, *, min_days: float = 0.0) -> List[Gap]:
+        """Surface periods where no parent is recorded.
+
+        A gap is the time between the close of one join and the open of
+        the next adjacent (sorted) join, when the previous one is closed
+        and its ``time_to`` precedes the next one's ``time_from``.
+
+        ``min_days`` filters short gaps (typically date-rounding artifacts;
+        see synthesis note §2.3). Default 0 returns every gap; production
+        callers will want a threshold (start with 30 and calibrate).
+        """
+        if len(self.joins) < 2:
+            return []
+        out: List[Gap] = []
+        for prev, curr in zip(self.joins, self.joins[1:]):
+            if prev.is_open:
+                # Two opens or open-then-closed — that's overlap territory,
+                # not a gap. The audit's I1-multi-open / I2 checks deal
+                # with that case; we skip here.
+                continue
+            prev_end = _parse_iso(prev.time_to)
+            curr_start = _parse_iso(curr.time_from)
+            if prev_end is None or curr_start is None:
+                continue
+            delta_days = (curr_start - prev_end).total_seconds() / 86400.0
+            if delta_days <= 0:
+                # Overlap, not a gap.
+                continue
+            if delta_days < min_days:
+                continue
+            out.append(
+                Gap(
+                    id_entity=self.id_entity,
+                    after=prev,
+                    before=curr,
+                    duration_days=delta_days,
+                )
+            )
+        return out
+
+
+def _parse_iso(s: Optional[str]) -> Optional[datetime]:
+    """Best-effort ISO 8601 → datetime; returns None on failure.
+
+    TOS returns dates like ``'2025-11-05T00:00:00'`` (no timezone). We
+    accept the trailing ``Z`` form too for safety. Date-only fallback
+    handles malformed entries.
+    """
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        head = s.split("T")[0]
+        try:
+            return datetime.fromisoformat(head)
+        except ValueError:
+            return None
+
+
+@dataclass
+class JoinIndex:
+    """Global child→[joins] map, the cheap foundation of device-timeline lookup.
+
+    Built by :func:`build_join_index`. Lookup is O(1) per device.
+
+    Internal storage is a plain dict; the dataclass wrapper exists so we
+    can attach metadata (build time, parents visited) without making the
+    API surface large.
+    """
+
+    by_child: Dict[int, List[Join]] = field(default_factory=dict)
+    parents_walked: int = 0
+    parents_failed: int = 0
+
+    def timeline(self, id_entity: int) -> DeviceTimeline:
+        """Return the :class:`DeviceTimeline` for one device.
+
+        If no joins are indexed for that id, returns an empty timeline
+        (useful: ``timeline.is_currently_attached`` will be False).
+        """
+        joins = self.by_child.get(int(id_entity), [])
+        return DeviceTimeline(id_entity, joins)
+
+    @property
+    def total_joins(self) -> int:
+        return sum(len(v) for v in self.by_child.values())
+
+    @property
+    def device_ids(self) -> List[int]:
+        """All distinct child ids appearing in the index, sorted."""
+        return sorted(self.by_child.keys())
+
+
+# ---------------------------------------------------------------------------
+# Index builder
+# ---------------------------------------------------------------------------
+
+
+def _connection_to_join(
+    conn: Dict[str, Any], fallback_parent_id: int
+) -> Optional[Join]:
+    """Convert one ``children_connections[i]`` entry into a :class:`Join`.
+
+    Returns None for malformed entries (missing child id). The parent id
+    in the connection record is preferred; we fall back to the walked
+    parent's id when TOS omits it (rare but possible for some legacy
+    rows).
+    """
+    cid_raw = conn.get("id_entity_child")
+    if cid_raw is None:
+        return None
+    try:
+        cid = int(cid_raw)
+    except (TypeError, ValueError):
+        return None
+    pid_raw = conn.get("id_entity_parent")
+    try:
+        pid = int(pid_raw) if pid_raw is not None else int(fallback_parent_id)
+    except (TypeError, ValueError):
+        pid = int(fallback_parent_id)
+    return Join(
+        id_entity_connection=int(conn.get("id_entity_connection") or 0),
+        id_entity_parent=pid,
+        id_entity_child=cid,
+        time_from=str(conn.get("time_from") or ""),
+        time_to=conn.get("time_to"),
+    )
+
+
+def build_join_index(
+    client: TOSClient,
+    parents: Optional[Iterable[ParentEntity]] = None,
+    *,
+    progress: Optional[Callable[[int, int], None]] = None,
+) -> JoinIndex:
+    """Walk every parent's ``children_connections`` and aggregate joins by child.
+
+    This is the cheap O(P) primitive that makes per-device timeline lookup
+    O(1). For the live IMO TOS state (~200 parents, ~5000 joins total),
+    a fresh build takes ~10 seconds; subsequent ``.timeline(id)`` calls
+    are dict lookups.
+
+    Args:
+        client: An unauthenticated :class:`TOSClient`.
+        parents: An iterable of :class:`ParentEntity` to walk. If ``None``,
+            calls :func:`enumerate_known_parents` to use the bootstrap list.
+            Pass a custom iterable when you know exactly which parents
+            matter (e.g. only the warehouses, for a fast spot check).
+        progress: Optional ``(current, total)`` callback fired after each
+            parent fetch. Useful for CLI progress bars.
+
+    Returns:
+        A :class:`JoinIndex`. ``parents_walked`` / ``parents_failed`` on the
+        returned index reveal whether any parent failed to read (transient
+        TOS errors); the index is still usable, just missing those joins.
+    """
+    if parents is None:
+        parents = enumerate_known_parents(client)
+    parent_list = list(parents)
+
+    index = JoinIndex()
+    total = len(parent_list)
+    for i, parent in enumerate(parent_list, 1):
+        try:
+            h = client.get_entity_history(parent.id_entity)
+        except Exception as exc:
+            logger.warning(
+                "build_join_index: parent %d (%s) raised: %s; skipping",
+                parent.id_entity,
+                parent.name,
+                exc,
+            )
+            index.parents_failed += 1
+            if progress:
+                progress(i, total)
+            continue
+        if not h:
+            logger.warning(
+                "build_join_index: parent %d (%s) returned no history; skipping",
+                parent.id_entity,
+                parent.name,
+            )
+            index.parents_failed += 1
+            if progress:
+                progress(i, total)
+            continue
+        index.parents_walked += 1
+        for conn in h.get("children_connections") or []:
+            join = _connection_to_join(conn, parent.id_entity)
+            if join is None:
+                continue
+            index.by_child.setdefault(join.id_entity_child, []).append(join)
+        if progress:
+            progress(i, total)
+
+    return index
