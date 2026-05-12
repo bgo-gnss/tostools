@@ -28,15 +28,25 @@ audit module a writer that exposes the same duck-typed ``get_entity_history``
 Limitation: current-state audit only
 ------------------------------------
 TOS exposes ``children_connections`` only from the parent side; a device's
-history endpoint returns ``id_entity_parent`` (the most-recent parent) but no
-``parents_connections`` list (see
-``receivers/cfg/location_check.py:108-110``). We therefore audit a device's
+history endpoint returns ``id_entity_parent`` (a single most-recent parent
+attribute) but no ``parents_connections`` list. We therefore audit a device's
 **current** I1 state — does it have exactly one open join right now? — and
-cannot enumerate historical joins from the device side. This is sufficient
-for pre- and post-write gates because every operation that mutates joins
-specifies the device explicitly, so the parent is always known. Reconstructing
-a device's full move history would require walking all possible parents and is
-out of scope.
+cannot enumerate historical joins from the device side. Reconstructing a
+device's full move history requires walking all possible parents and is the
+job of the planned :mod:`tostools.history` join-index primitive.
+
+Authoritative "current parent" signal — basic_search lvl_two
+------------------------------------------------------------
+Live probing on 2026-05-12 revealed that ``device.id_entity_parent`` is *not*
+refreshed by TOS when a device is rejoined to a new parent, so trusting that
+attribute produces large numbers of false-positive ``I1 orphan`` reports
+(118/118 false positives in a full fleet scan; see vault note
+``1778612553-tostools-history-reconstruction-leverage``). The reliable signal
+is ``basic_search(<serial>)``: the distance=0 hit's ``id_lvl_two`` is derived
+from open joins and matches actual current location in every probed case.
+``audit_device`` now uses that as the source of truth and falls back to the
+stale attribute only when basic_search cannot resolve the device (rare; e.g.
+TOS basic_search's ASHTECH Z-XII3 indexing gap). Tracked as GitHub issue #17.
 """
 
 from __future__ import annotations
@@ -296,6 +306,51 @@ def _find_device_by_serial(
     return None
 
 
+def _current_parent_from_search(
+    client: TOSClient,
+    device_id: int,
+    device_serial: Optional[str],
+) -> tuple[Optional[int], Optional[str], bool]:
+    """Resolve the device's current parent via ``basic_search``'s lvl_two.
+
+    Returns ``(parent_id, parent_name, found)``:
+
+    * ``(int, str|None, True)`` — basic_search returned an exact hit with a
+      non-null ``id_lvl_two``; this is the authoritative current parent.
+    * ``(None, None, True)`` — basic_search returned an exact hit but its
+      ``id_lvl_two`` is null; the device is truly orphan (no current parent).
+    * ``(None, None, False)`` — basic_search returned no exact hit (no
+      serial available, or a TOS indexing gap like ASHTECH Z-XII3). The
+      caller can fall back to ``id_entity_parent`` or report a "cannot
+      determine" violation.
+
+    Why not ``device.id_entity_parent``? TOS does not refresh that attribute
+    on re-joins; basic_search's lvl chain is derived from open joins and is
+    consistent in every case probed live. See module docstring for the full
+    rationale.
+    """
+    if not device_serial:
+        return None, None, False
+    for hit in client.basic_search(device_serial):
+        if hit.get("distance") != 0:
+            continue
+        # TOS hits carry both ``id_entity`` and ``id_lvl_three`` (equal in
+        # practice); accept either, mirroring :func:`_find_device_by_serial`.
+        hit_id_raw = hit.get("id_entity") or hit.get("id_lvl_three")
+        if not hit_id_raw or int(hit_id_raw) != device_id:
+            continue
+        lvl_two_raw = hit.get("id_lvl_two")
+        if lvl_two_raw is None:
+            return None, None, True
+        try:
+            parent_id = int(lvl_two_raw)
+        except (TypeError, ValueError):
+            return None, None, True
+        parent_name = hit.get("name_lvl_two")
+        return parent_id, parent_name, True
+    return None, None, False
+
+
 def _resolve_device_entity(
     client: TOSClient,
     *,
@@ -340,8 +395,12 @@ def audit_device(
     Invariant I1 check:
 
     1. Resolve the device's history.
-    2. Read ``id_entity_parent`` (current parent, or ``None``).
-    3. If no parent → I1 violation (orphan with no recorded location).
+    2. Look up the **current parent** via ``basic_search(serial)``'s
+       ``id_lvl_two`` (the authoritative signal; see module docstring). If
+       basic_search has no exact hit, fall back to the device's
+       ``id_entity_parent`` attribute and flag the fallback as a caveat.
+    3. If no parent signal is available at all → I1 violation (orphan
+       with no recorded location).
     4. Else fetch the parent's ``children_connections``, count open joins
        (``time_to is None``) where ``id_entity_child == device_id``:
        0 → I1 violation (closed-without-replacement orphan);
@@ -355,8 +414,25 @@ def audit_device(
     device_id = int(history["id_entity"])
     device_subtype = str(history.get("code_entity_subtype") or "")
     device_serial = _open_attr_value(history.get("attributes"), "serial_number")
-    parent_id_raw = history.get("id_entity_parent")
-    parent_id = int(parent_id_raw) if parent_id_raw else None
+
+    parent_id, parent_name_hint, search_found = _current_parent_from_search(
+        client, device_id, device_serial
+    )
+
+    used_legacy_fallback = False
+    if parent_id is None and not search_found:
+        # basic_search couldn't resolve the device — typically a TOS
+        # indexing gap (e.g. ASHTECH Z-XII3 hyphen-pattern) or a missing
+        # serial. Fall back to the legacy id_entity_parent attribute so
+        # the audit at least produces an actionable answer, and tag the
+        # report so callers can downgrade the confidence.
+        legacy_raw = history.get("id_entity_parent")
+        if legacy_raw:
+            try:
+                parent_id = int(legacy_raw)
+                used_legacy_fallback = True
+            except (TypeError, ValueError):
+                parent_id = None
 
     report = DeviceAuditReport(
         id_entity=device_id,
@@ -364,12 +440,27 @@ def audit_device(
         serial=device_serial,
         current_parent_id=parent_id,
     )
+    if parent_name_hint:
+        report.current_parent_name = parent_name_hint
+    if used_legacy_fallback:
+        report.invariant_violations.append(
+            f"I1 cannot-verify: basic_search returned no exact match for "
+            f"serial {device_serial!r}; using stale id_entity_parent="
+            f"{parent_id} (audit confidence reduced)"
+        )
 
     if parent_id is None:
         report.invariant_I1_ok = False
-        report.invariant_violations.append(
-            "I1 no-parent: device has no current parent in TOS"
-        )
+        if search_found:
+            report.invariant_violations.append(
+                "I1 orphan: basic_search found device but reports no "
+                "current parent (id_lvl_two is null)"
+            )
+        else:
+            report.invariant_violations.append(
+                "I1 no-parent: device has no current parent signal "
+                "(basic_search no exact match, no id_entity_parent)"
+            )
         return report
 
     parent_history = client.get_entity_history(parent_id)
@@ -381,9 +472,12 @@ def audit_device(
         )
         return report
 
-    report.current_parent_name = _open_attr_value(
-        parent_history.get("attributes"), "name"
-    )
+    attr_name = _open_attr_value(parent_history.get("attributes"), "name")
+    if attr_name:
+        report.current_parent_name = attr_name
+    # else: preserve the name hint from basic_search's lvl_two (set above).
+    # Some parents (e.g. certain warehouse sub-entities) don't carry a 'name'
+    # attribute in their own history but DO have a name_lvl_two in search.
     parent_subtype = parent_history.get("code_entity_subtype")
     if parent_subtype:
         report.current_parent_subtype = str(parent_subtype)
