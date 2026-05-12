@@ -515,9 +515,10 @@ def test_list_orphan_devices_returns_only_I1_violations():
     client.get_entity_history.side_effect = lambda i: history_by_id.get(int(i))
 
     # basic_search returns all three candidates for the first model, none for
-    # the rest — order is preserved via dedup.
+    # the rest — order is preserved via dedup. Use "POLARX" as the trigger
+    # term since that's in DEFAULT_ORPHAN_SCAN_MODELS.
     def _search(term):
-        if term == "POLARX5":
+        if term == "POLARX":
             return [
                 _model_hit("SEPT POLARX5", 101),
                 _model_hit("SEPT POLARX5", 102),

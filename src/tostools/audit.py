@@ -85,13 +85,49 @@ GPS_STATION_EXPECTED_SUBTYPES: tuple[str, ...] = (
 REAL_STATION_SUBTYPES: tuple[str, ...] = ("geophysical",)
 
 # Default search terms used to enumerate the deployed device population for
-# fleet-wide audits (:func:`list_orphan_devices`). Sourced from the F audit
-# in the design doc (2026-05-12), which found 246 gnss_receivers across
-# these five model strings.
+# fleet-wide audits (:func:`list_orphan_devices`). Each entry is passed to
+# ``TOSClient.basic_search`` as a substring; hits with ``code='model'`` are
+# resolved to entities and filtered to the canonical subtype. Order doesn't
+# matter (results are deduplicated by id_entity).
+#
+# Coverage was confirmed against live TOS on 2026-05-12 — 322 distinct
+# gnss_receiver entities were enumerated across these terms, spanning the
+# current modern fleet (POLARX5 / NETR9 / NETRS) and the legacy gear still
+# stuck at decommissioned sites (TRIMBLE 4000-series, ASHTECH UZ-12, etc.).
+#
+# Known coverage gap — ASHTECH Z-XII3
+# -----------------------------------
+# TOS basic_search appears to mis-index hyphen-and-digit patterns: searching
+# for ``"Z-XII"``, ``"XII3"``, or ``"ASHTECH"`` all fail to surface
+# ``"ASHTECH Z-XII3"`` even though devices with that model exist (e.g.
+# id_entity=4954). We have no workaround at the model-search level. To
+# audit such devices, run ``tos audit device --id <n>`` directly, or wait
+# for ``cfg fix`` (todo #5) to walk parent entities and find them by join
+# graph rather than by model.
 DEFAULT_ORPHAN_SCAN_MODELS: Dict[str, tuple[str, ...]] = {
-    "gnss_receiver": ("POLARX5", "NetR9", "NetRS", "NetR5", "GR10"),
-    # Antenna / radome / monument seed lists are TBD — extend as the F audit
-    # is broadened to those subtypes.
+    "gnss_receiver": (
+        # Modern fleet (Septentrio / Trimble / Leica current models)
+        "POLARX",  # SEPT POLARX2, POLARX3E, POLARX5
+        "NetR",  # TRIMBLE NETR5, NETR9, NETRS
+        "NetRS",  # explicit — NETRS substring inside NetR
+        "ASTERX",  # SEPT ASTERX-M
+        "MOSAIC",  # SEPT MOSAIC-X5
+        "GR10",  # LEICA GR10
+        "GR25",  # LEICA GR25
+        # Legacy Trimble
+        "TRIMBLE 4000",  # 4000SSE / 4000SSI / 4000SST
+        "TRIMBLE 4700",
+        "TRIMBLE 5700",
+        "TRIMBLE R7",  # R7 / R7 GNSS
+        # Legacy ASHTECH
+        "ASHTECH",  # UZ-12 (Z-XII3 invisible — see docstring above)
+        # Other vendors
+        "GB-1000",  # TPS GB-1000
+        "u-blox",
+        "ublox",  # alternate spelling found in live data
+    ),
+    # Antenna / radome / monument seed lists are TBD — extend when the
+    # audit grows beyond receiver-only.
 }
 
 
