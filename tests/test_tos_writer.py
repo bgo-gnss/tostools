@@ -264,6 +264,62 @@ def test_patch_entity_connection_raises_with_no_kwargs():
 
 
 # ---------------------------------------------------------------------------
+# TOSWriter — delete_entity_connection
+# ---------------------------------------------------------------------------
+
+
+def test_delete_entity_connection_dry_run_returns_dry_run_result():
+    """The shared dry-run interception in TOSWriter._request must cover
+    DELETE — that's how `cfg move` rollback stays safe in dry-run mode."""
+    w = _logged_in_writer(dry_run=True)
+    result = w.delete_entity_connection(id_connection=42)
+    assert isinstance(result, DryRunResult)
+    assert result.method == "DELETE"
+    assert result.endpoint == "/joins/42/"
+
+
+def test_delete_entity_connection_dry_run_does_not_send_http():
+    w = _logged_in_writer(dry_run=True)
+    with patch("requests.request") as mock_req:
+        w.delete_entity_connection(id_connection=42)
+    mock_req.assert_not_called()
+
+
+def test_delete_entity_connection_live_sends_delete_request():
+    w = _logged_in_writer(dry_run=False)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 204
+    mock_resp.content = b""
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("requests.request", return_value=mock_resp) as mock_req:
+        w.delete_entity_connection(id_connection=42)
+
+    mock_req.assert_called_once()
+    call = mock_req.call_args
+    # Verifies the TOS path quirk: DELETE on /joins/<id>/ (plural), not
+    # /join/<id>/ which is reserved for PATCH.
+    assert call.args[0] == "DELETE"
+    assert call.args[1].endswith("/joins/42/")
+
+
+def test_delete_entity_connection_per_call_dry_run_override():
+    """Per-call dry_run=False overrides the instance-level dry_run=True."""
+    w = _logged_in_writer(dry_run=True)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 204
+    mock_resp.content = b""
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("requests.request", return_value=mock_resp) as mock_req:
+        w.delete_entity_connection(id_connection=42, dry_run=False)
+
+    mock_req.assert_called_once()
+    # Instance dry_run is restored after the call.
+    assert w.dry_run is True
+
+
+# ---------------------------------------------------------------------------
 # TOSWriter — upsert_attribute_value logic
 # ---------------------------------------------------------------------------
 

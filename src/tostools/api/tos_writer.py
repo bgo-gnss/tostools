@@ -748,6 +748,35 @@ class TOSWriter:
             )
         return self._request("PATCH", f"/join/{id_connection}", data=kwargs)
 
+    def delete_entity_connection(
+        self,
+        id_connection: int,
+        dry_run: Optional[bool] = None,
+    ) -> Any:
+        """Delete a parent→child entity connection.
+
+        Used by ``cfg move`` for rollback: when a POST succeeds but a
+        subsequent operation fails, the orchestrator DELETEs the
+        newly-created joins to leave TOS unchanged.
+
+        TOS path quirk: DELETE uses the **plural** ``/joins/<id>/`` path
+        (same as the collection POST endpoint at :meth:`create_entity_connection`),
+        while PATCH uses the **singular** ``/join/<id>/`` (see
+        :meth:`patch_entity_connection`). POSTing to ``/join`` or PATCHing
+        ``/joins/<id>`` returns the wrong HTTP error. Don't confuse them.
+
+        Dry-run interception is handled by :meth:`_request` (DELETE is
+        classified as a mutating method), so a dry-run call returns a
+        :class:`DryRunResult` without contacting TOS.
+
+        Args:
+            id_connection: The join's own id (the value patched by
+                :meth:`patch_entity_connection`).
+            dry_run: Override the instance-level ``dry_run`` for this call.
+        """
+        with _dry_run_override(self, dry_run):
+            return self._request("DELETE", f"/joins/{id_connection}/")
+
 
 # ---------------------------------------------------------------------------
 # Context manager helper for per-call dry_run override
