@@ -1700,7 +1700,7 @@ def generateFDSNXML(station_list=None):
     # inv.write("station.txt", format="stationtxt")
 
 
-KNOWN_SUBCOMMANDS = {"owners", "device"}
+KNOWN_SUBCOMMANDS = {"owners", "device", "audit"}
 
 
 def _owners_main(argv):
@@ -1864,9 +1864,7 @@ def _device_main(argv):
         print(f"Invalid --date-start: {e}", file=sys.stderr)
         return 2
 
-    cache = (
-        OwnersCache(args.owners_cache) if args.owners_cache else OwnersCache()
-    )
+    cache = OwnersCache(args.owners_cache) if args.owners_cache else OwnersCache()
     known_owners = cache.load()
     if args.owner not in known_owners:
         print(
@@ -1904,9 +1902,7 @@ def _device_main(argv):
 
     # ---- Create entity ---------------------------------------------------
     try:
-        response = writer.create_device(
-            args.subtype, required, force=args.force
-        )
+        response = writer.create_device(args.subtype, required, force=args.force)
     except ValueError as e:
         msg = str(e)
         if "already exists" in msg and not args.force:
@@ -1951,9 +1947,7 @@ def _device_main(argv):
             "id_entity": id_entity,
             "dry_run": dry_run,
             "required_attributes": required,
-            "optional_attributes": [
-                {"code": c, "value": v} for c, v in optional
-            ],
+            "optional_attributes": [{"code": c, "value": v} for c, v in optional],
             "upsert_results": upsert_responses,
         }
         print(_json.dumps(payload, ensure_ascii=False, indent=2))
@@ -1965,6 +1959,452 @@ def _device_main(argv):
             f"id_entity={id_str}{suffix}"
         )
     return 0
+
+
+def _audit_main(argv):
+    """Handle ``tos audit <kind>`` subcommands.
+
+    Step 1 of the device-warehouse implementation order — read-only invariant
+    checks for devices (I1) and stations (I2) per the design doc at
+    ``2.Areas/VI_GPS_Library/1778592216-device-warehouse-design.md``.
+
+    Exit codes: 0 = clean, 1 = invariant violation detected, 2 = usage error
+    or entity not found. Completeness warnings on a station are advisory and
+    do **not** affect the exit code.
+    """
+    import json as _json
+
+    from .api.tos_client import TOSClient
+    from . import audit as audit_mod
+
+    p = argparse.ArgumentParser(
+        prog="tos audit",
+        description=(
+            "Verify TOS device-warehouse invariants. Read-only; no "
+            "credentials required."
+        ),
+        epilog=(
+            "WHAT TOS TRACKS\n"
+            "  Every GPS device (receiver, antenna, radome, monument) is its\n"
+            "  own entity in TOS. The location of a device — 'this receiver\n"
+            "  is plugged into station X' — is NOT stored as an attribute. It\n"
+            "  is a parent-child *join* record with a date range:\n"
+            "    time_from = day the device was attached\n"
+            "    time_to   = day it was removed (NULL for the current state)\n"
+            "  When a device moves, the old join should close (time_to is\n"
+            "  set) and a new one open. B9-Jörð (id_entity=4) is the virtual\n"
+            "  'warehouse' station: a device that is not deployed in the\n"
+            "  field should be joined to B9.\n"
+            "\n"
+            "INVARIANTS THIS COMMAND CHECKS (TOS does not enforce them)\n"
+            "  I1  Every device has exactly one open join at any moment.\n"
+            "      Violations:\n"
+            "        I1 no-parent : id_entity_parent on the device is null.\n"
+            "        I1 orphan    : the device's last join was closed but no\n"
+            "                       replacement was opened — the device is\n"
+            "                       'in limbo'.\n"
+            "        I1 multi-open: more than one open join to the same\n"
+            "                       parent (internally inconsistent).\n"
+            "  I2  Every station has at most one open join per device\n"
+            "      subtype (no two active receivers, etc., at one station).\n"
+            "  Completeness (advisory, never blocks):\n"
+            "      A full GPS station has one open receiver + antenna +\n"
+            "      monument. Partial sets are legal but flagged.\n"
+            "\n"
+            "WHY THIS MATTERS\n"
+            "  Wrong joins propagate into RINEX metadata, dashboards, GAMIT,\n"
+            "  IGS site logs. Audit catches inconsistencies before they leak\n"
+            "  downstream.\n"
+            "\n"
+            "Examples:\n"
+            "  tos audit device --serial 3235768 --subtype receiver\n"
+            "  tos audit device --id 21489\n"
+            "  tos audit device --id 21489 --verbose\n"
+            "  tos audit station RHOF\n"
+            "  tos audit station --id 4               # B9 - Kjallari - Jörð\n"
+            "  tos audit orphans --subtype receiver\n"
+            "  tos audit orphans --subtype receiver --verbose\n"
+            "  tos audit orphans --subtype receiver --model POLARX5 --json\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = p.add_subparsers(dest="kind", required=True)
+
+    p_dev = sub.add_parser(
+        "device",
+        help="Audit one device (invariant I1).",
+        description=(
+            "Verify that one device has exactly one open join to its current "
+            "parent. Exits 0 on I1 OK, 1 on I1 violation, 2 on lookup or "
+            "usage error."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos audit device --serial 3235768 --subtype receiver\n"
+            "  tos audit device --id 21489\n"
+            "  tos audit device --id 21489 --json\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    dev_target = p_dev.add_mutually_exclusive_group(required=True)
+    dev_target.add_argument(
+        "--serial", help="Device serial number; requires --subtype."
+    )
+    dev_target.add_argument(
+        "--id", dest="id_entity", type=int, help="Device id_entity."
+    )
+    p_dev.add_argument(
+        "--subtype",
+        choices=sorted(set(audit_mod.SUBTYPE_ALIASES)),
+        help="Device subtype (short or canonical). Required with --serial.",
+    )
+    p_dev.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of plain text."
+    )
+    p_dev.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_dev.add_argument("--port", type=int, default=443)
+    p_dev.add_argument(
+        "--verbose",
+        action="store_true",
+        help="On violations, add a plain-English block explaining what it "
+        "means, the expected state, and how to fix it.",
+    )
+
+    p_st = sub.add_parser(
+        "station",
+        help="Audit one station (invariant I2).",
+        description=(
+            "Verify that one station has at most one open join per device "
+            "subtype. Also emits non-blocking completeness warnings when "
+            "expected subtypes (receiver/antenna/monument) are missing. "
+            "Exits 0 on I2 OK, 1 on I2 violation, 2 on lookup or usage error."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos audit station RHOF\n"
+            "  tos audit station --id 4              # B9 - Kjallari - Jörð\n"
+            "  tos audit station RHOF --json\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    st_target = p_st.add_mutually_exclusive_group(required=True)
+    st_target.add_argument("name", nargs="?", help="Exact station name.")
+    st_target.add_argument(
+        "--id", dest="id_entity", type=int, help="Station id_entity."
+    )
+    p_st.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of plain text."
+    )
+    p_st.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_st.add_argument("--port", type=int, default=443)
+    p_st.add_argument(
+        "--verbose",
+        action="store_true",
+        help="On violations, add a plain-English block explaining what it "
+        "means, the expected state, and how to fix it.",
+    )
+
+    p_orph = sub.add_parser(
+        "orphans",
+        help="List I1-orphan devices across the fleet (scan-by-model).",
+        description=(
+            "Enumerate devices of a given subtype via basic_search on a list "
+            "of model strings, audit each, and report those with I1 "
+            "violations (closed-without-replacement orphans, multi-open "
+            "joins, or no current parent). The F audit on 2026-05-12 used "
+            "this workflow on receivers and found 18 orphans across 246 "
+            "candidates. Exits 0 when no violations are found, 1 when at "
+            "least one violation is reported, 2 on usage error."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos audit orphans --subtype receiver\n"
+            "  tos audit orphans --subtype receiver --model POLARX5 --model NetR9\n"
+            "  tos audit orphans --subtype receiver --json\n"
+            "\n"
+            "Default models per subtype (used when --model is not given):\n"
+            + "\n".join(
+                f"  {sub}: {', '.join(models)}"
+                for sub, models in audit_mod.DEFAULT_ORPHAN_SCAN_MODELS.items()
+            )
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_orph.add_argument(
+        "--subtype",
+        required=True,
+        choices=sorted(set(audit_mod.SUBTYPE_ALIASES)),
+        help="Device subtype to scan (short or canonical).",
+    )
+    p_orph.add_argument(
+        "--model",
+        action="append",
+        dest="models",
+        help=(
+            "Model string passed to basic_search (repeatable). When omitted, "
+            "uses the subtype's DEFAULT_ORPHAN_SCAN_MODELS list."
+        ),
+    )
+    p_orph.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of plain text."
+    )
+    p_orph.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_orph.add_argument("--port", type=int, default=443)
+    p_orph.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Add a plain-English preamble explaining what an I1 orphan is "
+        "and how to fix one.",
+    )
+
+    args = p.parse_args(argv)
+
+    scheme = "https" if args.port == 443 else "http"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    client = TOSClient(base_url=base_url)
+
+    if args.kind == "device":
+        if args.serial and not args.subtype:
+            print("--subtype is required when using --serial", file=sys.stderr)
+            return 2
+        try:
+            report = audit_mod.audit_device(
+                client,
+                serial=args.serial,
+                id_entity=args.id_entity,
+                subtype=args.subtype,
+            )
+        except (LookupError, ValueError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if args.json:
+            print(
+                _json.dumps(
+                    _device_report_to_dict(report), ensure_ascii=False, indent=2
+                )
+            )
+        else:
+            _print_device_report(report, verbose=args.verbose)
+        return 0 if report.invariant_I1_ok else 1
+
+    if args.kind == "orphans":
+        try:
+            scan = audit_mod.list_orphan_devices(
+                client, subtype=args.subtype, models=args.models
+            )
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if args.json:
+            print(_json.dumps(_orphan_scan_to_dict(scan), ensure_ascii=False, indent=2))
+        else:
+            _print_orphan_scan(scan, verbose=args.verbose)
+        return 1 if scan.orphan_reports else 0
+
+    if args.kind == "station":
+        try:
+            report = audit_mod.audit_station(
+                client, name=args.name, id_entity=args.id_entity
+            )
+        except (LookupError, ValueError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if args.json:
+            print(
+                _json.dumps(
+                    _station_report_to_dict(report), ensure_ascii=False, indent=2
+                )
+            )
+        else:
+            _print_station_report(report, verbose=args.verbose)
+        return 0 if report.invariant_I2_ok else 1
+
+    p.error(f"unknown kind: {args.kind}")
+    return 2
+
+
+def _device_report_to_dict(report):
+    """Convert a :class:`DeviceAuditReport` to a JSON-serialisable dict."""
+    return {
+        "kind": "device",
+        "id_entity": report.id_entity,
+        "subtype": report.subtype,
+        "serial": report.serial,
+        "current_parent_id": report.current_parent_id,
+        "current_parent_name": report.current_parent_name,
+        "open_joins": [_join_to_dict(j) for j in report.open_joins],
+        "invariant_I1_ok": report.invariant_I1_ok,
+        "invariant_violations": list(report.invariant_violations),
+    }
+
+
+def _station_report_to_dict(report):
+    """Convert a :class:`StationAuditReport` to a JSON-serialisable dict."""
+    return {
+        "kind": "station",
+        "id_entity": report.id_entity,
+        "name": report.name,
+        "open_children_by_subtype": {
+            subtype: [_join_to_dict(j) for j in joins]
+            for subtype, joins in report.open_children_by_subtype.items()
+        },
+        "invariant_I2_ok": report.invariant_I2_ok,
+        "invariant_violations": list(report.invariant_violations),
+        "completeness_warnings": list(report.completeness_warnings),
+    }
+
+
+def _join_to_dict(join):
+    if join is None:
+        return None
+    return {
+        "id_entity_parent": join.id_entity_parent,
+        "id_entity_child": join.id_entity_child,
+        "parent_name": join.parent_name,
+        "child_subtype": join.child_subtype,
+        "time_from": join.time_from,
+        "time_to": join.time_to,
+    }
+
+
+def _orphan_scan_to_dict(scan):
+    """Convert an :class:`OrphanScanResult` to a JSON-serialisable dict."""
+    return {
+        "kind": "orphans",
+        "subtype": scan.subtype,
+        "models_searched": list(scan.models_searched),
+        "total_audited": scan.total_audited,
+        "violation_count": scan.violation_count,
+        "orphan_reports": [_device_report_to_dict(r) for r in scan.orphan_reports],
+    }
+
+
+def _print_orphan_scan(scan, *, verbose: bool = False):
+    """Render an orphan-scan summary as plain text on stdout.
+
+    Default: one row per orphan. ``verbose=True`` prepends a paragraph
+    explaining what an I1 orphan is and how to fix one (shared preamble
+    covers every row, since they're all the same violation type).
+    """
+    from . import audit as audit_mod
+
+    print(
+        f"Scanned {scan.total_audited} {scan.subtype} devices "
+        f"(models: {', '.join(scan.models_searched)}) — "
+        f"{scan.violation_count} I1 violation(s)."
+    )
+    if not scan.orphan_reports:
+        print("  (no orphans found)")
+        return
+    if verbose:
+        print()
+        print(audit_mod.orphan_scan_preamble())
+        print()
+        print("Orphans:")
+    for r in scan.orphan_reports:
+        serial = r.serial or "?"
+        if r.current_parent_id is None:
+            tail = "no current parent in TOS"
+        else:
+            tail = (
+                f"last at {r.current_parent_name!r} "
+                f"(id_entity={r.current_parent_id})"
+            )
+        print(f"  ✗ id_entity={r.id_entity} SN {serial}  {tail}")
+    if not verbose:
+        print()
+        print("(run with --verbose for what this means and how to fix)")
+
+
+def _print_device_report(report, *, verbose: bool = False):
+    """Render a device audit report as plain text on stdout.
+
+    Default: header + structural lines + short tagged violation strings.
+    ``verbose=True`` appends a three-block explainer (What this means /
+    Expected state / To fix).
+    """
+    from . import audit as audit_mod
+
+    serial = report.serial or "?"
+    parent = (
+        f"id_entity={report.current_parent_id} ({report.current_parent_name!r})"
+        if report.current_parent_id is not None
+        else "<none>"
+    )
+    status = "I1 OK" if report.invariant_I1_ok else "I1 VIOLATION"
+    marker = "✓" if report.invariant_I1_ok else "✗"
+    print(
+        f"{marker} Device {report.subtype} SN {serial} "
+        f"(id_entity={report.id_entity}) — {status}"
+    )
+    print(f"  current parent: {parent}")
+    if not report.open_joins:
+        print("  open joins: <none>")
+    elif len(report.open_joins) == 1:
+        j = report.open_joins[0]
+        end = j.time_to or "present"
+        print(f"  open join: {j.time_from} → {end}")
+    else:
+        print(f"  open joins: {len(report.open_joins)} (I1 violation)")
+        for j in report.open_joins:
+            end = j.time_to or "present"
+            print(f"    - {j.time_from} → {end}")
+    for v in report.invariant_violations:
+        print(f"  · {v}")
+    if report.invariant_violations:
+        if verbose:
+            print()
+            print(audit_mod.explain_device_violations(report))
+        else:
+            print()
+            print("  (run with --verbose for what this means and how to fix)")
+
+
+def _print_station_report(report, *, verbose: bool = False):
+    """Render a station audit report as plain text on stdout.
+
+    Default: header + open-children list + short violation/warning strings.
+    ``verbose=True`` appends a three-block explainer for I2 violations.
+    """
+    from . import audit as audit_mod
+
+    status = "I2 OK" if report.invariant_I2_ok else "I2 VIOLATION"
+    marker = "✓" if report.invariant_I2_ok else "✗"
+    print(f"{marker} Station {report.name!r} (id_entity={report.id_entity}) — {status}")
+    if not report.open_children_by_subtype:
+        print("  (no open children)")
+    else:
+        print("  open children:")
+        for subtype in sorted(report.open_children_by_subtype):
+            joins = report.open_children_by_subtype[subtype]
+            for j in joins:
+                print(
+                    f"    {subtype:14s} id_entity={j.id_entity_child} "
+                    f"from {j.time_from}"
+                )
+    for v in report.invariant_violations:
+        print(f"  · {v}")
+    for w in report.completeness_warnings:
+        print(f"  ⚠ {w}")
+    if report.invariant_violations:
+        if verbose:
+            print()
+            print(audit_mod.explain_station_violations(report))
+        else:
+            print()
+            print("  (run with --verbose for what this means and how to fix)")
 
 
 def _legacy_main(argv):
@@ -2154,6 +2594,8 @@ def main(argv=None):
             return _owners_main(rest)
         if subcmd == "device":
             return _device_main(rest)
+        if subcmd == "audit":
+            return _audit_main(rest)
     return _legacy_main(argv)
 
 

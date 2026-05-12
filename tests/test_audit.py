@@ -1,0 +1,582 @@
+"""Unit tests for the audit module and the ``tos audit`` CLI handler.
+
+No network required — TOSClient is mocked.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import pytest
+
+from tostools.audit import (
+    DEFAULT_ORPHAN_SCAN_MODELS,
+    GPS_STATION_EXPECTED_SUBTYPES,
+    DeviceAuditReport,
+    JoinRecord,
+    OrphanScanResult,
+    StationAuditReport,
+    audit_device,
+    audit_station,
+    canonical_subtype,
+    list_orphan_devices,
+)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _device_history(
+    id_entity: int,
+    subtype: str = "gnss_receiver",
+    serial: str = "SN-X",
+    parent_id=None,
+):
+    return {
+        "id_entity": id_entity,
+        "code_entity_subtype": subtype,
+        "id_entity_parent": parent_id,
+        "attributes": [
+            {"code": "serial_number", "value": serial, "date_to": None},
+        ],
+        "children_connections": [],
+    }
+
+
+def _station_history(
+    id_entity: int,
+    name: str,
+    connections=None,
+):
+    return {
+        "id_entity": id_entity,
+        "code_entity_subtype": "geophysical",
+        "id_entity_parent": None,
+        "attributes": [
+            {"code": "name", "value": name, "date_to": None},
+        ],
+        "children_connections": list(connections or []),
+    }
+
+
+def _conn(id_child: int, time_from: str = "2025-01-01T00:00:00", time_to=None):
+    return {
+        "id_entity_child": id_child,
+        "time_from": time_from,
+        "time_to": time_to,
+    }
+
+
+def _client_returning(history_by_id, hits=None):
+    """Build a mock TOSClient whose get_entity_history dispatches by id.
+
+    ``hits`` controls the ``basic_search`` return value.
+    """
+    client = MagicMock()
+    client.get_entity_history.side_effect = lambda i: history_by_id.get(int(i))
+    client.basic_search.return_value = list(hits or [])
+    return client
+
+
+# ---------------------------------------------------------------------------
+# canonical_subtype
+# ---------------------------------------------------------------------------
+
+
+def test_canonical_subtype_short_alias():
+    assert canonical_subtype("receiver") == "gnss_receiver"
+
+
+def test_canonical_subtype_canonical_passthrough():
+    assert canonical_subtype("gnss_receiver") == "gnss_receiver"
+    assert canonical_subtype("antenna") == "antenna"
+
+
+def test_canonical_subtype_rejects_unknown():
+    with pytest.raises(ValueError, match="Unknown subtype"):
+        canonical_subtype("nope")
+
+
+# ---------------------------------------------------------------------------
+# audit_device — happy path
+# ---------------------------------------------------------------------------
+
+
+def test_audit_device_single_open_join_is_I1_ok():
+    device = _device_history(100, parent_id=50, serial="SN-100")
+    station = _station_history(
+        50, "RHOF", connections=[_conn(100, "2025-03-15T00:00:00")]
+    )
+    client = _client_returning({100: device, 50: station})
+
+    report = audit_device(client, id_entity=100)
+
+    assert isinstance(report, DeviceAuditReport)
+    assert report.invariant_I1_ok is True
+    assert report.invariant_violations == []
+    assert report.id_entity == 100
+    assert report.subtype == "gnss_receiver"
+    assert report.serial == "SN-100"
+    assert report.current_parent_id == 50
+    assert report.current_parent_name == "RHOF"
+    assert len(report.open_joins) == 1
+    join = report.open_joins[0]
+    assert join.id_entity_parent == 50
+    assert join.id_entity_child == 100
+    assert join.time_from == "2025-03-15T00:00:00"
+    assert join.is_open
+
+
+def test_audit_device_orphan_no_parent_is_I1_violation():
+    device = _device_history(100, parent_id=None)
+    client = _client_returning({100: device})
+
+    report = audit_device(client, id_entity=100)
+
+    assert report.invariant_I1_ok is False
+    assert any("no current parent" in v for v in report.invariant_violations)
+    assert report.current_parent_id is None
+    assert report.open_joins == []
+
+
+def test_audit_device_closed_without_replacement_is_I1_violation():
+    """Device's id_entity_parent points to a station, but the join there is
+    closed (time_to set). 18 such orphans were found in live TOS (design F)."""
+    device = _device_history(100, parent_id=50)
+    station = _station_history(
+        50,
+        "RHOF",
+        connections=[_conn(100, time_to="2025-04-01T00:00:00")],
+    )
+    client = _client_returning({100: device, 50: station})
+
+    report = audit_device(client, id_entity=100)
+
+    assert report.invariant_I1_ok is False
+    assert any("I1 orphan" in v for v in report.invariant_violations)
+    assert any(
+        "attachment closed without replacement" in v
+        for v in report.invariant_violations
+    )
+    assert report.current_parent_id == 50
+    assert report.current_parent_name == "RHOF"
+    assert report.open_joins == []
+
+
+def test_audit_device_multiple_open_joins_is_I1_violation():
+    device = _device_history(100, parent_id=50)
+    station = _station_history(
+        50,
+        "RHOF",
+        connections=[_conn(100, "2025-01-01"), _conn(100, "2025-03-15")],
+    )
+    client = _client_returning({100: device, 50: station})
+
+    report = audit_device(client, id_entity=100)
+
+    assert report.invariant_I1_ok is False
+    assert any("I1 multi-open" in v for v in report.invariant_violations)
+    assert any("2 simultaneous" in v for v in report.invariant_violations)
+    assert len(report.open_joins) == 2
+
+
+def test_audit_device_unrelated_connections_ignored():
+    """The parent has other children; only joins matching our device_id count."""
+    device = _device_history(100, parent_id=50)
+    station = _station_history(
+        50,
+        "RHOF",
+        connections=[
+            _conn(999, "2025-01-01"),
+            _conn(100, "2025-03-15"),
+            _conn(888, "2025-02-01"),
+        ],
+    )
+    client = _client_returning({100: device, 50: station})
+
+    report = audit_device(client, id_entity=100)
+
+    assert report.invariant_I1_ok is True
+    assert len(report.open_joins) == 1
+    assert report.open_joins[0].id_entity_child == 100
+
+
+# ---------------------------------------------------------------------------
+# audit_device — resolution
+# ---------------------------------------------------------------------------
+
+
+def test_audit_device_serial_lookup_filters_by_subtype():
+    """Serial resolution: basic_search → filter for code='serial_number' with
+    distance=0 → verify candidate's subtype via history. The CLI passes the
+    short ``receiver`` alias; we expect it resolved to ``gnss_receiver``
+    before the subtype check."""
+    device = _device_history(100, parent_id=50, serial="SN-100")
+    station = _station_history(50, "RHOF", connections=[_conn(100, "2025-03-15")])
+    client = _client_returning(
+        {100: device, 50: station},
+        hits=[
+            {
+                "code": "serial_number",
+                "value_varchar": "SN-100",
+                "distance": 0,
+                "id_lvl_three": 100,
+            }
+        ],
+    )
+
+    report = audit_device(client, serial="SN-100", subtype="receiver")
+
+    client.basic_search.assert_called_once_with("SN-100")
+    assert report.id_entity == 100
+    assert report.invariant_I1_ok is True
+
+
+def test_audit_device_serial_lookup_skips_wrong_subtype():
+    """basic_search may return a hit for a same-serial antenna; only the
+    candidate whose history reports the canonical subtype is accepted."""
+    antenna = _device_history(50, subtype="antenna", serial="DUP-SN")
+    receiver = _device_history(
+        100, parent_id=10, subtype="gnss_receiver", serial="DUP-SN"
+    )
+    station = _station_history(10, "RHOF", connections=[_conn(100, "2025-03-15")])
+    client = _client_returning(
+        {50: antenna, 100: receiver, 10: station},
+        hits=[
+            {
+                "code": "serial_number",
+                "value_varchar": "DUP-SN",
+                "distance": 0,
+                "id_lvl_three": 50,  # antenna — wrong subtype
+            },
+            {
+                "code": "serial_number",
+                "value_varchar": "DUP-SN",
+                "distance": 0,
+                "id_lvl_three": 100,  # receiver — match
+            },
+        ],
+    )
+
+    report = audit_device(client, serial="DUP-SN", subtype="receiver")
+
+    assert report.id_entity == 100
+
+
+def test_audit_device_serial_without_subtype_raises():
+    client = MagicMock()
+    with pytest.raises(ValueError, match="--subtype"):
+        audit_device(client, serial="SN-100")
+
+
+def test_audit_device_no_target_raises():
+    client = MagicMock()
+    with pytest.raises(ValueError, match="id_entity or serial"):
+        audit_device(client)
+
+
+def test_audit_device_missing_id_raises_lookup_error():
+    client = _client_returning({})
+    with pytest.raises(LookupError, match="id_entity=999"):
+        audit_device(client, id_entity=999)
+
+
+def test_audit_device_missing_serial_raises_lookup_error():
+    client = MagicMock()
+    client.basic_search.return_value = []
+    with pytest.raises(LookupError, match="No gnss_receiver with serial"):
+        audit_device(client, serial="SN-X", subtype="gnss_receiver")
+
+
+# ---------------------------------------------------------------------------
+# audit_station — happy path
+# ---------------------------------------------------------------------------
+
+
+def test_audit_station_one_per_subtype_is_I2_ok():
+    rcv = _device_history(101, "gnss_receiver", "SN-R")
+    ant = _device_history(102, "antenna", "SN-A")
+    mon = _device_history(103, "monument", "SN-M")
+    station = _station_history(
+        50,
+        "RHOF",
+        connections=[
+            _conn(101, "2025-01-01"),
+            _conn(102, "2025-01-01"),
+            _conn(103, "2020-05-01"),
+        ],
+    )
+    client = _client_returning({50: station, 101: rcv, 102: ant, 103: mon})
+
+    report = audit_station(client, id_entity=50)
+
+    assert isinstance(report, StationAuditReport)
+    assert report.invariant_I2_ok is True
+    assert report.invariant_violations == []
+    assert set(report.open_children_by_subtype) == {
+        "gnss_receiver",
+        "antenna",
+        "monument",
+    }
+    # Full GPS station set → no completeness warnings.
+    assert report.completeness_warnings == []
+
+
+def test_audit_station_two_open_receivers_is_I2_violation():
+    rcv1 = _device_history(101, "gnss_receiver", "SN-R1")
+    rcv2 = _device_history(201, "gnss_receiver", "SN-R2")
+    station = _station_history(
+        50,
+        "RHOF",
+        connections=[_conn(101, "2025-01-01"), _conn(201, "2025-03-15")],
+    )
+    client = _client_returning({50: station, 101: rcv1, 201: rcv2})
+
+    report = audit_station(client, id_entity=50)
+
+    assert report.invariant_I2_ok is False
+    assert any("I2 duplicate gnss_receiver" in v for v in report.invariant_violations)
+    assert any("2 open children" in v for v in report.invariant_violations)
+
+
+def test_audit_station_closed_connections_ignored():
+    rcv = _device_history(101, "gnss_receiver")
+    station = _station_history(
+        50,
+        "RHOF",
+        connections=[
+            _conn(999, "2024-01-01", time_to="2025-01-01"),  # closed; ignored
+            _conn(101, "2025-01-01"),
+        ],
+    )
+    client = _client_returning({50: station, 101: rcv})
+
+    report = audit_station(client, id_entity=50)
+
+    assert report.invariant_I2_ok is True
+    assert list(report.open_children_by_subtype) == ["gnss_receiver"]
+
+
+def test_audit_station_partial_set_emits_completeness_warnings():
+    """Receiver-only station — tech mid-deploy, antenna not yet installed."""
+    rcv = _device_history(101, "gnss_receiver")
+    station = _station_history(50, "RHOF", connections=[_conn(101, "2025-01-01")])
+    client = _client_returning({50: station, 101: rcv})
+
+    report = audit_station(client, id_entity=50)
+
+    # I2 holds — partial sets are legitimate.
+    assert report.invariant_I2_ok is True
+    missing = {"antenna", "monument"}
+    assert set(GPS_STATION_EXPECTED_SUBTYPES) >= missing
+    warned_subtypes = " ".join(report.completeness_warnings)
+    for m in missing:
+        assert m in warned_subtypes
+
+
+def test_audit_station_no_open_children():
+    station = _station_history(50, "Empty Lab", connections=[])
+    client = _client_returning({50: station})
+
+    report = audit_station(client, id_entity=50)
+
+    assert report.invariant_I2_ok is True
+    assert report.open_children_by_subtype == {}
+    # All expected subtypes flagged.
+    assert len(report.completeness_warnings) == len(GPS_STATION_EXPECTED_SUBTYPES)
+
+
+# ---------------------------------------------------------------------------
+# audit_station — resolution
+# ---------------------------------------------------------------------------
+
+
+def test_audit_station_name_lookup_uses_basic_search():
+    station = _station_history(50, "RHOF")
+    client = _client_returning(
+        {50: station},
+        hits=[
+            {"code": "marker", "value_varchar": "irrelevant", "id_entity": 999},
+            {"code": "name", "value_varchar": "RHOF", "id_entity": 50},
+        ],
+    )
+
+    report = audit_station(client, name="RHOF")
+
+    client.basic_search.assert_called_once_with("RHOF")
+    assert report.id_entity == 50
+    assert report.name == "RHOF"
+
+
+def test_audit_station_name_lookup_requires_exact_match():
+    client = _client_returning(
+        {},
+        hits=[{"code": "name", "value_varchar": "RHOFFFF", "id_entity": 50}],
+    )
+    with pytest.raises(LookupError, match="No entity with exact name"):
+        audit_station(client, name="RHOF")
+
+
+def test_audit_station_no_target_raises():
+    client = MagicMock()
+    with pytest.raises(ValueError, match="id_entity or name"):
+        audit_station(client)
+
+
+def test_audit_station_missing_id_raises_lookup_error():
+    client = _client_returning({})
+    with pytest.raises(LookupError, match="id_entity=999"):
+        audit_station(client, id_entity=999)
+
+
+# ---------------------------------------------------------------------------
+# JoinRecord
+# ---------------------------------------------------------------------------
+
+
+def test_join_record_is_open():
+    open_j = JoinRecord(1, 2, "2025-01-01", None)
+    closed_j = JoinRecord(1, 2, "2025-01-01", "2025-03-01")
+    assert open_j.is_open
+    assert not closed_j.is_open
+
+
+# ---------------------------------------------------------------------------
+# list_orphan_devices
+# ---------------------------------------------------------------------------
+
+
+def _model_hit(model: str, id_entity: int) -> dict:
+    """Build a basic_search hit shaped like a TOS model attribute hit."""
+    return {
+        "code": "model",
+        "value_varchar": model,
+        "id_lvl_three": id_entity,
+    }
+
+
+def test_list_orphan_devices_uses_default_models_for_subtype():
+    """Pass no --model; the function should fall back to DEFAULT_ORPHAN_SCAN_MODELS."""
+    client = MagicMock()
+    client.basic_search.return_value = []
+    client.get_entity_history.return_value = None
+
+    scan = list_orphan_devices(client, subtype="receiver")
+
+    assert scan.subtype == "gnss_receiver"
+    expected_models = list(DEFAULT_ORPHAN_SCAN_MODELS["gnss_receiver"])
+    assert scan.models_searched == expected_models
+    assert client.basic_search.call_count == len(expected_models)
+
+
+def test_list_orphan_devices_rejects_subtype_without_defaults():
+    client = MagicMock()
+    with pytest.raises(ValueError, match="No default model list"):
+        list_orphan_devices(client, subtype="radome")
+
+
+def test_list_orphan_devices_explicit_models_override_defaults():
+    client = MagicMock()
+    client.basic_search.return_value = []
+
+    scan = list_orphan_devices(client, subtype="receiver", models=["FOO"])
+
+    assert scan.models_searched == ["FOO"]
+    client.basic_search.assert_called_once_with("FOO")
+
+
+def test_list_orphan_devices_returns_only_I1_violations():
+    """Three receivers found; one is clean, one is a closed orphan, one has
+    no current parent. Scan should return the two violations only."""
+    healthy = _device_history(101, parent_id=50, serial="HEALTHY")
+    closed_orphan = _device_history(102, parent_id=51, serial="ORPHAN")
+    no_parent = _device_history(103, parent_id=None, serial="NOPARENT")
+    healthy_station = _station_history(
+        50, "RHOF", connections=[_conn(101, "2025-01-01")]
+    )
+    closed_station = _station_history(
+        51,
+        "VMEY",
+        connections=[_conn(102, "2024-01-01", time_to="2025-01-01")],
+    )
+
+    history_by_id = {
+        101: healthy,
+        102: closed_orphan,
+        103: no_parent,
+        50: healthy_station,
+        51: closed_station,
+    }
+    client = MagicMock()
+    client.get_entity_history.side_effect = lambda i: history_by_id.get(int(i))
+
+    # basic_search returns all three candidates for the first model, none for
+    # the rest — order is preserved via dedup.
+    def _search(term):
+        if term == "POLARX5":
+            return [
+                _model_hit("SEPT POLARX5", 101),
+                _model_hit("SEPT POLARX5", 102),
+                _model_hit("SEPT POLARX5", 103),
+            ]
+        return []
+
+    client.basic_search.side_effect = _search
+
+    scan = list_orphan_devices(client, subtype="receiver")
+
+    assert isinstance(scan, OrphanScanResult)
+    assert scan.subtype == "gnss_receiver"
+    assert scan.total_audited == 3
+    assert scan.violation_count == 2
+    ids = {r.id_entity for r in scan.orphan_reports}
+    assert ids == {102, 103}
+
+
+def test_list_orphan_devices_filters_non_model_hits():
+    """basic_search may return hits for the same value under different codes
+    (e.g. 'serial_number'); only code='model' hits count as candidates."""
+    receiver = _device_history(101, parent_id=50)
+    station = _station_history(50, "RHOF", connections=[_conn(101, "2025-01-01")])
+    history_by_id = {101: receiver, 50: station}
+    client = MagicMock()
+    client.get_entity_history.side_effect = lambda i: history_by_id.get(int(i))
+    client.basic_search.return_value = [
+        {"code": "serial_number", "value_varchar": "POLARX5", "id_lvl_three": 999},
+        _model_hit("POLARX5", 101),
+    ]
+
+    scan = list_orphan_devices(client, subtype="receiver", models=["POLARX5"])
+
+    assert scan.total_audited == 1
+    assert scan.orphan_reports == []
+
+
+def test_list_orphan_devices_filters_wrong_subtype():
+    """A model hit pointing to a non-matching subtype (e.g. antenna with the
+    same model string) is discarded after the history check."""
+    antenna = _device_history(50, subtype="antenna", serial="A-1")
+    client = MagicMock()
+    history_by_id = {50: antenna}
+    client.get_entity_history.side_effect = lambda i: history_by_id.get(int(i))
+    client.basic_search.return_value = [_model_hit("POLARX5", 50)]
+
+    scan = list_orphan_devices(client, subtype="receiver", models=["POLARX5"])
+
+    assert scan.total_audited == 0
+    assert scan.orphan_reports == []
+
+
+def test_list_orphan_devices_dedups_across_models():
+    """A device that appears in multiple model searches is audited once."""
+    receiver = _device_history(101, parent_id=50)
+    station = _station_history(50, "RHOF", connections=[_conn(101, "2025-01-01")])
+    history_by_id = {101: receiver, 50: station}
+    client = MagicMock()
+    client.get_entity_history.side_effect = lambda i: history_by_id.get(int(i))
+    client.basic_search.return_value = [_model_hit("POLARX5", 101)]
+
+    scan = list_orphan_devices(client, subtype="receiver", models=["M1", "M2"])
+
+    assert scan.total_audited == 1
