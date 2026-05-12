@@ -614,8 +614,12 @@ def get_station_metadata(station_identifier, url_rest, loglevel=logging.WARNING)
         )[0]
         module_logger.setLevel(loglevel)
     except IndexError as error:
-        module_logger.error("{} station {} not found in TOS database. \
-            Error {}".format(domain, station_identifier, error))
+        module_logger.error(
+            "{} station {} not found in TOS database. \
+            Error {}".format(
+                domain, station_identifier, error
+            )
+        )
         return [], []
 
     module_logger.debug(
