@@ -72,6 +72,10 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E501"]
+# test_tostool.py is a collection of @pytest.mark.skip'd manual smoke-test
+# functions kept for reference. They are not exercised in CI; lint here
+# would only flag code that never runs.
+"tests/test_tostool.py" = ["E501", "F841", "F821", "E722"]
 # Pre-existing lint debt in legacy modules. Relaxed so master CI can stay
 # green while new code (audit.py, api/, core/, rinex/, etc.) is held to
 # the full ruleset. Revisit when these modules are refactored or retired.

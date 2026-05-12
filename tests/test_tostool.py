@@ -9,17 +9,24 @@
 
 import logging
 from datetime import datetime
-from pathlib import Path
 
+import pytest
 import requests
-from gtimes import timefunc as tf
-from gtimes.timefunc import datefRinex
 
 import tostools.gps_metadata_functions as gpsf
 import tostools.gps_metadata_qc as gpsqc
-import tostools.gps_rinex as gpsr
+
+# The functions below take a `station_identifier` parameter and were written
+# as interactive/CLI-style smoke checks, not as automated unit tests. pytest
+# nonetheless collects them because of the `test_` prefix and fails for
+# missing fixtures. Skip them in CI; they can still be invoked manually by
+# calling them with an explicit station identifier.
+_NOT_A_UNIT_TEST = pytest.mark.skip(
+    reason="manual smoke test — requires a real TOS station identifier"
+)
 
 
+@_NOT_A_UNIT_TEST
 def test_device_attribute_history(station_identifier: str, loglevel=logging.WARNING):
     """
     A funciton to test devie_attribute_history of a station
@@ -143,6 +150,7 @@ def test_device_attribute_history(station_identifier: str, loglevel=logging.WARN
         # device, session_start, session_end
 
 
+@_NOT_A_UNIT_TEST
 def test_gps_metadata(station_identifier: list, loglevel=logging.WARNING):
     """
     Testing gps metada funciton

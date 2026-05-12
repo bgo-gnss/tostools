@@ -15,7 +15,6 @@ from tostools.owners import (
     find_by_name,
 )
 
-
 # ---------------------------------------------------------------------------
 # OwnersCache.load
 # ---------------------------------------------------------------------------
@@ -189,8 +188,6 @@ def test_find_by_name_uses_default_cache_when_none_passed(
     tmp_path: Path, monkeypatch
 ) -> None:
     """No cache arg → uses DEFAULT_CACHE_PATH; fallback seed still resolves."""
-    monkeypatch.setattr(
-        "tostools.owners.DEFAULT_CACHE_PATH", tmp_path / "owners.yaml"
-    )
+    monkeypatch.setattr("tostools.owners.DEFAULT_CACHE_PATH", tmp_path / "owners.yaml")
     assert find_by_name("Veðurstofa Íslands") == "Veðurstofa Íslands"
     assert find_by_name("definitely-not-an-owner") is None
