@@ -48,10 +48,11 @@ def _station_history(
     id_entity: int,
     name: str,
     connections=None,
+    subtype: str = "geophysical",
 ):
     return {
         "id_entity": id_entity,
-        "code_entity_subtype": "geophysical",
+        "code_entity_subtype": subtype,
         "id_entity_parent": None,
         "attributes": [
             {"code": "name", "value": name, "date_to": None},
@@ -414,7 +415,9 @@ def test_audit_station_name_lookup_requires_exact_match():
         {},
         hits=[{"code": "name", "value_varchar": "RHOFFFF", "id_entity": 50}],
     )
-    with pytest.raises(LookupError, match="No entity with exact name"):
+    with pytest.raises(
+        LookupError, match="No station entity with exact marker or name"
+    ):
         audit_station(client, name="RHOF")
 
 
@@ -566,6 +569,230 @@ def test_list_orphan_devices_filters_wrong_subtype():
 
     assert scan.total_audited == 0
     assert scan.orphan_reports == []
+
+
+def test_audit_device_reports_parent_subtype():
+    """The parent's code_entity_subtype propagates onto the device report so
+    callers can tell 'deployed at a real station' apart from 'in warehouse'
+    without an extra round-trip."""
+    device = _device_history(100, parent_id=50)
+    station = _station_history(
+        50, "RHOF", connections=[_conn(100, "2025-03-15")], subtype="geophysical"
+    )
+    client = _client_returning({100: device, 50: station})
+
+    report = audit_device(client, id_entity=100)
+
+    assert report.current_parent_subtype == "geophysical"
+
+
+def test_audit_device_parent_subtype_is_lager_for_warehouse():
+    device = _device_history(100, parent_id=4)
+    warehouse = _station_history(
+        4,
+        "B9 - Kjallari - Jörð",
+        connections=[_conn(100, "2025-03-15")],
+        subtype="lager",
+    )
+    client = _client_returning({100: device, 4: warehouse})
+
+    report = audit_device(client, id_entity=100)
+
+    assert report.current_parent_subtype == "lager"
+    assert report.invariant_I1_ok is True
+
+
+# ---------------------------------------------------------------------------
+# Real station vs. warehouse — I2 application
+# ---------------------------------------------------------------------------
+
+
+def test_audit_station_warehouse_skips_I2_with_many_receivers():
+    """B9-like inventory: many open receivers is the expected steady state.
+    I2 must not fire on a Lager-style entity."""
+    receivers = {
+        i: _device_history(i, "gnss_receiver", f"SN-{i}") for i in (201, 202, 203)
+    }
+    warehouse = _station_history(
+        4,
+        "B9 - Kjallari - Jörð",
+        connections=[_conn(i, "2024-01-01") for i in (201, 202, 203)],
+        subtype="lager",
+    )
+    history_by_id = {4: warehouse, **receivers}
+    client = _client_returning(history_by_id)
+
+    report = audit_station(client, id_entity=4)
+
+    assert report.subtype == "lager"
+    assert report.is_real_station is False
+    # Three open receivers — but I2 doesn't apply to warehouses.
+    assert report.invariant_I2_ok is True
+    assert report.invariant_violations == []
+    # No completeness warnings either; warehouses have no expected set.
+    assert report.completeness_warnings == []
+    assert len(report.open_children_by_subtype["gnss_receiver"]) == 3
+
+
+def test_audit_station_real_station_still_enforces_I2():
+    """The same shape on a geophysical station IS an I2 violation."""
+    rcv1 = _device_history(101, "gnss_receiver", "SN-R1")
+    rcv2 = _device_history(102, "gnss_receiver", "SN-R2")
+    station = _station_history(
+        50,
+        "RHOF",
+        connections=[_conn(101, "2025-01-01"), _conn(102, "2025-03-15")],
+        subtype="geophysical",
+    )
+    client = _client_returning({50: station, 101: rcv1, 102: rcv2})
+
+    report = audit_station(client, id_entity=50)
+
+    assert report.is_real_station is True
+    assert report.subtype == "geophysical"
+    assert report.invariant_I2_ok is False
+
+
+def test_audit_station_unknown_subtype_treated_as_inventory():
+    """Defensive: any subtype not in REAL_STATION_SUBTYPES skips I2.
+    This protects against new TOS subtypes (e.g. 'area' admin grouping)."""
+    device = _device_history(101, parent_id=99)
+    grouping = _station_history(
+        99,
+        "Reykjanes peninsula sites",
+        connections=[_conn(101, "2025-01-01"), _conn(102, "2025-02-01")],
+        subtype="area",
+    )
+    client = _client_returning({99: grouping, 101: device, 102: device})
+
+    report = audit_station(client, id_entity=99)
+
+    assert report.is_real_station is False
+    assert report.subtype == "area"
+    assert report.invariant_I2_ok is True
+    assert report.completeness_warnings == []
+
+
+# ---------------------------------------------------------------------------
+# Marker-vs-name lookup
+# ---------------------------------------------------------------------------
+
+
+def test_audit_station_marker_lookup_resolves_RHOF():
+    """The common case: operator types 'RHOF' which is a marker, not a name.
+    `Raufarhöfn` is the display name. Marker should match first."""
+    station = _station_history(4390, "Raufarhöfn")
+    client = _client_returning(
+        {4390: station},
+        hits=[
+            {"code": "marker", "value_varchar": "RHOF", "id_entity": 4390},
+            {"code": "name", "value_varchar": "Raufarhöfn", "id_entity": 4390},
+        ],
+    )
+
+    report = audit_station(client, name="RHOF")
+
+    client.basic_search.assert_called_once_with("RHOF")
+    assert report.id_entity == 4390
+
+
+def test_audit_station_marker_preferred_over_name_when_both_match():
+    """If a basic_search hit list contains both a marker and a name with the
+    same value, prefer the marker. This is the common case for station ids."""
+    rhof = _station_history(4390, "Raufarhöfn")
+    other = _station_history(9999, "Other station with name RHOF")
+    client = _client_returning(
+        {4390: rhof, 9999: other},
+        hits=[
+            {"code": "name", "value_varchar": "RHOF", "id_entity": 9999},
+            {"code": "marker", "value_varchar": "RHOF", "id_entity": 4390},
+        ],
+    )
+
+    report = audit_station(client, name="RHOF")
+
+    # Marker resolution wins → 4390 (Raufarhöfn), not 9999.
+    assert report.id_entity == 4390
+
+
+def test_audit_station_marker_match_is_case_insensitive():
+    """TOS stores markers lowercase ('rhof') but operators type 'RHOF'.
+    Both must resolve."""
+    station = _station_history(4390, "Raufarhöfn")
+    client = _client_returning(
+        {4390: station},
+        hits=[{"code": "marker", "value_varchar": "rhof", "id_entity": 4390}],
+    )
+
+    report_upper = audit_station(client, name="RHOF")
+    assert report_upper.id_entity == 4390
+
+
+def test_audit_station_name_collision_prefers_geophysical():
+    """Real TOS data: 'Raufarhöfn' matches a weather station, a GPS station,
+    and two parent entities. The GPS audit picks the geophysical match."""
+    gps_station = _station_history(4390, "Raufarhöfn", subtype="geophysical")
+    weather_station = _station_history(999, "Raufarhöfn", subtype="meteorological")
+    client = _client_returning(
+        {4390: gps_station, 999: weather_station},
+        hits=[
+            {
+                "code": "name",
+                "value_varchar": "Raufarhöfn",
+                "id_entity": 999,
+                "subtype_lvl_two": "Veðurstöð",
+            },
+            {
+                "code": "name",
+                "value_varchar": "Raufarhöfn",
+                "id_entity": 4390,
+                "subtype_lvl_two": "Jarðeðlisstöð",
+            },
+        ],
+    )
+
+    report = audit_station(client, name="Raufarhöfn")
+
+    assert report.id_entity == 4390  # The geophysical one.
+
+
+def test_audit_station_name_collision_with_multiple_geophysical_raises():
+    """Defensive: if two geophysical stations share a name (shouldn't happen
+    but TOS imposes no uniqueness), surface the ambiguity rather than
+    silently picking one."""
+    client = MagicMock()
+    client.get_entity_history.return_value = None
+    client.basic_search.return_value = [
+        {
+            "code": "name",
+            "value_varchar": "TwinName",
+            "id_entity": 1,
+            "subtype_lvl_two": "Jarðeðlisstöð",
+        },
+        {
+            "code": "name",
+            "value_varchar": "TwinName",
+            "id_entity": 2,
+            "subtype_lvl_two": "Jarðeðlisstöð",
+        },
+    ]
+    with pytest.raises(LookupError, match="Multiple geophysical stations"):
+        audit_station(client, name="TwinName")
+
+
+def test_audit_station_falls_back_to_name_when_no_marker_match():
+    """A full display name like 'Raufarhöfn' isn't a marker — must hit the
+    name fallback. Confirms the marker-first ordering doesn't break the
+    long-name workflow."""
+    station = _station_history(4390, "Raufarhöfn")
+    client = _client_returning(
+        {4390: station},
+        hits=[{"code": "name", "value_varchar": "Raufarhöfn", "id_entity": 4390}],
+    )
+
+    report = audit_station(client, name="Raufarhöfn")
+
+    assert report.id_entity == 4390
 
 
 def test_list_orphan_devices_dedups_across_models():

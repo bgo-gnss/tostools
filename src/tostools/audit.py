@@ -74,6 +74,16 @@ GPS_STATION_EXPECTED_SUBTYPES: tuple[str, ...] = (
     "monument",
 )
 
+# Station entity subtypes that represent **real physical sites** where I2
+# (at most one open join per device subtype) applies.
+#
+# TOS does NOT enforce any structure here — both real stations and
+# warehouses are sibling subtypes of the same generic `Stöðvar` entity
+# type. We impose the distinction so a warehouse like B9 - Kjallari - Jörð
+# (which legitimately holds many devices of the same subtype) doesn't trip
+# I2. Add SIL station subtypes here when audit grows beyond GPS.
+REAL_STATION_SUBTYPES: tuple[str, ...] = ("geophysical",)
+
 # Default search terms used to enumerate the deployed device population for
 # fleet-wide audits (:func:`list_orphan_devices`). Sourced from the F audit
 # in the design doc (2026-05-12), which found 246 gnss_receivers across
@@ -132,6 +142,7 @@ class DeviceAuditReport:
     serial: Optional[str] = None
     current_parent_id: Optional[int] = None
     current_parent_name: Optional[str] = None
+    current_parent_subtype: Optional[str] = None
     open_joins: List[JoinRecord] = field(default_factory=list)
     invariant_I1_ok: bool = True
     invariant_violations: List[str] = field(default_factory=list)
@@ -169,6 +180,8 @@ class StationAuditReport:
 
     id_entity: int
     name: Optional[str] = None
+    subtype: Optional[str] = None
+    is_real_station: bool = True
     open_children_by_subtype: Dict[str, List[JoinRecord]] = field(default_factory=dict)
     invariant_I2_ok: bool = True
     invariant_violations: List[str] = field(default_factory=list)
@@ -335,6 +348,9 @@ def audit_device(
     report.current_parent_name = _open_attr_value(
         parent_history.get("attributes"), "name"
     )
+    parent_subtype = parent_history.get("code_entity_subtype")
+    if parent_subtype:
+        report.current_parent_subtype = str(parent_subtype)
 
     open_matches: List[JoinRecord] = []
     for conn in parent_history.get("children_connections") or []:
@@ -383,6 +399,15 @@ def _resolve_station_entity(
     name: Optional[str],
     id_entity: Optional[int],
 ) -> Dict[str, Any]:
+    """Look up a station entity by id, marker, or display name.
+
+    The CLI accepts either ``--id <n>`` or a positional argument like
+    ``RHOF``. Operators typically type the **marker** (the 4-letter station
+    identifier) — TOS stores that as an attribute with ``code='marker'``.
+    The display name (``code='name'``) is the long Icelandic name
+    (``Raufarhöfn``). We try marker first, then fall back to name, so the
+    common case (``tos audit station RHOF``) just works.
+    """
     if id_entity is not None:
         history = client.get_entity_history(int(id_entity))
         if not history:
@@ -391,18 +416,81 @@ def _resolve_station_entity(
     if not name:
         raise ValueError("audit_station requires either id_entity or name")
     hits = client.basic_search(name)
-    for hit in hits:
-        if hit.get("code") != "name":
-            continue
-        if hit.get("value_varchar") != name:
-            continue
+    # TOS stores station markers as lowercase ("rhof") regardless of how
+    # operators type them. Compare case-insensitively so the natural
+    # workflow (`tos audit station RHOF`) just works. Names follow the
+    # same lenient rule for Icelandic-character consistency.
+    target = name.lower()
+
+    def _exact(code: str) -> List[Dict[str, Any]]:
+        matches = []
+        for hit in hits:
+            if hit.get("code") != code:
+                continue
+            value = hit.get("value_varchar")
+            if isinstance(value, str) and value.lower() == target:
+                matches.append(hit)
+        return matches
+
+    # 1. Markers are intended to be globally unique; first marker match wins.
+    for hit in _exact("marker"):
         entity_id = hit.get("id_entity")
-        if not entity_id:
-            continue
-        history = client.get_entity_history(int(entity_id))
+        if entity_id:
+            history = client.get_entity_history(int(entity_id))
+            if history:
+                return history
+
+    # 2. Names can collide (e.g. "Raufarhöfn" has a weather station entity
+    #    AND a geophysical station entity AND a couple of parent entities).
+    #    Dedupe candidates by id_entity, then prefer ones whose
+    #    `subtype_lvl_two` is "Jarðeðlisstöð" (real physical GPS site).
+    name_hits = _exact("name")
+    by_id: Dict[int, Dict[str, Any]] = {}
+    for hit in name_hits:
+        entity_id = hit.get("id_entity")
+        if entity_id:
+            by_id.setdefault(int(entity_id), hit)
+
+    if len(by_id) == 1:
+        chosen_id = next(iter(by_id))
+        history = client.get_entity_history(chosen_id)
         if history:
             return history
-    raise LookupError(f"No entity with exact name {name!r}")
+
+    if len(by_id) > 1:
+        geophysical = {
+            eid: h
+            for eid, h in by_id.items()
+            if h.get("subtype_lvl_two") == "Jarðeðlisstöð"
+        }
+        if len(geophysical) == 1:
+            chosen_id = next(iter(geophysical))
+            history = client.get_entity_history(chosen_id)
+            if history:
+                return history
+        if len(geophysical) > 1:
+            candidates = ", ".join(
+                f"id_entity={eid} ({h.get('subtype_lvl_two')})"
+                for eid, h in geophysical.items()
+            )
+            raise LookupError(
+                f"Multiple geophysical stations match name {name!r}: "
+                f"{candidates}. Disambiguate with --id."
+            )
+        # Multiple matches but none are geophysical — surface them.
+        candidates = ", ".join(
+            f"id_entity={eid} ({h.get('subtype_lvl_two')!r})"
+            for eid, h in by_id.items()
+        )
+        raise LookupError(
+            f"Multiple entities match name {name!r} but none is a "
+            f"geophysical station: {candidates}. Disambiguate with --id."
+        )
+
+    raise LookupError(
+        f"No station entity with exact marker or name {name!r}. "
+        "Try --id <id_entity> if the marker is non-standard."
+    )
 
 
 def audit_station(
@@ -430,8 +518,16 @@ def audit_station(
 
     station_id = int(history["id_entity"])
     station_name = _open_attr_value(history.get("attributes"), "name") or name
+    station_subtype_raw = history.get("code_entity_subtype")
+    station_subtype = str(station_subtype_raw) if station_subtype_raw else None
+    is_real_station = station_subtype in REAL_STATION_SUBTYPES
 
-    report = StationAuditReport(id_entity=station_id, name=station_name)
+    report = StationAuditReport(
+        id_entity=station_id,
+        name=station_name,
+        subtype=station_subtype,
+        is_real_station=is_real_station,
+    )
 
     open_by_subtype: Dict[str, List[JoinRecord]] = {}
     for conn in history.get("children_connections") or []:
@@ -457,22 +553,24 @@ def audit_station(
 
     report.open_children_by_subtype = open_by_subtype
 
-    # I2: at most one open child per subtype.
-    for subtype, joins in open_by_subtype.items():
-        if len(joins) > 1:
-            report.invariant_I2_ok = False
-            ids = ", ".join(str(j.id_entity_child) for j in joins)
-            report.invariant_violations.append(
-                f"I2 duplicate {subtype}: {len(joins)} open children "
-                f"(ids: {ids}), expected at most one"
-            )
-
-    # Completeness — advisory only.
-    for expected in GPS_STATION_EXPECTED_SUBTYPES:
-        if not open_by_subtype.get(expected):
-            report.completeness_warnings.append(
-                f"missing {expected} (no open child of that subtype)"
-            )
+    # I2 + completeness apply only to real physical stations. Warehouses
+    # (B9 - Kjallari - Jörð and any other `Lager`-style entity) legitimately
+    # hold many devices of the same subtype and have no completeness
+    # expectation — skip both checks.
+    if is_real_station:
+        for subtype, joins in open_by_subtype.items():
+            if len(joins) > 1:
+                report.invariant_I2_ok = False
+                ids = ", ".join(str(j.id_entity_child) for j in joins)
+                report.invariant_violations.append(
+                    f"I2 duplicate {subtype}: {len(joins)} open children "
+                    f"(ids: {ids}), expected at most one"
+                )
+        for expected in GPS_STATION_EXPECTED_SUBTYPES:
+            if not open_by_subtype.get(expected):
+                report.completeness_warnings.append(
+                    f"missing {expected} (no open child of that subtype)"
+                )
 
     return report
 

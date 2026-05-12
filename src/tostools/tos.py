@@ -2076,23 +2076,33 @@ def _audit_main(argv):
 
     p_st = sub.add_parser(
         "station",
-        help="Audit one station (invariant I2).",
+        help="Audit one station (real station: I2; warehouse: inventory).",
         description=(
-            "Verify that one station has at most one open join per device "
-            "subtype. Also emits non-blocking completeness warnings when "
-            "expected subtypes (receiver/antenna/monument) are missing. "
-            "Exits 0 on I2 OK, 1 on I2 violation, 2 on lookup or usage error."
+            "Subtype-aware. For a real physical station (code_entity_subtype = "
+            "'geophysical' — Jarðeðlisstöð such as RHOF), verify I2 (at most "
+            "one open join per device subtype) and emit non-blocking "
+            "completeness warnings when expected subtypes are missing. "
+            "For a warehouse-style entity (Lager, such as B9 - Kjallari - "
+            "Jörð, id_entity=4), I2 does not apply — render an inventory "
+            "listing instead. Exits 0 on I2 OK (or warehouse), 1 on I2 "
+            "violation, 2 on lookup or usage error.\n\n"
+            "The positional argument matches either the station's marker "
+            "(short id, like 'RHOF') or its display name ('Raufarhöfn'). "
+            "Markers are tried first."
         ),
         epilog=(
             "Examples:\n"
-            "  tos audit station RHOF\n"
-            "  tos audit station --id 4              # B9 - Kjallari - Jörð\n"
+            "  tos audit station RHOF                 # marker lookup\n"
+            "  tos audit station Raufarhöfn           # display-name lookup\n"
+            "  tos audit station --id 4               # B9 - Kjallari - Jörð (warehouse)\n"
             "  tos audit station RHOF --json\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     st_target = p_st.add_mutually_exclusive_group(required=True)
-    st_target.add_argument("name", nargs="?", help="Exact station name.")
+    st_target.add_argument(
+        "name", nargs="?", help="Station marker (e.g. RHOF) or display name."
+    )
     st_target.add_argument(
         "--id", dest="id_entity", type=int, help="Station id_entity."
     )
@@ -2244,6 +2254,7 @@ def _device_report_to_dict(report):
         "serial": report.serial,
         "current_parent_id": report.current_parent_id,
         "current_parent_name": report.current_parent_name,
+        "current_parent_subtype": report.current_parent_subtype,
         "open_joins": [_join_to_dict(j) for j in report.open_joins],
         "invariant_I1_ok": report.invariant_I1_ok,
         "invariant_violations": list(report.invariant_violations),
@@ -2256,6 +2267,8 @@ def _station_report_to_dict(report):
         "kind": "station",
         "id_entity": report.id_entity,
         "name": report.name,
+        "subtype": report.subtype,
+        "is_real_station": report.is_real_station,
         "open_children_by_subtype": {
             subtype: [_join_to_dict(j) for j in joins]
             for subtype, joins in report.open_children_by_subtype.items()
@@ -2338,11 +2351,18 @@ def _print_device_report(report, *, verbose: bool = False):
     from . import audit as audit_mod
 
     serial = report.serial or "?"
-    parent = (
-        f"id_entity={report.current_parent_id} ({report.current_parent_name!r})"
-        if report.current_parent_id is not None
-        else "<none>"
-    )
+    if report.current_parent_id is None:
+        parent = "<none>"
+    else:
+        subtype_tag = (
+            f", {report.current_parent_subtype}"
+            if report.current_parent_subtype
+            else ""
+        )
+        parent = (
+            f"id_entity={report.current_parent_id} "
+            f"({report.current_parent_name!r}{subtype_tag})"
+        )
     status = "I1 OK" if report.invariant_I1_ok else "I1 VIOLATION"
     marker = "✓" if report.invariant_I1_ok else "✗"
     print(
@@ -2380,9 +2400,39 @@ def _print_station_report(report, *, verbose: bool = False):
     """
     from . import audit as audit_mod
 
+    subtype_tag = f", {report.subtype}" if report.subtype else ""
+    if not report.is_real_station:
+        # Warehouse-style entity (e.g. B9 - Kjallari - Jörð). I2 doesn't
+        # apply — render an inventory listing instead. No violation marker.
+        print(
+            f"📦 Inventory at {report.name!r} "
+            f"(id_entity={report.id_entity}{subtype_tag})"
+        )
+        if not report.open_children_by_subtype:
+            print("  (no open children)")
+        else:
+            counts = {k: len(v) for k, v in report.open_children_by_subtype.items()}
+            total = sum(counts.values())
+            print(f"  {total} open device(s):")
+            for st in sorted(counts):
+                print(f"    {st:14s} {counts[st]}")
+            if verbose:
+                print()
+                print("  detail:")
+                for st in sorted(report.open_children_by_subtype):
+                    for j in report.open_children_by_subtype[st]:
+                        print(
+                            f"    {st:14s} id_entity={j.id_entity_child} "
+                            f"from {j.time_from}"
+                        )
+        return
+
     status = "I2 OK" if report.invariant_I2_ok else "I2 VIOLATION"
     marker = "✓" if report.invariant_I2_ok else "✗"
-    print(f"{marker} Station {report.name!r} (id_entity={report.id_entity}) — {status}")
+    print(
+        f"{marker} Station {report.name!r} "
+        f"(id_entity={report.id_entity}{subtype_tag}) — {status}"
+    )
     if not report.open_children_by_subtype:
         print("  (no open children)")
     else:
