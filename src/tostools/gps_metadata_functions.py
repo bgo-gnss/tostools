@@ -257,7 +257,6 @@ def print_station_info(station, loglevel=logging.WARNING):
     # logging
     module_logger = get_logger(__name__, loglevel)
 
-    header = "*SITE  Station Name      Session Start      Session Stop       Ant Ht   HtCod  Ant N    Ant E    Receiver Type         Vers                  SwVer  Receiver SN           Antenna Type     Dome   Antenna SN"
     # print(header)
 
     # Validate essential station-level data first
@@ -300,7 +299,7 @@ def print_station_info(station, loglevel=logging.WARNING):
         # Essential: time_from must be valid datetime
         try:
             time_from = item["time_from"].strftime("%Y %j %H %M %S")
-        except (AttributeError, TypeError, ValueError) as e:
+        except (AttributeError, TypeError, ValueError):
             session_errors.append(
                 f"time_from invalid or missing (type: {type(item.get('time_from', None))}, value: {item.get('time_from', 'None')})"
             )
@@ -598,17 +597,7 @@ def print_station_list(station_list, sortby="marker"):
     """ """
 
     station_list[:] = sorted(station_list, key=itemgetter(sortby))
-    keylist = [
-        "marker",
-        "name",
-        "date_from",
-        "lon",
-        "lat",
-        "altitude",
-        "operational_class",
-        "date_to",
-    ]
-    value_list = [list(item.values()) for item in station_list]
+    [list(item.values()) for item in station_list]
 
     # print(tabulate(value_list, headers=keylist))
 
@@ -1268,7 +1257,7 @@ def site_log(station_identifier, loglevel=logging.WARNING):
     )
 
     module_logger.debug("monument_height: %s", monument_height)
-    ascii_site_log = (
+    (
         f"{marker}ISL00 Site Information Form (site log)\n"
         f"    International GNSS Service\n"
         f"    See Instructions at:\n"
@@ -1336,9 +1325,7 @@ def domes_info_form(station_identifier, loglevel=logging.WARNING):
     station, devices_history = gpsqc.get_station_metadata(
         station_identifier, gpsqc.URL_REST_TOS, loglevel=loglevel
     )
-    device_sessions = gpsqc.get_device_sessions(
-        devices_history, gpsqc.URL_REST_TOS, loglevel=loglevel
-    )
+    gpsqc.get_device_sessions(devices_history, gpsqc.URL_REST_TOS, loglevel=loglevel)
 
     # devices_used = ["gnss_receiver", "antenna", "radome", "monument"]
     module_logger.info("station: %s", json_print(station))
@@ -1553,8 +1540,6 @@ def main():
 
     # count_GPS_stations(station_list)
 
-    antenna = "ASH701945C_M"
-    antennaf = "antenna_arp.list"
     # marker = "TREE"
     # platefile = "./station-plate"
     # print(grep_line_aslist(platefile, marker))

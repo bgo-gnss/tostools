@@ -34,7 +34,7 @@ def generate_igs_site_log(
     iers_domes = station_data.get("iers_domes_number", "")
 
     # Parse dates (currently not used in output, but available for future use)
-    station_start = station_data.get("date_start", "")
+    station_data.get("date_start", "")
 
     # Site identification section
     site_id_section = _generate_site_identification(
@@ -62,7 +62,7 @@ def generate_igs_site_log(
      Prepared by (full name)  : GNSS Operator
      Date Prepared            : {datetime.now().strftime('%Y-%m-%d')}
      Report Type              : UPDATE
-     Previous Site Log       : 
+     Previous Site Log       :
      Modified/Added Sections  : (n.n,n.n,...)
 
 
@@ -117,9 +117,9 @@ def _generate_site_identification(
 
      Site Name                : {site_name}
      Four Character ID        : {marker}
-     Monument Inscription     : 
+     Monument Inscription     :
      IERS DOMES Number        : {iers_domes}
-     CDP Number               : 
+     CDP Number               :
      Monument Description     : {monument_description}
        Height of the Monument : {monument_height}
        Monument Foundation    : {foundation}
@@ -131,7 +131,7 @@ def _generate_site_identification(
        Bedrock Condition      : {station_data.get('bedrock_condition', '').upper()}
        Fracture Spacing       : {station_data.get('fracture_spacing', '')}
        Fault zones nearby     : {station_data.get('is_near_fault_zones', '').upper()}
-         Distance/activity    : 
+         Distance/activity    :
      Additional Information   : (multiple lines)"""
 
 
@@ -164,13 +164,13 @@ def _generate_site_location(station_data: Dict[str, Any]) -> str:
 
     return f"""2.   Site Location Information
 
-     City or Town             : 
-     State or Province        : 
+     City or Town             :
+     State or Province        :
      Country                  : Iceland
-     Tectonic Plate           : 
+     Tectonic Plate           :
      Approximate Position (ITRF)
        X coordinate (m)       : {x:13.4f}
-       Y coordinate (m)       : {y:13.4f}  
+       Y coordinate (m)       : {y:13.4f}
        Z coordinate (m)       : {z:13.4f}
        Latitude (N is +)      : {lat:+012.8f}
        Longitude (E is +)     : {lon:+013.8f}
@@ -270,7 +270,7 @@ def _generate_antenna_section(device_sessions: List[Dict[str, Any]]) -> str:
      Marker->ARP East Ecc(m)  : 0.0000
      Alignment from True N    : (deg; + is clockwise/east)
      Antenna Radome Type      : {radome_type}
-     Radome Serial Number     : 
+     Radome Serial Number     :
      Antenna Cable Type       : (vendor & type number)
      Antenna Cable Length     : (m)
      Date Installed           : {date_installed}

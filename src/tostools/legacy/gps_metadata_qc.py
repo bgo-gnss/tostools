@@ -436,7 +436,6 @@ def get_contacts(id_entity_parent, url_rest, loglevel=logging.WARNING):
     module_logger.setLevel(loglevel)
 
     contact = {}
-    imo_id = 1256
     owner_addition = {}
 
     owner_response = requests.get(
@@ -583,12 +582,8 @@ def get_station_metadata(station_identifier, url_rest, loglevel=logging.WARNING)
         )[0]
         module_logger.setLevel(loglevel)
     except IndexError as error:
-        module_logger.error(
-            "{} station {} not found in TOS database. \
-            Error {}".format(
-                domain, station_identifier, error
-            )
-        )
+        module_logger.error("{} station {} not found in TOS database. \
+            Error {}".format(domain, station_identifier, error))
         return [], []
 
     module_logger.debug(
@@ -734,7 +729,6 @@ def get_device_sessions(devices_history, url_rest, loglevel=logging.WARNING):
 
     module_logger = gpsf.get_logger(name=__name__)
 
-    domain = "geophysical"
     device_sessions = []
     devices_used = ["gnss_receiver", "antenna", "radome", "monument"]
     for connection in devices_history["children_connections"]:

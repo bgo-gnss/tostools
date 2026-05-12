@@ -79,7 +79,7 @@ def extract_from_rheader(rheader, loglevel=logging.WARNING):
     searchlist, fortran_format_list = rinex_labels()
     module_logger.debug("Strings to search for: {}".format(searchlist))
 
-    rinex_header_dict = rinext_test_dict = {"rinex file": rheader["rinex file"]}
+    rinex_header_dict = {"rinex file": rheader["rinex file"]}
     # for string, fformat in zip(searchlist, fortran_format):
 
     for string, fortran_format in zip(searchlist, fortran_format_list):
@@ -740,7 +740,6 @@ def fix_rinex_header(
     label_gen = (
         label for label in rinex_correction_dict.keys() if label not in ["rinex file"]
     )
-    rinex_fix_list = []
     for label in label_gen:
         rinex_fix_line = fix_rinex_line(
             label, rinex_correction_dict, rinex_dict, loglevel=logging.WARNING
@@ -872,7 +871,6 @@ def change_rfile_header(
     module_logger = gpsf.get_logger(name=__name__)
     module_logger.setLevel(loglevel)
 
-    match = None
     rfile = Path(*rheader["rinex file"])
 
     try:

@@ -286,9 +286,7 @@ class TOSClient:
                     else None
                 ),
                 "time_to": (
-                    datetime.strptime(time_to, "%Y-%m-%dT%H:%M:%S")
-                    if time_to
-                    else None
+                    datetime.strptime(time_to, "%Y-%m-%dT%H:%M:%S") if time_to else None
                 ),
             }
             session_dict.update(devices)

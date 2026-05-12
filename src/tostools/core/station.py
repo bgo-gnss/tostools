@@ -283,7 +283,7 @@ def generate_file_list(
 
     for session in station.device_history:
         session_start = session.get("time_from")
-        session_end = session.get("time_to")
+        session.get("time_to")
 
         if session_start:
             # Generate file path pattern based on session dates

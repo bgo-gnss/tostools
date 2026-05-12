@@ -337,7 +337,7 @@ def compareSC3(sc3ml, comparefile, tablefmt="simple"):
     match = regex.search(seiscomp.tag)
     if match:
         ns = match.group(1)
-        schema_version = match.group(2)
+        match.group(2)
     else:
         raise ValueError("Invalid SC3ML file")
         sys.exit(1)
@@ -352,7 +352,7 @@ def compareSC3(sc3ml, comparefile, tablefmt="simple"):
     match = regex.search(c_seiscomp.tag)
     if match:
         c_ns = match.group(1)
-        c_schema_version = match.group(2)
+        match.group(2)
     else:
         raise ValueError("Invalid SC3ML comparefile")
         sys.exit(1)
@@ -443,7 +443,7 @@ def compareSC3(sc3ml, comparefile, tablefmt="simple"):
 
     # Stations
     stations = network.findall(ns + "station")
-    c_stations = c_network.findall(c_ns + "station")
+    c_network.findall(c_ns + "station")
     for station in stations:
         station_identifier = station.attrib["code"]
         # print(station.attrib['code'])

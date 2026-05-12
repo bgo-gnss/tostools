@@ -71,7 +71,7 @@ RECEIVER_IGS: dict[str, str] = {
 
 ANTENNA_IGS: dict[str, str] = {
     # Trimble choke-ring antennas ----------------------------------------------
-    "TRM29659.00": "TRM29659.00",      # identity — already IGS
+    "TRM29659.00": "TRM29659.00",  # identity — already IGS
     "TRM33429.20+GP": "TRM33429.20+GP",
     "TRM41249.00": "TRM41249.00",
     "TRM55971.00": "TRM55971.00",
@@ -92,11 +92,11 @@ ANTENNA_IGS: dict[str, str] = {
 
 RADOME_IGS: dict[str, str] = {
     "NONE": "NONE",
-    "SPKE": "SPKE",   # Septentrio spike radome
-    "SCIS": "SCIS",   # Trimble steel cover
-    "LEIT": "LEIT",   # Leica transparent
-    "SNOW": "SNOW",   # Snow/ice shield
-    "TZGD": "TZGD",   # Trimble zephyr geodetic dome
+    "SPKE": "SPKE",  # Septentrio spike radome
+    "SCIS": "SCIS",  # Trimble steel cover
+    "LEIT": "LEIT",  # Leica transparent
+    "SNOW": "SNOW",  # Snow/ice shield
+    "TZGD": "TZGD",  # Trimble zephyr geodetic dome
     # Common aliases:
     "None": "NONE",
     "none": "NONE",

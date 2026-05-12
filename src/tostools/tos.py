@@ -51,7 +51,7 @@ url_rest_tos = "https://vi-api.vedur.is:11223/tos/v1"
 
 def searchStation(station_identifier, url_rest, domains=None):
 
-    if domains == None:
+    if domains is None:
         domains = [
             "meteorological",
             "geophysical",
@@ -571,7 +571,7 @@ def lookupMasterDataloggerXML(device):
             if description is not None and description.text.startswith(
                 sensor_sensitivity
             ):
-                name = dataloggerXML.attrib["name"]
+                dataloggerXML.attrib["name"]
                 publicID = dataloggerXML.attrib["publicID"]
                 is_found = True
                 break
@@ -581,7 +581,7 @@ def lookupMasterDataloggerXML(device):
             if description is not None and description.text.startswith(
                 sensor_sensitivity
             ):
-                name = dataloggerXML.attrib["name"]
+                dataloggerXML.attrib["name"]
                 publicID = dataloggerXML.attrib["publicID"]
                 is_found = True
                 break
@@ -591,8 +591,8 @@ def lookupMasterDataloggerXML(device):
             modelXML = dataloggerXML.find(ns + "model")
 
             if modelXML is not None and modelXML.text == model:
-                name = dataloggerXML.attrib["name"]
-                response = dataloggerXML.attrib["response"]
+                dataloggerXML.attrib["name"]
+                dataloggerXML.attrib["response"]
                 publicID = dataloggerXML.attrib["publicID"]
                 is_found = True
                 break
@@ -647,8 +647,8 @@ def lookupMasterSensorXML(device):
         modelXML = sensorXML.find(ns + "model")
 
         if modelXML is not None and modelXML.text == model:
-            name = sensorXML.attrib["name"]
-            response = sensorXML.attrib["response"]
+            sensorXML.attrib["name"]
+            sensorXML.attrib["response"]
             publicID = sensorXML.attrib["publicID"]
             is_found = True
             break
@@ -1705,8 +1705,8 @@ KNOWN_SUBCOMMANDS = {"owners", "device", "audit"}
 
 def _owners_main(argv):
     """Handle `tos owners ...` subcommands."""
-    from .owners import KNOWN_OWNERS, OwnersCache
     from .api.tos_client import TOSClient
+    from .owners import KNOWN_OWNERS, OwnersCache
 
     p = argparse.ArgumentParser(
         prog="tos owners",
@@ -1974,8 +1974,8 @@ def _audit_main(argv):
     """
     import json as _json
 
-    from .api.tos_client import TOSClient
     from . import audit as audit_mod
+    from .api.tos_client import TOSClient
 
     p = argparse.ArgumentParser(
         prog="tos audit",
@@ -2576,7 +2576,7 @@ def _legacy_main(argv):
 
     elif args.sc3ml:
         # from obspy.clients.nrl import NRL
-        master_inventoryXML = parseSeiscompInventoryXML("master_inventory.xml")
+        parseSeiscompInventoryXML("master_inventory.xml")
         # print(inventory)
 
         if args.schema_version:
@@ -2603,17 +2603,14 @@ def _legacy_main(argv):
                 compareSC3(sc3ml, comparefile)
 
     elif args.fdsnxml:
-        import obspy
-        from obspy.clients.nrl import NRL
-        from obspy.core.inventory import Channel, Inventory, Network, Site, Station
 
         # master_inventory = parseSeiscompInventoryXML('master_inventory.xml')
         # print(inventory)
 
         if args.identifiers:
-            xml = generateFDSNXML(args.identifiers)
+            generateFDSNXML(args.identifiers)
         else:
-            xml = generateFDSNXML()
+            generateFDSNXML()
 
     elif args.identifiers:
         if args.exclude:

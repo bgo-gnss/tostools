@@ -9,7 +9,6 @@
 
 import json
 import logging
-import sys
 from datetime import datetime as dt
 from datetime import timedelta
 from operator import itemgetter
@@ -20,7 +19,7 @@ from gtimes import timefunc as tf
 from gtimes.timefunc import datefRinex
 from tabulate import tabulate
 
-from ..utils.data_quality import IssueType, IssueSeverity, data_quality_manager
+from ..utils.data_quality import IssueSeverity, IssueType, data_quality_manager
 from . import gps_metadata_qc as gpsqc
 
 
@@ -281,7 +280,6 @@ def print_station_info(station, loglevel=logging.WARNING, skip_validation=False)
     module_logger = get_logger(name=__name__)
     module_logger.setLevel(loglevel)
 
-    header = "*SITE  Station Name      Session Start      Session Stop       Ant Ht   HtCod  Ant N    Ant E    Receiver Type         Vers                  SwVer  Receiver SN           Antenna Type     Dome   Antenna SN"
     # print(header)
 
     stationInfo_list = []
@@ -570,17 +568,7 @@ def print_station_list(station_list, sortby="marker"):
     """ """
 
     station_list[:] = sorted(station_list, key=itemgetter(sortby))
-    keylist = [
-        "marker",
-        "name",
-        "date_from",
-        "lon",
-        "lat",
-        "altitude",
-        "operational_class",
-        "date_to",
-    ]
-    value_list = [list(item.values()) for item in station_list]
+    [list(item.values()) for item in station_list]
 
     # print(tabulate(value_list, headers=keylist))
 
@@ -1376,9 +1364,7 @@ def domes_info_form(station_identifier, loglevel=logging.WARNING):
     station, devices_history = gpsqc.get_station_metadata(
         station_identifier, gpsqc.URL_REST_TOS, loglevel=loglevel
     )
-    device_sessions = gpsqc.get_device_sessions(
-        devices_history, gpsqc.URL_REST_TOS, loglevel=loglevel
-    )
+    gpsqc.get_device_sessions(devices_history, gpsqc.URL_REST_TOS, loglevel=loglevel)
 
     # devices_used = ["gnss_receiver", "antenna", "radome", "monument"]
     module_logger.info("station: %s", json_print(station))
@@ -1620,8 +1606,6 @@ def main():
 
     # count_GPS_stations(station_list)
 
-    antenna = "ASH701945C_M"
-    antennaf = "antenna_arp.list"
     # marker = "TREE"
     # platefile = "./station-plate"
     # print(grep_line_aslist(platefile, marker))
