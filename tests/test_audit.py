@@ -69,14 +69,89 @@ def _conn(id_child: int, time_from: str = "2025-01-01T00:00:00", time_to=None):
     }
 
 
+def _search_hit(
+    device_id: int,
+    serial: str,
+    lvl_two_id,
+    lvl_two_name=None,
+):
+    """Build a basic_search distance=0 hit shaped like TOS returns.
+
+    Pass ``lvl_two_id=None`` to model a device that basic_search can find
+    by serial but reports no current parent (truly orphan signal).
+    """
+    return {
+        "code": "serial_number",
+        "distance": 0,
+        "id_entity": device_id,
+        "value_varchar": serial,
+        "id_lvl_two": lvl_two_id,
+        "name_lvl_two": lvl_two_name,
+    }
+
+
+# Device subtypes for which we auto-synthesize basic_search hits from the
+# fixtures. Anything else (stations, antennas in non-receiver tests) does
+# not get a hit, which is also how TOS would behave in production.
+_DEVICE_SUBTYPES_FOR_AUTO_HITS = {
+    "gnss_receiver",
+    "antenna",
+    "radome",
+    "monument",
+}
+
+
 def _client_returning(history_by_id, hits=None):
     """Build a mock TOSClient whose get_entity_history dispatches by id.
 
-    ``hits`` controls the ``basic_search`` return value.
+    If ``hits`` is None, basic_search auto-synthesizes a distance=0 hit per
+    device fixture in ``history_by_id`` (using its ``id_entity_parent`` as
+    the synthesized lvl_two). This mirrors a consistent TOS state where
+    basic_search and id_entity_parent agree, which is the default
+    "happy-path" world the existing tests assume. Tests that exercise the
+    fix-the-bug case (basic_search disagrees with stale id_entity_parent)
+    must pass ``hits`` explicitly.
+
+    All basic_search calls return the same auto-synthesized list — the
+    audit code filters by ``id_entity`` and ``distance`` anyway, so a
+    single combined list is sufficient.
     """
     client = MagicMock()
     client.get_entity_history.side_effect = lambda i: history_by_id.get(int(i))
-    client.basic_search.return_value = list(hits or [])
+
+    if hits is None:
+        auto = []
+        for ent_id, hist in history_by_id.items():
+            subtype = hist.get("code_entity_subtype")
+            if subtype not in _DEVICE_SUBTYPES_FOR_AUTO_HITS:
+                continue
+            serial = next(
+                (
+                    a.get("value")
+                    for a in hist.get("attributes") or []
+                    if a.get("code") == "serial_number" and a.get("date_to") is None
+                ),
+                None,
+            )
+            if not serial:
+                continue
+            parent_id = hist.get("id_entity_parent")
+            parent_name = None
+            if parent_id is not None:
+                parent_hist = history_by_id.get(int(parent_id))
+                if parent_hist:
+                    parent_name = next(
+                        (
+                            a.get("value")
+                            for a in parent_hist.get("attributes") or []
+                            if a.get("code") == "name" and a.get("date_to") is None
+                        ),
+                        None,
+                    )
+            auto.append(_search_hit(int(ent_id), str(serial), parent_id, parent_name))
+        hits = auto
+
+    client.basic_search.return_value = list(hits)
     return client
 
 
@@ -165,6 +240,87 @@ def test_audit_device_closed_without_replacement_is_I1_violation():
     assert report.open_joins == []
 
 
+def test_audit_device_uses_basic_search_lvl_two_over_stale_id_entity_parent():
+    """The fix: when ``device.id_entity_parent`` is stale (still points to an
+    old parent) but ``basic_search`` lvl_two reports a different current
+    parent, the audit must trust basic_search. Models the live-probed case
+    of id_entity=19969: stated parent was 'Grindavík vestur' (no open join
+    there), real open join was at 'Grindavík miðja' (id_lvl_two from
+    search). The audit should report I1 OK at the new parent."""
+    device = _device_history(100, parent_id=50, serial="SN-100")  # stale ptr
+    # Stale parent: device says it's here, but there's no open join.
+    stale = _station_history(
+        50, "Old Place", connections=[_conn(100, time_to="2024-01-01")]
+    )
+    # Real current parent per basic_search: device IS open-joined here.
+    real = _station_history(70, "New Place", connections=[_conn(100, "2025-03-15")])
+    client = _client_returning(
+        {100: device, 50: stale, 70: real},
+        hits=[_search_hit(100, "SN-100", lvl_two_id=70, lvl_two_name="New Place")],
+    )
+
+    report = audit_device(client, id_entity=100)
+
+    assert report.invariant_I1_ok is True
+    assert report.invariant_violations == []
+    assert report.current_parent_id == 70  # basic_search wins, not 50
+    assert report.current_parent_name == "New Place"
+    assert len(report.open_joins) == 1
+    assert report.open_joins[0].id_entity_parent == 70
+
+
+def test_audit_device_falls_back_to_id_entity_parent_when_search_has_no_hit():
+    """When basic_search returns no exact match for the device's serial
+    (e.g. the ASHTECH Z-XII3 indexing gap in TOS), the audit falls back to
+    the legacy ``id_entity_parent`` attribute and flags the fallback so
+    callers can downgrade confidence."""
+    device = _device_history(100, parent_id=50, serial="ZXII3-WEIRD")
+    station = _station_history(50, "RHOF", connections=[_conn(100, "2025-03-15")])
+    # Explicit empty hits → simulate basic_search indexing gap.
+    client = _client_returning({100: device, 50: station}, hits=[])
+
+    report = audit_device(client, id_entity=100)
+
+    # I1 ok at the legacy parent, but flagged as "cannot-verify".
+    assert report.invariant_I1_ok is True
+    assert report.current_parent_id == 50
+    assert any("cannot-verify" in v for v in report.invariant_violations)
+    assert any("ZXII3-WEIRD" in v for v in report.invariant_violations)
+
+
+def test_audit_device_search_hit_with_null_lvl_two_is_truly_orphan():
+    """When basic_search returns a hit but its ``id_lvl_two`` is null, the
+    device has no current parent — a genuine orphan, not a stale-pointer
+    false positive."""
+    device = _device_history(100, parent_id=None, serial="SN-100")
+    client = _client_returning(
+        {100: device},
+        hits=[_search_hit(100, "SN-100", lvl_two_id=None)],
+    )
+
+    report = audit_device(client, id_entity=100)
+
+    assert report.invariant_I1_ok is False
+    assert report.current_parent_id is None
+    assert any(
+        "no current parent" in v or "id_lvl_two is null" in v
+        for v in report.invariant_violations
+    )
+
+
+def test_audit_device_no_search_hit_and_no_id_entity_parent_is_unauditable():
+    """No basic_search hit AND no id_entity_parent → can't determine any
+    parent at all. Reported as ``I1 no-parent`` with the explicit reason."""
+    device = _device_history(100, parent_id=None, serial="ORPHAN-SN")
+    client = _client_returning({100: device}, hits=[])
+
+    report = audit_device(client, id_entity=100)
+
+    assert report.invariant_I1_ok is False
+    assert report.current_parent_id is None
+    assert any("no current parent signal" in v for v in report.invariant_violations)
+
+
 def test_audit_device_multiple_open_joins_is_I1_violation():
     device = _device_history(100, parent_id=50)
     station = _station_history(
@@ -217,19 +373,16 @@ def test_audit_device_serial_lookup_filters_by_subtype():
     station = _station_history(50, "RHOF", connections=[_conn(100, "2025-03-15")])
     client = _client_returning(
         {100: device, 50: station},
-        hits=[
-            {
-                "code": "serial_number",
-                "value_varchar": "SN-100",
-                "distance": 0,
-                "id_lvl_three": 100,
-            }
-        ],
+        hits=[_search_hit(100, "SN-100", lvl_two_id=50, lvl_two_name="RHOF")],
     )
 
     report = audit_device(client, serial="SN-100", subtype="receiver")
 
-    client.basic_search.assert_called_once_with("SN-100")
+    # basic_search is called at least once with the serial — exact call
+    # count is loose because audit_device may now consult it twice (once for
+    # serial resolution, once for current-parent lookup via lvl_two).
+    assert client.basic_search.called
+    assert all(call.args == ("SN-100",) for call in client.basic_search.call_args_list)
     assert report.id_entity == 100
     assert report.invariant_I1_ok is True
 
