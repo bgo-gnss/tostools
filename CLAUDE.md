@@ -11,19 +11,23 @@ This is **tostools**, a Python3 command-line toolkit for GPS/GNSS station metada
 **Current Version**: v0.3.5 (TOS read/write API client with IGS equipment standard support)
 
 ### Core Components
+
 1. **Primary GPS Tools** (by Benedikt): GPS metadata QC, RINEX processing, station management
 2. **Legacy TOS Integration** (by Tryggvi): Tools for querying TOS API for Icelandic weather/seismic stations
 
 ### Key Features
+
 - **Clean Output**: Silent by default, verbose when needed
 - **Rich Formatting**: Color-coded GPS station data visualization
 - **GAMIT Integration**: Production-ready GPS processing format
 - **IGS Compliance**: Professional site log generation with v2.0 standards
-- **RINEX Processing**: Validation, correction, and format compliance
+- **RINEX Processing**: Validation, brary
+  correction, and format compliance
 
 ## Quick Start
 
 ### Environment Setup
+
 ```bash
 mamba activate tostools
 pip install -e .
@@ -34,6 +38,7 @@ pre-commit install
 ```
 
 ### Core Commands
+
 ```bash
 # GPS station metadata (clean output for automation)
 tosGPS PrintTOS RHOF --format table > data.csv
@@ -53,6 +58,7 @@ tosGPS --debug-all --log-dir logs sitelog RHOF
 ```
 
 ### Legacy TOS Tools
+
 ```bash
 tos vadla -o json    # Original TOS API client (Tryggvi)
 json2ascii input.json output.txt
@@ -62,6 +68,7 @@ metadata2rmq
 ## Architecture
 
 ### Current Structure
+
 ```
 src/tostools/
 ├── tosGPS.py                    # Main GPS QC application (console script)
@@ -80,13 +87,15 @@ src/tostools/
 ```
 
 ### Key Data Sources
+
 - **TOS API**: `https://vi-api.vedur.is:11223/tos/v1` (Icelandic weather/seismic stations)
 - **Local databases**: `stations.list`, `station.info.sopac.apr05` (in tmp/)
 - **Binary tools**: `bin/` contains RINEX conversion utilities
 
 ### Station Types
+
 - GPS/GNSS stations (primary focus)
-- Meteorological stations  
+- Meteorological stations
 - Geophysical/seismic stations (SIL network)
 - Hydrological and remote sensing platforms
 
@@ -104,8 +113,9 @@ See `docs/architecture/tos-write-api.md` for the complete API reference, write p
 ## Development Workflow
 
 ### Code Quality
+
 ```bash
-# Local testing (matches CI pipeline)  
+# Local testing (matches CI pipeline)
 ruff check src/
 black --check src/
 pytest tests/ -v
@@ -113,6 +123,7 @@ python scripts/update_standards.py --validate-only  # GPS/GNSS standards complia
 ```
 
 ### CI/CD Pipeline
+
 - **GitHub Actions**: `.github/workflows/ci.yml`
 - **Python versions**: 3.8 through 3.13 compatibility
 - **Quality checks**: ruff linting, black formatting, pytest testing
@@ -121,23 +132,28 @@ python scripts/update_standards.py --validate-only  # GPS/GNSS standards complia
 - **Pre-commit hooks**: Automated standards checking before commits
 
 ### Dependencies
+
 Key dependencies managed through `pyproject.toml`:
+
 - `requests` (TOS API), `pandas` (data processing), `rich` (formatting)
 - `gtimes` (GPS time), `pyproj` (coordinates), `fortranformat` (RINEX)
 
 ## Important Technical Notes
 
 ### RINEX Format Requirements ⚠️
-- **FORTRAN77 column formatting** - spaces vs tabs matter critically  
+
+- **FORTRAN77 column formatting** - spaces vs tabs matter critically
 - **Exact column positions** - extra spaces break parsing
 - **Preserve alignment** when editing RINEX headers
 
 ### Output Streams Architecture
+
 - **stdout**: Program data (tables, site logs) - perfect for piping
 - **stderr**: Status messages, progress info, errors
 - **Files**: Comprehensive logging with `--log-dir logs`
 
 ### GPS Standards Compliance
+
 - **IGS v2.0**: Nine-character IDs, proper coordinate formats (DMS)
 - **Country translation**: Iceland→ISL, NEI→NO, JÁ→YES with fallback handling
 - **Equipment tracking**: Integration with GAMIT session history
@@ -145,6 +161,7 @@ Key dependencies managed through `pyproject.toml`:
 ## Current Capabilities (v0.2.6)
 
 ### ✅ Production Ready
+
 - **Safe Update System**: Enterprise-grade reference data updates with multiple safety layers
 - **Smart Site Log Generation**: IGS v2.0 compliant with automatic change detection and organized directory structure
 - **Intelligent Change Detection**: Skips file creation when no meaningful changes detected, perfect for automation
@@ -154,6 +171,7 @@ Key dependencies managed through `pyproject.toml`:
 - **RINEX Processing**: Validation, correction, and format compliance
 
 ### 🛡️ Safe Update System Features
+
 - **Fresh Download Verification**: Always uses latest server data with integrity validation
 - **Automatic Backup System**: Timestamped backups with 10-version retention policy
 - **Change Verification**: Ensures only intended stations are modified, preserves file integrity
@@ -164,6 +182,7 @@ Key dependencies managed through `pyproject.toml`:
 - **Production Logging**: Structured logging for monitoring, alerting, and operational visibility
 
 ### ⚠️ Known Issues & TODOs
+
 - **Contact Management**: Hardcoded IMO fallback needs architectural review
 - **Group Header Alignment**: Minor fine-tuning needed in rich formatter
 - **CLI Feature Gaps**: Missing `--no-static`, `--contact` flags
@@ -172,12 +191,14 @@ Key dependencies managed through `pyproject.toml`:
 ## Future Development Priorities
 
 ### Next Phase Tasks
+
 1. **Pattern 2 writes (instrument change)**: `TOSWriter` has `patch_attribute_value` and `add_attribute_value` but `receivers cfg reconcile --push-tos` only uses Pattern 1 (correct open value). Extend to close old period + open new one for firmware/instrument changes.
 2. **Pattern 4 (historical corrections)**: Add `date_hint` parameter to `upsert_attribute_value` to target a specific closed historical period rather than always the most recent open value.
 3. **Device entity writes**: `--push-tos` currently writes to station entity only. Receiver model/serial/firmware require resolving the gnss_receiver child entity.
 4. **Web/phone interface**: CLI is the primary interface; a REST API wrapper (`receivers` package) will serve web and mobile UIs.
 
 ### Long-term Architecture
+
 - **Modular Migration**: Gradual transition from legacy/ to modular components
 - **API Enhancement**: Improve TOS API integration and error handling
 - **Standards Automation**: Automated sourcing and storage of GPS standards
@@ -186,8 +207,9 @@ Key dependencies managed through `pyproject.toml`:
 ## TODO Comment System
 
 The codebase uses structured TODO comments for tracking technical debt:
+
 - **FIXME**: Critical bugs needing immediate attention
-- **TODO**: Features and improvements to implement  
+- **TODO**: Features and improvements to implement
 - **HACK**: Temporary solutions needing proper implementation
 - **REVIEW**: Code sections needing architectural review
 - **WARNING**: Important constraints and gotchas
@@ -199,10 +221,14 @@ Integration with VS Code Todo Tree and Neovim todo-comments.nvim available.
 ## Quick Reference
 
 ### Project Status: **Active Development** (v0.3.5)
+
 ### Main Focus: **TOS read/write integration and GPS station metadata management**
+
 ### Architecture: **Legacy modules (stable) + Modular components (active development)**
+
 ### Key Strength: **Automated workflows with intelligent change detection and clean output**
 
 ---
 
-*Last updated: 2026-05-05*
+_Last updated: 2026-05-05_
+

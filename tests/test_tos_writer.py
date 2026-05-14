@@ -263,6 +263,45 @@ def test_patch_entity_connection_raises_with_no_kwargs():
         w.patch_entity_connection(7)
 
 
+def test_update_entity_subtype_uses_admin_endpoint_with_put():
+    """Reclassifying a device sends PUT /admin_entity_row/<id>/ with the
+    integer id_entity_subtype (not the string code) — the public
+    /entity/<id>/ endpoint is read-only (Allow: HEAD, GET, OPTIONS)."""
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request") as mock_req:
+        mock_req.return_value = {"id": 16321, "id_entity_subtype": 25}
+        result = w.update_entity_subtype(16321, 25)
+
+    mock_req.assert_called_once()
+    call = mock_req.call_args
+    assert call.args[0] == "PUT"
+    assert "/admin_entity_row/16321" in call.args[1]
+    assert call.kwargs["data"] == {"id_entity_subtype": 25}
+    assert result["id_entity_subtype"] == 25
+
+
+def test_update_entity_subtype_coerces_id_to_int():
+    """A stringified int still produces a valid integer payload — guards
+    against operator passing args[0] from the parser as raw text."""
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request") as mock_req:
+        w.update_entity_subtype(16321, "25")  # type: ignore[arg-type]
+    assert mock_req.call_args.kwargs["data"] == {"id_entity_subtype": 25}
+
+
+def test_update_entity_subtype_respects_dry_run():
+    """In dry-run mode no HTTP request goes out; DryRunResult is returned."""
+    from tostools.api.tos_writer import DryRunResult
+
+    w = _logged_in_writer(dry_run=True)
+    with patch("requests.request") as mock_http:
+        result = w.update_entity_subtype(16321, 25)
+    mock_http.assert_not_called()
+    assert isinstance(result, DryRunResult)
+    assert result.method == "PUT"
+    assert "/admin_entity_row/16321" in result.endpoint
+
+
 # ---------------------------------------------------------------------------
 # TOSWriter — upsert_attribute_value logic
 # ---------------------------------------------------------------------------

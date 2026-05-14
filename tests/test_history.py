@@ -1003,3 +1003,827 @@ def test_gap_time_from_and_time_to_properties():
     g = Gap(id_entity=100, after=j_after, before=j_before, duration_days=304.0)
     assert g.time_from == "2022-05-15"
     assert g.time_to == "2023-03-15"
+
+
+# ===========================================================================
+# Step 4 — scan_fleet_gaps + FleetGapReport (synthesis plan §5 step 4)
+# ===========================================================================
+
+
+from tostools.history import (  # noqa: E402  re-import to keep step-4 block self-contained
+    KNOWN_MISSING_FROM_CFG_PARENT_IDS,
+    FleetGapDevice,
+    FleetGapReport,
+    scan_fleet_gaps,
+)
+
+
+def _device_history(
+    id_entity: int,
+    *,
+    subtype: str = "gnss_receiver",
+    serial: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Build a /history/entity/<id>/ response for a *device* (no children)."""
+    attrs: List[Dict[str, Any]] = []
+    if serial is not None:
+        attrs.append({"code": "serial_number", "value": serial, "date_to": None})
+    if model is not None:
+        attrs.append({"code": "model", "value": model, "date_to": None})
+    return {
+        "id_entity": id_entity,
+        "code_entity_subtype": subtype,
+        "attributes": attrs,
+        "children_connections": [],
+    }
+
+
+def _build_fleet_client(
+    parent_to_conns: Dict[int, List[Dict[str, Any]]],
+    device_meta: Optional[Dict[int, Dict[str, Any]]] = None,
+) -> MagicMock:
+    """Mock TOSClient that knows parent histories *and* device histories.
+
+    ``parent_to_conns`` maps parent id → children_connections list.
+    ``device_meta`` maps device id → /history/entity/<id>/ response, used
+    by the enrichment path. Anything not in either map yields None.
+    """
+    parent_histories: Dict[int, Dict[str, Any]] = {
+        pid: _parent_history_with_conns(pid, conns)
+        for pid, conns in parent_to_conns.items()
+    }
+    device_histories: Dict[int, Dict[str, Any]] = device_meta or {}
+
+    def _fetch(eid: int) -> Optional[Dict[str, Any]]:
+        eid = int(eid)
+        if eid in parent_histories:
+            return parent_histories[eid]
+        if eid in device_histories:
+            return device_histories[eid]
+        return None
+
+    c = MagicMock()
+    c.get_entity_history.side_effect = _fetch
+    c.basic_search.return_value = []
+    return c
+
+
+def test_known_missing_from_cfg_lists_four_parents():
+    """Sanity: the constant covers the synthesis-§4.4 parents."""
+    assert set(KNOWN_MISSING_FROM_CFG_PARENT_IDS) == {18409, 4243, 4239, 5444}
+
+
+def test_scan_fleet_gaps_empty_when_no_devices():
+    client = _build_fleet_client({50: []})
+    parents = [_parent(50, name="ALPHA")]
+    report = scan_fleet_gaps(
+        client, parents=parents, enrich=False, include_orphans=True
+    )
+    assert isinstance(report, FleetGapReport)
+    assert report.total_devices == 0
+    assert report.devices == []
+    assert report.gap_count == 0
+
+
+def test_scan_fleet_gaps_surfaces_gap_above_threshold():
+    """A device with a 200-day gap surfaces at min_days=30."""
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to="2024-06-01",  # closed
+            ),
+        ],
+        60: [
+            _conn(
+                id_entity_connection=2,
+                parent=60,
+                child=100,
+                time_from="2024-12-18",  # 200 days later
+                time_to=None,
+            ),
+        ],
+    }
+    client = _build_fleet_client(parents_conns)
+    parents = [_parent(50, name="ALPHA"), _parent(60, name="BETA")]
+    report = scan_fleet_gaps(
+        client, parents=parents, min_days=30, enrich=False, include_orphans=False
+    )
+    assert len(report.devices) == 1
+    row = report.devices[0]
+    assert row.id_entity == 100
+    assert len(row.gaps) == 1
+    assert row.gaps[0].duration_days > 199
+    assert row.is_truly_orphan is False
+
+
+def test_scan_fleet_gaps_filters_short_gaps_by_min_days():
+    """A 5-day gap is suppressed when min_days=30."""
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+        ],
+        60: [
+            _conn(
+                id_entity_connection=2,
+                parent=60,
+                child=100,
+                time_from="2024-06-06",  # 5-day gap
+                time_to=None,
+            ),
+        ],
+    }
+    client = _build_fleet_client(parents_conns)
+    parents = [_parent(50), _parent(60)]
+    report = scan_fleet_gaps(
+        client, parents=parents, min_days=30, enrich=False, include_orphans=False
+    )
+    assert report.devices == []
+
+
+def test_scan_fleet_gaps_includes_truly_orphan_when_enabled():
+    """A device with closed joins but none open shows up under
+    include_orphans=True even when no gap exceeds the threshold."""
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+        ],
+    }
+    client = _build_fleet_client(parents_conns)
+    parents = [_parent(50, name="B9")]
+    report = scan_fleet_gaps(
+        client, parents=parents, enrich=False, include_orphans=True
+    )
+    assert len(report.devices) == 1
+    row = report.devices[0]
+    assert row.is_truly_orphan is True
+    assert row.gaps == []
+    # last_parent_* populated even without enrichment from the index.
+    assert row.last_parent_id == 50
+    assert row.last_parent_name == "B9"
+
+
+def test_scan_fleet_gaps_excludes_truly_orphan_when_disabled():
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+        ],
+    }
+    client = _build_fleet_client(parents_conns)
+    parents = [_parent(50)]
+    report = scan_fleet_gaps(
+        client, parents=parents, enrich=False, include_orphans=False
+    )
+    assert report.devices == []
+
+
+def test_scan_fleet_gaps_sorts_by_max_gap_descending_then_id():
+    """Stable order: largest gap first, ties broken by id_entity ascending."""
+    parents_conns = {
+        50: [
+            # device 100 — 200d gap
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+            # device 200 — 60d gap
+            _conn(
+                id_entity_connection=2,
+                parent=50,
+                child=200,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+            # device 300 — same 60d gap as 200 → ties on max_gap, id_entity wins
+            _conn(
+                id_entity_connection=3,
+                parent=50,
+                child=300,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+        ],
+        60: [
+            _conn(
+                id_entity_connection=4,
+                parent=60,
+                child=100,
+                time_from="2024-12-18",  # ~200d gap
+                time_to=None,
+            ),
+            _conn(
+                id_entity_connection=5,
+                parent=60,
+                child=200,
+                time_from="2024-08-01",  # ~60d gap
+                time_to=None,
+            ),
+            _conn(
+                id_entity_connection=6,
+                parent=60,
+                child=300,
+                time_from="2024-08-01",  # ~60d gap
+                time_to=None,
+            ),
+        ],
+    }
+    client = _build_fleet_client(parents_conns)
+    parents = [_parent(50), _parent(60)]
+    report = scan_fleet_gaps(
+        client, parents=parents, min_days=30, enrich=False, include_orphans=False
+    )
+    ids = [d.id_entity for d in report.devices]
+    assert ids == [100, 200, 300]
+
+
+def test_scan_fleet_gaps_enrichment_populates_serial_model_subtype():
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+        ],
+        60: [
+            _conn(
+                id_entity_connection=2,
+                parent=60,
+                child=100,
+                time_from="2024-12-18",
+                time_to=None,
+            ),
+        ],
+    }
+    client = _build_fleet_client(
+        parents_conns,
+        device_meta={
+            100: _device_history(
+                100, subtype="gnss_receiver", serial="3018484", model="SEPT POLARX5"
+            ),
+        },
+    )
+    parents = [_parent(50), _parent(60)]
+    report = scan_fleet_gaps(
+        client, parents=parents, min_days=30, enrich=True, include_orphans=False
+    )
+    assert len(report.devices) == 1
+    row = report.devices[0]
+    assert row.serial == "3018484"
+    assert row.model == "SEPT POLARX5"
+    assert row.subtype == "gnss_receiver"
+
+
+def test_scan_fleet_gaps_subtype_filter_drops_other_subtypes():
+    """Antennas in the index get filtered out when subtype='gnss_receiver'."""
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+            _conn(
+                id_entity_connection=2,
+                parent=50,
+                child=200,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+        ],
+        60: [
+            _conn(
+                id_entity_connection=3,
+                parent=60,
+                child=100,
+                time_from="2024-12-18",
+                time_to=None,
+            ),
+            _conn(
+                id_entity_connection=4,
+                parent=60,
+                child=200,
+                time_from="2024-12-18",
+                time_to=None,
+            ),
+        ],
+    }
+    client = _build_fleet_client(
+        parents_conns,
+        device_meta={
+            100: _device_history(100, subtype="gnss_receiver", serial="A"),
+            200: _device_history(200, subtype="antenna", serial="B"),
+        },
+    )
+    parents = [_parent(50), _parent(60)]
+    report = scan_fleet_gaps(
+        client,
+        parents=parents,
+        min_days=30,
+        enrich=True,
+        subtype="gnss_receiver",
+        include_orphans=False,
+    )
+    assert [d.id_entity for d in report.devices] == [100]
+
+
+def test_scan_fleet_gaps_subtype_requires_enrich():
+    client = _build_fleet_client({50: []})
+    import pytest
+
+    with pytest.raises(ValueError, match="enrich=True"):
+        scan_fleet_gaps(
+            client, parents=[_parent(50)], subtype="gnss_receiver", enrich=False
+        )
+
+
+def test_scan_fleet_gaps_enrich_failure_falls_back_to_unenriched_row():
+    """A device whose enrichment fetch raises still appears in the report
+    with None metadata — partial info beats dropping the row."""
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+        ],
+        60: [
+            _conn(
+                id_entity_connection=2,
+                parent=60,
+                child=100,
+                time_from="2024-12-18",
+                time_to=None,
+            ),
+        ],
+    }
+    parent_histories = {
+        pid: _parent_history_with_conns(pid, conns)
+        for pid, conns in parents_conns.items()
+    }
+
+    def _fetch(eid: int):
+        eid = int(eid)
+        if eid in parent_histories:
+            return parent_histories[eid]
+        raise RuntimeError("simulated TOS error")
+
+    client = MagicMock()
+    client.get_entity_history.side_effect = _fetch
+    client.basic_search.return_value = []
+
+    parents = [_parent(50), _parent(60)]
+    report = scan_fleet_gaps(
+        client, parents=parents, min_days=30, enrich=True, include_orphans=False
+    )
+    assert len(report.devices) == 1
+    row = report.devices[0]
+    assert row.subtype is None
+    assert row.serial is None
+
+
+def test_scan_fleet_gaps_default_parents_appends_known_missing():
+    """When `parents=None`, the enumeration auto-includes the four
+    known-missing-from-cfg parent ids so they don't cause phantom gaps."""
+    seen_extras: List[int] = []
+
+    def fake_enumerate(_client, *, extra_parent_ids=(), progress=None):
+        seen_extras.extend(extra_parent_ids)
+        return []
+
+    import tostools.history as h
+
+    original = h.enumerate_known_parents
+    h.enumerate_known_parents = fake_enumerate
+    try:
+        client = MagicMock()
+        scan_fleet_gaps(client, enrich=False, include_orphans=False)
+    finally:
+        h.enumerate_known_parents = original
+
+    assert set(seen_extras) == set(KNOWN_MISSING_FROM_CFG_PARENT_IDS)
+
+
+def test_fleet_gap_report_summary_counts():
+    """The summary counts derive from the device list, not external state."""
+    after = _join(100, 50, "2024-01-01", "2024-06-01")
+    before = _join(100, 60, "2024-12-18")
+    g = Gap(id_entity=100, after=after, before=before, duration_days=200.0)
+    devices = [
+        FleetGapDevice(id_entity=100, gaps=[g], is_truly_orphan=False),
+        FleetGapDevice(id_entity=200, gaps=[], is_truly_orphan=True),
+    ]
+    rep = FleetGapReport(
+        min_days=30.0,
+        parents_walked=2,
+        parents_failed=0,
+        total_joins=3,
+        total_devices=2,
+        devices=devices,
+    )
+    assert rep.devices_with_gaps == 1
+    assert rep.gap_count == 1
+    assert rep.orphan_count == 1
+
+
+def test_fleet_gap_device_max_gap_days_is_zero_for_orphan():
+    d = FleetGapDevice(id_entity=100, gaps=[], is_truly_orphan=True)
+    assert d.max_gap_days == 0.0
+
+
+def test_fleet_gap_device_max_gap_days_picks_longest():
+    after = _join(100, 50, "2024-01-01", "2024-06-01")
+    before = _join(100, 60, "2024-12-18")
+    g_long = Gap(id_entity=100, after=after, before=before, duration_days=200.0)
+    g_short = Gap(id_entity=100, after=after, before=before, duration_days=40.0)
+    d = FleetGapDevice(id_entity=100, gaps=[g_short, g_long], is_truly_orphan=False)
+    assert d.max_gap_days == 200.0
+
+
+# ===========================================================================
+# get_device_timelines + TimelinesReport (synthesis §3 timeline drill-down)
+# ===========================================================================
+
+
+from tostools.history import (  # noqa: E402
+    DeviceTimelineReport,
+    TimelinesReport,
+    get_device_timelines,
+)
+
+
+def test_get_device_timelines_returns_empty_for_unindexed_id():
+    """A device id with no joins anywhere still produces a row (empty)."""
+    client = _build_fleet_client({50: []})
+    parents = [_parent(50)]
+    report = get_device_timelines(client, [999], parents=parents, enrich=False)
+    assert isinstance(report, TimelinesReport)
+    assert len(report.timelines) == 1
+    tl = report.timelines[0]
+    assert tl.id_entity == 999
+    assert tl.joins == []
+    assert tl.is_currently_attached is False
+    assert tl.is_truly_orphan is False
+    assert tl.gaps == []
+
+
+def test_get_device_timelines_returns_full_history_chronologically():
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+        ],
+        60: [
+            _conn(
+                id_entity_connection=2,
+                parent=60,
+                child=100,
+                time_from="2024-12-18",
+                time_to=None,
+            ),
+        ],
+    }
+    client = _build_fleet_client(parents_conns)
+    parents = [_parent(50, name="ALPHA"), _parent(60, name="BETA")]
+    report = get_device_timelines(client, [100], parents=parents, enrich=False)
+    tl = report.timelines[0]
+    assert len(tl.joins) == 2
+    assert tl.joins[0].id_entity_parent == 50  # closed comes first
+    assert tl.joins[0].is_open is False
+    assert tl.joins[1].id_entity_parent == 60
+    assert tl.joins[1].is_open is True
+    assert tl.is_currently_attached is True
+    assert tl.is_truly_orphan is False
+
+
+def test_get_device_timelines_default_min_gap_days_zero_shows_every_gap():
+    """timeline default differs from fleet-gaps: every gap is surfaced."""
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+        ],
+        60: [
+            _conn(
+                id_entity_connection=2,
+                parent=60,
+                child=100,
+                time_from="2024-06-04",  # 3-day gap
+                time_to=None,
+            ),
+        ],
+    }
+    client = _build_fleet_client(parents_conns)
+    parents = [_parent(50), _parent(60)]
+    report = get_device_timelines(client, [100], parents=parents, enrich=False)
+    tl = report.timelines[0]
+    assert len(tl.gaps) == 1
+    assert tl.gaps[0].duration_days == 3.0
+
+
+def test_get_device_timelines_min_gap_days_filters_short_gaps():
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+        ],
+        60: [
+            _conn(
+                id_entity_connection=2,
+                parent=60,
+                child=100,
+                time_from="2024-06-04",
+                time_to=None,
+            ),
+        ],
+    }
+    client = _build_fleet_client(parents_conns)
+    parents = [_parent(50), _parent(60)]
+    report = get_device_timelines(
+        client, [100], parents=parents, enrich=False, min_gap_days=30
+    )
+    tl = report.timelines[0]
+    assert tl.gaps == []
+
+
+def test_get_device_timelines_enrichment_populates_metadata():
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to=None,
+            ),
+        ],
+    }
+    client = _build_fleet_client(
+        parents_conns,
+        device_meta={
+            100: _device_history(
+                100, subtype="gnss_receiver", serial="SN-X", model="MODEL-X"
+            ),
+        },
+    )
+    parents = [_parent(50)]
+    report = get_device_timelines(client, [100], parents=parents, enrich=True)
+    tl = report.timelines[0]
+    assert tl.subtype == "gnss_receiver"
+    assert tl.serial == "SN-X"
+    assert tl.model == "MODEL-X"
+
+
+def test_get_device_timelines_dedupes_ids_preserving_first_occurrence():
+    """Repeated ids in the input collapse to one report row, in input order."""
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to=None,
+            ),
+            _conn(
+                id_entity_connection=2,
+                parent=50,
+                child=200,
+                time_from="2024-01-01",
+                time_to=None,
+            ),
+        ],
+    }
+    client = _build_fleet_client(parents_conns)
+    parents = [_parent(50)]
+    report = get_device_timelines(
+        client, [200, 100, 200, 100, 100], parents=parents, enrich=False
+    )
+    assert [t.id_entity for t in report.timelines] == [200, 100]
+
+
+def test_get_device_timelines_exposes_parent_names_dict():
+    """The renderer needs parent_id → name; it's on the report so the CLI
+    doesn't have to re-query."""
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to=None,
+            ),
+        ],
+    }
+    client = _build_fleet_client(parents_conns)
+    parents = [_parent(50, name="ALPHA"), _parent(60, name="BETA")]
+    report = get_device_timelines(client, [100], parents=parents, enrich=False)
+    assert report.parent_names == {50: "ALPHA", 60: "BETA"}
+
+
+def test_scan_fleet_gaps_with_timelines_attaches_timeline_per_device():
+    """`with_timelines=True` populates each row's timeline field."""
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+        ],
+        60: [
+            _conn(
+                id_entity_connection=2,
+                parent=60,
+                child=100,
+                time_from="2024-12-18",
+                time_to=None,
+            ),
+        ],
+    }
+    client = _build_fleet_client(
+        parents_conns,
+        device_meta={
+            100: _device_history(100, subtype="gnss_receiver", serial="SN", model="M"),
+        },
+    )
+    parents = [_parent(50, name="ALPHA"), _parent(60, name="BETA")]
+    report = scan_fleet_gaps(
+        client,
+        parents=parents,
+        min_days=30,
+        include_orphans=False,
+        with_timelines=True,
+    )
+    assert len(report.devices) == 1
+    row = report.devices[0]
+    assert row.timeline is not None
+    assert len(row.timeline.joins) == 2
+    assert report.parent_names == {50: "ALPHA", 60: "BETA"}
+
+
+def test_scan_fleet_gaps_with_timelines_requires_enrich():
+    """`with_timelines` and `enrich=False` is incompatible — the embedded
+    timeline carries metadata that depends on enrichment."""
+    client = _build_fleet_client({50: []})
+    import pytest
+
+    with pytest.raises(ValueError, match="enrich=True"):
+        scan_fleet_gaps(
+            client,
+            parents=[_parent(50)],
+            enrich=False,
+            with_timelines=True,
+        )
+
+
+def test_scan_fleet_gaps_without_timelines_leaves_field_none():
+    """Default behaviour: row.timeline is None and report.parent_names empty."""
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+        ],
+        60: [
+            _conn(
+                id_entity_connection=2,
+                parent=60,
+                child=100,
+                time_from="2024-12-18",
+                time_to=None,
+            ),
+        ],
+    }
+    client = _build_fleet_client(parents_conns)
+    report = scan_fleet_gaps(
+        client,
+        parents=[_parent(50), _parent(60)],
+        min_days=30,
+        enrich=False,
+        include_orphans=False,
+    )
+    assert report.devices[0].timeline is None
+    assert report.parent_names == {}
+
+
+def test_scan_fleet_gaps_with_timelines_includes_every_gap():
+    """The embedded timeline's gaps list is unfiltered (min_days=0), even
+    when the headline row was thresholded to a higher min_days."""
+    parents_conns = {
+        50: [
+            _conn(
+                id_entity_connection=1,
+                parent=50,
+                child=100,
+                time_from="2024-01-01",
+                time_to="2024-06-01",
+            ),
+            _conn(
+                id_entity_connection=2,
+                parent=50,
+                child=100,
+                time_from="2024-06-04",  # 3-day gap — below headline threshold
+                time_to="2024-06-05",
+            ),
+        ],
+        60: [
+            _conn(
+                id_entity_connection=3,
+                parent=60,
+                child=100,
+                time_from="2024-12-18",  # ~200-day gap — surfaces in headline
+                time_to=None,
+            ),
+        ],
+    }
+    client = _build_fleet_client(
+        parents_conns,
+        device_meta={100: _device_history(100, subtype="gnss_receiver")},
+    )
+    report = scan_fleet_gaps(
+        client,
+        parents=[_parent(50), _parent(60)],
+        min_days=30,
+        with_timelines=True,
+        include_orphans=False,
+    )
+    row = report.devices[0]
+    # Headline row only carries the 200-day gap.
+    assert len(row.gaps) == 1
+    # Embedded timeline carries both (200 + 3).
+    assert len(row.timeline.gaps) == 2
+
+
+def test_device_timeline_report_is_frozen():
+    """DeviceTimelineReport must be a frozen dataclass — protects callers
+    from accidental mutation when threading it through a renderer chain."""
+    tl = DeviceTimelineReport(
+        id_entity=100,
+        subtype="gnss_receiver",
+        serial="SN-X",
+        model="MODEL-X",
+        is_currently_attached=True,
+        is_truly_orphan=False,
+        joins=[],
+        gaps=[],
+    )
+    import dataclasses
+    import pytest
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        tl.id_entity = 999  # type: ignore[misc]

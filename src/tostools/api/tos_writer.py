@@ -604,15 +604,23 @@ class TOSWriter:
     def _tos_date(dt: Optional[str]) -> Optional[str]:
         """Normalise a date string to TOS format ``YYYY-MM-DDTHH:MM:SS``.
 
-        TOS rejects timezone offsets (+00:00 / Z). Strip them here so callers
-        can pass standard ISO-8601 strings without worrying about the format.
+        TOS rejects timezone offsets (+00:00 / Z) AND date-only inputs
+        (``2026-05-13``). It wants a full datetime. Strip the timezone
+        and promote bare dates to midnight on that day. Empirically
+        confirmed against the live API on 2026-05-13: ``time_to`` and
+        ``date_to`` columns both 400 on date-only inputs with
+        ``Value is not valid time``.
         """
         if dt is None:
             return None
-        # Remove trailing timezone: +HH:MM, -HH:MM, or Z
         import re as _re
 
-        return _re.sub(r"([+-]\d{2}:\d{2}|Z)$", "", dt)
+        # Remove trailing timezone: +HH:MM, -HH:MM, or Z
+        dt = _re.sub(r"([+-]\d{2}:\d{2}|Z)$", "", dt)
+        # Promote date-only YYYY-MM-DD → YYYY-MM-DDT00:00:00
+        if _re.fullmatch(r"\d{4}-\d{2}-\d{2}", dt):
+            dt = f"{dt}T00:00:00"
+        return dt
 
     def add_attribute_value(
         self,
@@ -740,13 +748,115 @@ class TOSWriter:
         """Modify a join record (e.g. close or extend a device session).
 
         Accepted kwargs: ``time_from``, ``time_to``, ``id_entity_parent``,
-        ``id_entity_child``.
+        ``id_entity_child``. Date-shaped kwargs are normalised through
+        :meth:`_tos_date` so callers can pass ``YYYY-MM-DD`` and have it
+        promoted to a full datetime (TOS rejects date-only inputs on
+        the join endpoint with HTTP 400).
         """
         if not kwargs:
             raise ValueError(
                 "patch_entity_connection: at least one field must be provided"
             )
+        for key in ("time_from", "time_to"):
+            if key in kwargs and kwargs[key] is not None:
+                kwargs[key] = self._tos_date(kwargs[key])
         return self._request("PATCH", f"/join/{id_connection}", data=kwargs)
+
+    def transition_attribute_value(
+        self,
+        id_entity: int,
+        code: str,
+        new_value: str,
+        transition_date: str,
+    ) -> Dict[str, Any]:
+        """Close the currently-open attribute period and open a new one.
+
+        Unlike :meth:`upsert_attribute_value` (which PATCHes ``value`` on
+        the open period in place — overwriting history), this method
+        *preserves* the historical record by closing the existing period
+        with ``date_to=<transition_date>`` and then opening a new period
+        starting on the same date with ``new_value``. Two HTTP calls.
+
+        Canonical use case: marking a device as retired. The device was
+        ``status=virkt`` from 1992 to today; on retirement we want TOS
+        to show ``virkt`` from 1992-05-28 to 2025-12-31, and ``óvirkt``
+        from 2025-12-31 onwards. ``upsert_attribute_value`` would
+        clobber the 33-year ``virkt`` history; this method keeps it.
+
+        If no open period exists for ``code``, falls back to
+        :meth:`add_attribute_value` and just opens the new period — no
+        close to do, no error.
+
+        Args:
+            id_entity: The entity whose attribute we're transitioning.
+            code: Attribute code (e.g. ``"status"``).
+            new_value: The value for the new period (e.g. ``"óvirkt"``).
+            transition_date: ISO-8601 date for both the close of the old
+                period (``date_to``) and the open of the new
+                (``date_from``).
+
+        Returns:
+            ``{"closed": <patch_response>, "opened": <post_response>}``.
+            In dry-run mode the values are :class:`DryRunResult`.
+            ``closed`` is ``None`` when there was no pre-existing open
+            period to close.
+        """
+        existing = self.get_attribute_values(id_entity, code)
+        open_periods = [a for a in existing if a.get("date_to") is None]
+        closed_resp: Any = None
+        if open_periods:
+            # Most recent open period by date_from wins (defensive — the
+            # invariant is "exactly one open period per (id_entity, code)"
+            # but we don't trust callers' assumption).
+            current = max(open_periods, key=lambda a: a.get("date_from") or "")
+            id_av = current.get("id_attribute_value") or current.get("id")
+            if id_av is not None:
+                closed_resp = self.patch_attribute_value(
+                    int(id_av), date_to=transition_date
+                )
+        opened_resp = self.add_attribute_value(
+            id_entity,
+            code=code,
+            value=new_value,
+            date_from=transition_date,
+        )
+        return {"closed": closed_resp, "opened": opened_resp}
+
+    def update_entity_subtype(
+        self,
+        id_entity: int,
+        id_entity_subtype: int,
+    ) -> Any:
+        """Reclassify an existing entity by changing its subtype.
+
+        Uses the admin endpoint ``PUT /admin_entity_row/<id_entity>``,
+        the only TOS verb that lets us flip ``code_entity_subtype`` on
+        an entity record (the public ``/entity/<id>`` is read-only —
+        ``Allow: HEAD, GET, OPTIONS``).
+
+        TOS keys subtypes by integer FK (``id_entity_subtype``), not by
+        the string ``code`` — pass the int here. Resolve string codes
+        via ``GET /entity_subtypes/`` (see :func:`tostools.tos._fetch_subtype_id_by_code`).
+
+        The canonical use case is fixing a misclassified entity — e.g.
+        a u-blox GPS clock that TOS recorded as a ``gnss_receiver`` (id
+        49), needs to be ``gps_clock`` (id 29). The model / serial /
+        join graph were all correct; only the subtype label was wrong,
+        and that misclassification propagates into every audit and
+        report downstream.
+
+        Args:
+            id_entity: The entity primary key to reclassify.
+            id_entity_subtype: The new subtype's integer FK.
+
+        Returns:
+            API response dict, or :class:`DryRunResult` in dry-run mode.
+        """
+        return self._request(
+            "PUT",
+            f"/admin_entity_row/{id_entity}",
+            data={"id_entity_subtype": int(id_entity_subtype)},
+        )
 
 
 # ---------------------------------------------------------------------------
