@@ -18,6 +18,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tostools.devices import (
+    LEGACY_GPS_ATTRIBUTE_CODES,
     attribute_at,
     attribute_at_value,
     child_joins,
@@ -30,6 +31,7 @@ from tostools.devices import (
     parent_joins,
     set_attribute,
     set_open_attribute,
+    slice_attributes_by_window,
     transition_attribute,
 )
 
@@ -438,3 +440,214 @@ def test_set_open_attribute_forwards_to_upsert():
         value="5.42",
         date_from="2026-04-01",
     )
+
+
+# ---------------------------------------------------------------------------
+# slice_attributes_by_window
+#
+# These tests use ``gps_metadata_qc.device_attribute_history`` as the
+# oracle. The new primitive must produce byte-identical output when
+# called with ``codes=LEGACY_GPS_ATTRIBUTE_CODES`` (the legacy
+# hardcoded key list). This locks the contract before any phase 3
+# consumer retrofit goes near production.
+# ---------------------------------------------------------------------------
+
+
+def _gnss_device(*attrs: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id_entity": 12345,
+        "code_entity_subtype": "gnss_receiver",
+        "attributes": list(attrs),
+    }
+
+
+# A device with identity + firmware varying mid-session.
+SAMPLE_DEVICE = _gnss_device(
+    _attr("serial_number", "G1234", "2010-01-01T00:00:00", None, 1),
+    _attr("model", "NETR9", "2010-01-01T00:00:00", None, 2),
+    _attr("firmware_version", "5.20", "2017-01-01T00:00:00", "2020-01-01T00:00:00", 3),
+    _attr("firmware_version", "5.42", "2020-01-01T00:00:00", None, 4),
+)
+
+
+def _legacy_oracle(
+    device: Dict[str, Any],
+    window_start: str,
+    window_end: Optional[str],
+) -> Any:
+    """Call the legacy kernel as the contract oracle.
+
+    Imported inside the helper so the module-level import cost of
+    ``gps_metadata_qc`` doesn't slow non-slice tests.
+    """
+    import logging as _logging
+
+    from tostools.gps_metadata_qc import device_attribute_history
+
+    return device_attribute_history(
+        device, window_start, window_end, loglevel=_logging.CRITICAL
+    )
+
+
+def test_slice_matches_legacy_open_window_firmware_change():
+    """Open window crossing one firmware boundary → 2 atomic sub-windows."""
+    actual = slice_attributes_by_window(
+        SAMPLE_DEVICE,
+        "2017-01-01T00:00:00",
+        None,
+        codes=LEGACY_GPS_ATTRIBUTE_CODES,
+    )
+    expected = _legacy_oracle(SAMPLE_DEVICE, "2017-01-01T00:00:00", None)
+    assert actual == expected
+
+
+def test_slice_matches_legacy_closed_window_firmware_change():
+    """Closed window crossing the firmware boundary → both periods carry."""
+    actual = slice_attributes_by_window(
+        SAMPLE_DEVICE,
+        "2017-01-01T00:00:00",
+        "2022-01-01T00:00:00",
+        codes=LEGACY_GPS_ATTRIBUTE_CODES,
+    )
+    expected = _legacy_oracle(
+        SAMPLE_DEVICE, "2017-01-01T00:00:00", "2022-01-01T00:00:00"
+    )
+    assert actual == expected
+
+
+def test_slice_matches_legacy_pre_firmware_window():
+    """Window before any firmware → 1 row, firmware=None, serial+model present."""
+    actual = slice_attributes_by_window(
+        SAMPLE_DEVICE,
+        "2010-01-01T00:00:00",
+        "2015-01-01T00:00:00",
+        codes=LEGACY_GPS_ATTRIBUTE_CODES,
+    )
+    expected = _legacy_oracle(
+        SAMPLE_DEVICE, "2010-01-01T00:00:00", "2015-01-01T00:00:00"
+    )
+    assert actual == expected
+
+
+def test_slice_matches_legacy_window_inside_single_period():
+    """Window entirely inside one firmware period → 1 row."""
+    actual = slice_attributes_by_window(
+        SAMPLE_DEVICE,
+        "2018-06-01T00:00:00",
+        "2019-06-01T00:00:00",
+        codes=LEGACY_GPS_ATTRIBUTE_CODES,
+    )
+    expected = _legacy_oracle(
+        SAMPLE_DEVICE, "2018-06-01T00:00:00", "2019-06-01T00:00:00"
+    )
+    assert actual == expected
+
+
+def test_slice_default_codes_uses_present_attributes_only():
+    """codes=None uses only the codes actually in history['attributes'].
+
+    For SAMPLE_DEVICE, that's {serial_number, model, firmware_version} —
+    rows have those keys plus the universal id_entity, code_entity_subtype,
+    date_from, date_to.
+    """
+    rows = slice_attributes_by_window(SAMPLE_DEVICE, "2017-01-01T00:00:00", None)
+    assert len(rows) == 2
+    for row in rows:
+        assert set(row.keys()) == {
+            "id_entity",
+            "code_entity_subtype",
+            "date_from",
+            "date_to",
+            "serial_number",
+            "model",
+            "firmware_version",
+        }
+
+
+def test_slice_coarse_mode_returns_single_row():
+    """fine=False: one row covering the window, latest values as of window_end."""
+    rows = slice_attributes_by_window(
+        SAMPLE_DEVICE,
+        "2017-01-01T00:00:00",
+        None,
+        codes=LEGACY_GPS_ATTRIBUTE_CODES,
+        fine=False,
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["date_from"] == "2017-01-01T00:00:00"
+    assert row["date_to"] is None
+    # Latest open firmware
+    assert row["firmware_version"] == "5.42"
+    assert row["serial_number"] == "G1234"
+    assert row["model"] == "NETR9"
+
+
+def test_slice_coarse_mode_closed_window_uses_end_for_lookup():
+    rows = slice_attributes_by_window(
+        SAMPLE_DEVICE,
+        "2017-01-01T00:00:00",
+        "2019-06-01T00:00:00",  # mid-period
+        codes=LEGACY_GPS_ATTRIBUTE_CODES,
+        fine=False,
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["date_to"] == "2019-06-01T00:00:00"
+    # firmware 5.20 is the value at 2019-06-01
+    assert row["firmware_version"] == "5.20"
+
+
+def test_slice_raises_on_empty_window_start():
+    with pytest.raises(ValueError, match="window_start"):
+        slice_attributes_by_window(SAMPLE_DEVICE, "", None)
+
+
+ANTENNA_DEVICE = _gnss_device(
+    _attr("serial_number", "A99", "2010-01-01T00:00:00", None, 10),
+    _attr("model", "TRM59800.00", "2010-01-01T00:00:00", None, 11),
+    _attr("antenna_height", "1.5", "2010-01-01T00:00:00", "2015-06-15T00:00:00", 12),
+    _attr("antenna_height", "1.55", "2015-06-15T00:00:00", None, 13),
+    _attr("antenna_offset_north", "0.0", "2010-01-01T00:00:00", None, 14),
+    _attr("antenna_offset_east", "0.0", "2010-01-01T00:00:00", None, 15),
+    _attr("antenna_reference_point", "DHARP", "2010-01-01T00:00:00", None, 16),
+)
+# code_entity_subtype is "gnss_receiver" via _gnss_device — override for clarity
+ANTENNA_DEVICE["code_entity_subtype"] = "antenna"
+
+
+@pytest.mark.parametrize(
+    "label,window_start,window_end",
+    [
+        ("antenna_open", "2014-01-01T00:00:00", None),
+        ("antenna_closed", "2014-01-01T00:00:00", "2020-01-01T00:00:00"),
+        ("antenna_exact_boundary", "2015-06-15T00:00:00", None),
+    ],
+)
+def test_slice_matches_legacy_antenna_height_change(label, window_start, window_end):
+    """Antenna with mid-session height change — multiple attribute boundaries."""
+    actual = slice_attributes_by_window(
+        ANTENNA_DEVICE,
+        window_start,
+        window_end,
+        codes=LEGACY_GPS_ATTRIBUTE_CODES,
+    )
+    expected = _legacy_oracle(ANTENNA_DEVICE, window_start, window_end)
+    assert actual == expected, f"Mismatch for {label}"
+
+
+def test_slice_empty_attributes_returns_window_only_row():
+    """Device with no attributes: one row spanning the window, all codes None."""
+    empty = _gnss_device()
+    rows = slice_attributes_by_window(
+        empty,
+        "2017-01-01T00:00:00",
+        "2022-01-01T00:00:00",
+        codes=LEGACY_GPS_ATTRIBUTE_CODES,
+    )
+    # boundaries = {ws, we}; one closed sub-window
+    assert len(rows) == 1
+    assert rows[0]["date_from"] == "2017-01-01T00:00:00"
+    assert rows[0]["date_to"] == "2022-01-01T00:00:00"
+    for code in LEGACY_GPS_ATTRIBUTE_CODES:
+        assert rows[0][code] is None

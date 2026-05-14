@@ -589,3 +589,174 @@ def set_open_attribute(
         value=value,
         date_from=date_from,
     )
+
+
+# ---------------------------------------------------------------------------
+# Read — sub-session synthesis (the device_attribute_history kernel)
+# ---------------------------------------------------------------------------
+
+# The GPS-receiver attribute codes the legacy synthesis chain
+# (``gps_metadata_qc.device_attribute_history``) tracks. Passing this
+# list as ``codes`` to :func:`slice_attributes_by_window` produces
+# byte-equivalent output to the legacy kernel — used as the oracle for
+# the slice tests.
+LEGACY_GPS_ATTRIBUTE_CODES: List[str] = [
+    "serial_number",
+    "model",
+    "date_start",
+    "GPS",
+    "GLO",
+    "firmware_version",
+    "software_version",
+    "antenna_height",
+    "monument_height",
+    "antenna_offset_north",
+    "antenna_offset_east",
+    "antenna_reference_point",
+]
+
+
+def slice_attributes_by_window(
+    history: Dict[str, Any],
+    window_start: str,
+    window_end: Optional[str],
+    *,
+    codes: Optional[List[str]] = None,
+    fine: bool = True,
+) -> List[Dict[str, Any]]:
+    """Resolve a device's attribute periods across one join window.
+
+    Sub-session synthesis kernel (§3d of the design note). Replaces the
+    intricate two-pass algorithm in
+    ``gps_metadata_qc.device_attribute_history`` with a clean
+    boundary-partition + per-point lookup approach. Produces the same
+    output the legacy kernel does when called with
+    ``codes=LEGACY_GPS_ATTRIBUTE_CODES`` — exercised by
+    ``test_slice_attributes_by_window``.
+
+    Two output modes, controlled by ``fine``:
+
+    - **fine=True** (default): one row per **atomic sub-window** — the
+      window is partitioned at every attribute period boundary that
+      falls inside it, and one row is emitted per atomic interval.
+      Each row carries the value of each code valid throughout that
+      interval. This is what site logs, GAMIT ``station.info``, and
+      ``tosGPS PrintTOS`` consume: every firmware update produces a
+      new row.
+    - **fine=False**: one row for the entire window, carrying the
+      most-recent value of each code as of ``window_end`` (or the
+      currently-open value if ``window_end is None``). This is the
+      coarse view used by `tos audit show` and fleet-gap reports.
+
+    The boundary-partition approach: build the set of all attribute
+    date_from / date_to values that fall inside the window, plus the
+    window edges. Sort, dedupe. The consecutive pairs of these
+    boundaries are the atomic sub-windows. For each, look up every
+    code via :func:`attribute_at_value` at the sub-window's start.
+
+    Args:
+        history: Entity history dict, as returned by
+            :func:`find_device` or
+            :meth:`TOSClient.get_entity_history`.
+        window_start: ISO datetime — start of the join window.
+            Required (use ``"0000-01-01T00:00:00"`` for "from
+            beginning of time" if you really need that, but normally
+            window_start comes from a TOS join's ``time_from`` which
+            is always set).
+        window_end: ISO datetime — end of the join window, or
+            ``None`` for currently-active.
+        codes: Attribute codes to include in each row. ``None``
+            (default) uses every code present in
+            ``history['attributes']``. Pass
+            :data:`LEGACY_GPS_ATTRIBUTE_CODES` for legacy-equivalent
+            output shape.
+        fine: See above. Default ``True``.
+
+    Returns:
+        A list of row dicts. Each row carries:
+
+        - ``id_entity``, ``code_entity_subtype`` (from history)
+        - ``date_from``, ``date_to`` (atomic sub-window bounds, or
+          window edges if coarse)
+        - One key per code, value ``None`` when no attribute period
+          for that code covers the sub-window's start
+
+        Rows are ordered by ``date_from`` ascending; the open row (if
+        ``window_end is None``) is last.
+
+    Raises:
+        ValueError: ``window_start`` is empty or None.
+    """
+    if not window_start:
+        raise ValueError("slice_attributes_by_window requires window_start")
+
+    attrs = history.get("attributes") or []
+    id_entity = history.get("id_entity")
+    code_entity_subtype = history.get("code_entity_subtype")
+
+    if codes is None:
+        codes = sorted({a["code"] for a in attrs if a.get("code")})
+
+    universal = {
+        "id_entity": id_entity,
+        "code_entity_subtype": code_entity_subtype,
+    }
+
+    def _row_at(start: str, end: Optional[str]) -> Dict[str, Any]:
+        row: Dict[str, Any] = dict.fromkeys(codes)
+        for code in codes:
+            v = attribute_at_value(history, code, start)
+            if v is not None:
+                row[code] = v
+        row.update(universal)
+        row["date_from"] = start
+        row["date_to"] = end
+        return row
+
+    if not fine:
+        # Coarse: one row covering the whole window, values queried at
+        # window_end (or just-before-infinity for an open window so any
+        # currently-open period covers it).
+        when = window_end or "9999-12-31T23:59:59"
+        row: Dict[str, Any] = dict.fromkeys(codes)
+        for code in codes:
+            v = attribute_at_value(history, code, when)
+            if v is not None:
+                row[code] = v
+        row.update(universal)
+        row["date_from"] = window_start
+        row["date_to"] = window_end
+        return [row]
+
+    # Fine mode: partition the window at attribute boundaries.
+    boundaries = {window_start}
+    if window_end:
+        boundaries.add(window_end)
+
+    for a in attrs:
+        df = a.get("date_from")
+        dt = a.get("date_to")
+        # Skip zero-duration periods
+        if df and dt and df >= dt:
+            continue
+        # Add date_from if it falls inside [window_start, window_end)
+        if df:
+            if df >= window_start and (window_end is None or df < window_end):
+                boundaries.add(df)
+        # Add date_to if it falls inside (window_start, window_end]
+        if dt:
+            if dt > window_start and (window_end is None or dt <= window_end):
+                boundaries.add(dt)
+
+    sorted_bounds = sorted(boundaries)
+
+    rows: List[Dict[str, Any]] = []
+    # Closed atomic sub-windows from consecutive boundaries
+    for i in range(len(sorted_bounds) - 1):
+        rows.append(_row_at(sorted_bounds[i], sorted_bounds[i + 1]))
+
+    # Open final sub-window when window is open-ended
+    if window_end is None and sorted_bounds:
+        rows.append(_row_at(sorted_bounds[-1], None))
+
+    return rows
