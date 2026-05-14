@@ -9,14 +9,22 @@ duplicating them.
 
 Design rules
 ------------
-- Functions accept a :class:`TOSClient` (read) or :class:`TOSWriter`
-  (write) — never both, never implicit.
+- Read primitives accept a :class:`TOSClient` (or operate purely on an
+  already-fetched history dict). Write primitives accept a
+  :class:`TOSWriter`. Cross-layer composites take both — these are
+  the only primitives that do.
 - Subtype names are the **canonical TOS code** (e.g. ``digitizer``,
   ``gps_clock``, ``gnss_receiver``) — not the GPS-only short aliases
   used by ``audit.SUBTYPE_ALIASES``. Use this module when you need to
   touch the broader fleet (seismic digitisers, weather sensors, etc.).
 - Read functions return plain dicts (the TOS payload), so callers can
   pick the fields they care about without a heavy data model.
+- Write functions return the TOS response or
+  :class:`tostools.api.tos_writer.DryRunResult` in dry-run mode.
+
+See vault note ``1778713245-tostools-devices-design`` for the design
+proposal that motivates the API surface here, especially §1b
+(division of labour with ``receivers``) and §3 (signatures).
 
 API surface
 -----------
@@ -25,18 +33,43 @@ Lookup:
 * :func:`find_device` — resolve a device by id or (serial, subtype) →
   full history dict.
 
-Attribute helpers:
+Attribute helpers (pure, operate on an already-fetched history dict):
 
 * :func:`attribute_periods` — group all periods by ``code``, sorted
-  chronologically. Useful for "show me every transition for this
-  device's status / firmware / model".
+  chronologically.
 * :func:`open_attribute` — the value of the currently-open period for
   ``code``, or ``None``.
+* :func:`attribute_at` — the period covering a given date, or
+  ``None``.
+* :func:`attribute_at_value` — the ``.value`` of
+  :func:`attribute_at`, or ``None``.
 
-Join helpers:
+Join helpers (pure unless otherwise noted):
 
+* :func:`child_joins` — the children connections of a station, sorted.
+* :func:`parent_joins` — the parent connections of a device, sorted.
+* :func:`open_joins` — filter either set to those still open.
 * :func:`device_timeline` — full chronological join history for one
   device (builds the global join index — slow; cache the result).
+
+Write — joins layer:
+
+* :func:`open_join` — POST a new parent → child join.
+* :func:`close_join` — PATCH a join's ``time_to``.
+* :func:`fill_join_gap` — POST a closed join for a known historical
+  window (cfg-fix backfill).
+
+Write — attributes layer:
+
+* :func:`set_attribute` — POST a new attribute period.
+* :func:`end_attribute` — PATCH an existing period to set
+  ``date_to``.
+* :func:`correct_attribute` — PATCH an existing period in place
+  (history-destructive; use sparingly).
+* :func:`transition_attribute` — close the open period and open a new
+  one on the same date (history-preserving).
+* :func:`set_open_attribute` — idempotent set of the open period;
+  PATCH if value differs, else POST. History-destructive on PATCH.
 """
 
 from __future__ import annotations
@@ -44,6 +77,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from .api.tos_client import TOSClient
+from .api.tos_writer import TOSWriter
 
 
 def find_device(
@@ -177,3 +211,381 @@ def device_timeline(
         parents = enumerate_known_parents(client)
     index = build_join_index(client, parents=parents)
     return index.timeline(int(id_entity))
+
+
+# ---------------------------------------------------------------------------
+# Read — attribute helpers (point-in-time, pure)
+# ---------------------------------------------------------------------------
+
+
+def _normalise_iso_for_compare(s: str) -> str:
+    """Promote bare ``YYYY-MM-DD`` to ``YYYY-MM-DDT00:00:00`` for lexical
+    comparison against TOS-stored datetimes.
+
+    TOS persists every date as a full datetime — :meth:`TOSWriter._tos_date`
+    promotes bare dates on write. Operators query with bare dates, so the
+    query side has to mirror that promotion or the boundary case at
+    midnight flips:
+    ``"2026-05-13" < "2026-05-13T00:00:00"`` lexically, which would cause
+    a status transition exactly on 2026-05-13 to return the closed period
+    instead of the freshly-opened one.
+
+    Strips a trailing ``+HH:MM`` / ``-HH:MM`` / ``Z`` offset for the same
+    reason TOS does — defensive, in case a caller passes a tz-aware
+    timestamp from elsewhere.
+    """
+    import re as _re
+
+    s = _re.sub(r"([+-]\d{2}:\d{2}|Z)$", "", s)
+    if _re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        s = f"{s}T00:00:00"
+    return s
+
+
+def attribute_at(
+    history: Dict[str, Any], code: str, when: str
+) -> Optional[Dict[str, Any]]:
+    """Return the attribute period covering ``when`` for ``code``, or None.
+
+    Matching rule: a period covers ``when`` when
+    ``date_from <= when`` AND (``date_to is None`` OR ``when < date_to``).
+
+    Comparisons are lexical over ISO date/datetime strings. TOS stores
+    every date as a full datetime (``YYYY-MM-DDT00:00:00``) — see
+    :meth:`TOSWriter._tos_date`. To avoid a boundary-day flip when the
+    caller passes bare ``YYYY-MM-DD``, ``when`` is normalised through
+    :func:`_normalise_iso_for_compare` before comparison.
+
+    Args:
+        history: An entity history dict (as returned by
+            :func:`find_device` or
+            :meth:`TOSClient.get_entity_history`).
+        code: Attribute code (e.g. ``"status"``, ``"firmware_version"``).
+        when: ISO date or datetime string.
+
+    Returns:
+        The full period dict (``id_attribute_value``, ``date_from``,
+        ``date_to``, ``value``, …) or ``None`` if no period for
+        ``code`` covers ``when``.
+    """
+    if not when:
+        raise ValueError("attribute_at requires a non-empty `when`")
+    when_n = _normalise_iso_for_compare(when)
+    for a in history.get("attributes") or []:
+        if a.get("code") != code:
+            continue
+        df = a.get("date_from") or ""
+        if df > when_n:
+            continue
+        dt = a.get("date_to")
+        if dt is not None and dt <= when_n:
+            continue
+        return a
+    return None
+
+
+def attribute_at_value(history: Dict[str, Any], code: str, when: str) -> Optional[str]:
+    """Convenience: the ``.value`` of :func:`attribute_at`, or None.
+
+    Useful when you don't need the surrounding period metadata — just
+    "what was the firmware on 2017-03-14?".
+    """
+    period = attribute_at(history, code, when)
+    if period is None:
+        return None
+    v = period.get("value")
+    return None if v is None else str(v)
+
+
+# ---------------------------------------------------------------------------
+# Read — join helpers (pure unless noted)
+# ---------------------------------------------------------------------------
+
+
+def child_joins(history: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Return the station's child connections, sorted by ``time_from``.
+
+    Use when ``history`` is a station entity; each returned row
+    carries ``id_entity_connection``, ``id_entity_child``,
+    ``time_from``, ``time_to``. For a device's perspective use
+    :func:`parent_joins`.
+
+    Returns an empty list when the entity has no ``children_connections``
+    key (e.g. you accidentally passed a device history).
+    """
+    joins = list(history.get("children_connections") or [])
+    joins.sort(key=lambda j: j.get("time_from") or "")
+    return joins
+
+
+def parent_joins(history: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Return the device's parent connections, sorted by ``time_from``.
+
+    Use when ``history`` is a device entity; tells you which parents
+    this device has been attached to and when. For a station's
+    perspective use :func:`child_joins`.
+
+    Returns an empty list when the entity has no ``parent_connections``
+    key.
+    """
+    joins = list(history.get("parent_connections") or [])
+    joins.sort(key=lambda j: j.get("time_from") or "")
+    return joins
+
+
+def open_joins(history: Dict[str, Any], *, role: str) -> List[Dict[str, Any]]:
+    """Filter joins to those with ``time_to is None`` (currently active).
+
+    Args:
+        history: An entity history dict.
+        role: ``"parent"`` to filter children_connections (the entity
+            is the parent), or ``"child"`` to filter parent_connections
+            (the entity is the child).
+
+    Returns:
+        A list of open join dicts, sorted by ``time_from``.
+    """
+    if role == "parent":
+        joins = child_joins(history)
+    elif role == "child":
+        joins = parent_joins(history)
+    else:
+        raise ValueError(f"open_joins: role must be 'parent' or 'child', got {role!r}")
+    return [j for j in joins if j.get("time_to") is None]
+
+
+# ---------------------------------------------------------------------------
+# Write — joins layer
+# ---------------------------------------------------------------------------
+
+
+def open_join(
+    writer: TOSWriter,
+    *,
+    parent_id: int,
+    child_id: int,
+    date_from: str,
+) -> Any:
+    """Open a new parent → child join starting on ``date_from``.
+
+    Thin wrapper over :meth:`TOSWriter.create_entity_connection`. The
+    join is created with ``time_to`` of ``None`` (still active).
+
+    Args:
+        writer: An authenticated :class:`TOSWriter`.
+        parent_id: Parent entity id (e.g. station's ``id_entity``).
+        child_id: Child entity id (e.g. receiver's ``id_entity``).
+        date_from: ISO date or datetime — start of the join.
+
+    Returns:
+        The TOS response or :class:`DryRunResult`.
+    """
+    return writer.create_entity_connection(
+        id_parent=int(parent_id),
+        id_child=int(child_id),
+        time_from=date_from,
+        time_to=None,
+    )
+
+
+def close_join(
+    writer: TOSWriter,
+    *,
+    id_connection: int,
+    date_to: str,
+) -> Any:
+    """Close an existing join by setting its ``time_to`` to ``date_to``.
+
+    Thin wrapper over
+    :meth:`TOSWriter.patch_entity_connection` with ``time_to=...``.
+
+    Args:
+        writer: An authenticated :class:`TOSWriter`.
+        id_connection: The join's primary key (``id_entity_connection``).
+        date_to: ISO date or datetime — end of the join.
+
+    Returns:
+        The TOS response or :class:`DryRunResult`.
+    """
+    return writer.patch_entity_connection(int(id_connection), time_to=date_to)
+
+
+def fill_join_gap(
+    writer: TOSWriter,
+    *,
+    parent_id: int,
+    child_id: int,
+    date_from: str,
+    date_to: str,
+) -> Any:
+    """Open a *closed* join for a known historical window.
+
+    The backfill primitive — operator-facing verbs are
+    ``receivers cfg fix-gap`` and ``tos audit apply fill-gap``. Unlike
+    :func:`open_join`, this requires ``date_to`` because you're
+    filling a gap in the timeline, not creating a still-active join.
+
+    Args:
+        writer: An authenticated :class:`TOSWriter`.
+        parent_id: Backfill parent (often B9 placeholder or a real
+            station resolved from cold archive RINEX serials).
+        child_id: Device whose timeline gets the gap filled.
+        date_from: ISO date or datetime — start of the gap.
+        date_to: ISO date or datetime — end of the gap.
+
+    Returns:
+        The TOS response or :class:`DryRunResult`.
+    """
+    if not date_to:
+        raise ValueError(
+            "fill_join_gap requires date_to — use open_join for " "still-active joins"
+        )
+    return writer.create_entity_connection(
+        id_parent=int(parent_id),
+        id_child=int(child_id),
+        time_from=date_from,
+        time_to=date_to,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Write — attributes layer
+# ---------------------------------------------------------------------------
+
+
+def set_attribute(
+    writer: TOSWriter,
+    *,
+    device_id: int,
+    code: str,
+    value: str,
+    date_from: str,
+    date_to: Optional[str] = None,
+) -> Any:
+    """Open a new attribute period — POST only, no history check.
+
+    Does **not** close any prior open period for the same
+    ``(device_id, code)``. Use :func:`transition_attribute` for a
+    history-preserving change, or :func:`set_open_attribute` for an
+    idempotent overwrite of the open period.
+
+    Thin wrapper over :meth:`TOSWriter.add_attribute_value`.
+    """
+    return writer.add_attribute_value(
+        id_entity=int(device_id),
+        code=code,
+        value=value,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def end_attribute(
+    writer: TOSWriter,
+    *,
+    id_attribute_value: int,
+    date_to: str,
+) -> Any:
+    """Close an existing attribute period by setting ``date_to``.
+
+    Targets a specific period by its primary key — typically obtained
+    from :func:`attribute_at` or :func:`attribute_periods`. Use this
+    when you need to close a period without opening a replacement
+    (e.g. retiring an attribute that no longer applies).
+
+    Thin wrapper over :meth:`TOSWriter.patch_attribute_value`.
+    """
+    return writer.patch_attribute_value(int(id_attribute_value), date_to=date_to)
+
+
+def correct_attribute(
+    writer: TOSWriter,
+    *,
+    id_attribute_value: int,
+    value: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> Any:
+    """In-place edit of an existing attribute period.
+
+    **History-destructive** — overwrites the period's value or
+    boundaries without preserving the prior state. Use sparingly,
+    typically only for:
+
+    - Typo fixes (the value was wrong from day one)
+    - Boundary corrections (the period's dates were entered wrong)
+    - Historical corrections via Pattern 4 (target a specific closed
+      period)
+
+    For a genuine state change use :func:`transition_attribute`.
+
+    At least one of ``value``, ``date_from``, ``date_to`` must be
+    provided.
+
+    Thin wrapper over :meth:`TOSWriter.patch_attribute_value`.
+    """
+    return writer.patch_attribute_value(
+        int(id_attribute_value),
+        value=value,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def transition_attribute(
+    writer: TOSWriter,
+    *,
+    device_id: int,
+    code: str,
+    new_value: str,
+    date: str,
+) -> Dict[str, Any]:
+    """Close the open period for ``code`` on ``date``, open a new one.
+
+    **History-preserving** — the prior period's value is kept;
+    a new period starts on ``date`` with ``new_value``. This is the
+    Pattern 2 write (instrument change, firmware bump,
+    status transition).
+
+    Thin wrapper over
+    :meth:`TOSWriter.transition_attribute_value`.
+
+    Returns:
+        ``{"closed": <patch_resp>, "opened": <post_resp>}``. ``closed``
+        is ``None`` when there was no pre-existing open period.
+    """
+    return writer.transition_attribute_value(
+        id_entity=int(device_id),
+        code=code,
+        new_value=new_value,
+        transition_date=date,
+    )
+
+
+def set_open_attribute(
+    writer: TOSWriter,
+    *,
+    device_id: int,
+    code: str,
+    value: str,
+    date_from: str,
+) -> Any:
+    """Idempotent set of the open period: PATCH if value differs, else POST.
+
+    **History-destructive on PATCH** — when an open period exists,
+    its value is overwritten. Use only for corrections to a
+    misentered open value; for genuine state changes use
+    :func:`transition_attribute`.
+
+    This is the Pattern 1 write that today's ``cfg reconcile
+    --push-tos`` uses. Migrating ``--push-tos`` to
+    :func:`transition_attribute` is the receivers-side TODO.
+
+    Thin wrapper over :meth:`TOSWriter.upsert_attribute_value`.
+    """
+    return writer.upsert_attribute_value(
+        id_entity=int(device_id),
+        code=code,
+        value=value,
+        date_from=date_from,
+    )
