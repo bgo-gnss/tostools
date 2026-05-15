@@ -19,11 +19,13 @@ import pytest
 
 from tostools.devices import (
     LEGACY_GPS_ATTRIBUTE_CODES,
+    _device_structure,
     attribute_at,
     attribute_at_value,
     child_joins,
     close_join,
     correct_attribute,
+    device_sessions,
     end_attribute,
     fill_join_gap,
     open_join,
@@ -32,6 +34,8 @@ from tostools.devices import (
     set_attribute,
     set_open_attribute,
     slice_attributes_by_window,
+    station_at,
+    station_sessions,
     transition_attribute,
 )
 
@@ -651,3 +655,221 @@ def test_slice_empty_attributes_returns_window_only_row():
     assert rows[0]["date_to"] == "2022-01-01T00:00:00"
     for code in LEGACY_GPS_ATTRIBUTE_CODES:
         assert rows[0][code] is None
+
+
+# ---------------------------------------------------------------------------
+# _device_structure — per-subtype field extraction (§3e helper)
+# ---------------------------------------------------------------------------
+
+
+def test_device_structure_gnss_receiver_returns_expected_fields():
+    row = {
+        "code_entity_subtype": "gnss_receiver",
+        "model": "SEPT POLARX5",
+        "serial_number": "1234",
+        "firmware_version": "5.4.1",
+        "software_version": None,
+    }
+    assert _device_structure(row) == {
+        "model": "SEPT POLARX5",
+        "serial_number": "1234",
+        "firmware_version": "5.4.1",
+        "software_version": None,
+    }
+
+
+def test_device_structure_antenna_coerces_missing_floats_to_zero():
+    """Legacy contract: None height/offset → 0.0, never None."""
+    row = {
+        "code_entity_subtype": "antenna",
+        "model": "TRM57971.00",
+        "serial_number": "A1",
+        "antenna_height": None,
+        "antenna_offset_north": None,
+        "antenna_offset_east": "0.5",
+        "antenna_reference_point": "DHARP",
+    }
+    out = _device_structure(row)
+    assert out["antenna_height"] == 0.0
+    assert out["antenna_offset_north"] == 0.0
+    assert out["antenna_offset_east"] == 0.5
+    assert out["antenna_reference_point"] == "DHARP"
+
+
+def test_device_structure_radome_only_carries_model_and_serial():
+    row = {
+        "code_entity_subtype": "radome",
+        "model": "SCIS",
+        "serial_number": None,
+    }
+    assert _device_structure(row) == {"model": "SCIS", "serial_number": None}
+
+
+def test_device_structure_monument_falls_back_to_antenna_height():
+    """Legacy quirk: monument_height defaults to antenna_height when missing."""
+    row = {
+        "code_entity_subtype": "monument",
+        "serial_number": "mon-1",
+        "monument_height": None,
+        "antenna_height": "1.5",
+        "antenna_offset_north": None,
+        "antenna_offset_east": None,
+    }
+    out = _device_structure(row)
+    assert out["monument_height"] == 1.5
+    assert out["monument_offset_north"] == 0.0
+    assert out["monument_offset_east"] == 0.0
+
+
+def test_device_structure_unknown_subtype_returns_empty():
+    assert _device_structure({"code_entity_subtype": "digitizer"}) == {}
+
+
+# ---------------------------------------------------------------------------
+# device_sessions — children walk + sub-session slicing (§3e)
+# ---------------------------------------------------------------------------
+
+
+def _station_history_with_children(*connections: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id_entity": 100,
+        "code_entity_subtype": "station",
+        "attributes": [],
+        "children_connections": list(connections),
+    }
+
+
+def test_device_sessions_skips_zero_duration_joins():
+    """time_from == time_to → skip (matches legacy behaviour)."""
+    client = MagicMock()
+    station_history = _station_history_with_children(
+        {
+            "id_entity_connection": 1,
+            "id_entity_child": 200,
+            "time_from": "2020-01-01T00:00:00",
+            "time_to": "2020-01-01T00:00:00",
+        }
+    )
+
+    result = device_sessions(client, station_history)
+
+    assert result == []
+    client.get_entity_history.assert_not_called()
+
+
+def test_device_sessions_skips_non_tracked_subtypes():
+    """A digitizer child is silently dropped when subtypes is the GPS default."""
+    client = MagicMock()
+    client.get_entity_history.return_value = {
+        "id_entity": 200,
+        "code_entity_subtype": "digitizer",
+        "attributes": [],
+    }
+    station_history = _station_history_with_children(
+        {
+            "id_entity_connection": 1,
+            "id_entity_child": 200,
+            "time_from": "2020-01-01T00:00:00",
+            "time_to": "2021-01-01T00:00:00",
+        }
+    )
+
+    result = device_sessions(client, station_history)
+
+    assert result == []
+
+
+def test_device_sessions_returns_sorted_per_join_subsessions():
+    """One gnss_receiver join over a single firmware → one slice row attached."""
+    client = MagicMock()
+    client.get_entity_history.return_value = _gnss_device(
+        _attr("serial_number", "G1", "2020-01-01T00:00:00", None, 1),
+        _attr("model", "NETR9", "2020-01-01T00:00:00", None, 2),
+        _attr(
+            "firmware_version", "5.20", "2020-01-01T00:00:00", "2021-01-01T00:00:00", 3
+        ),
+        _attr("firmware_version", "5.42", "2021-01-01T00:00:00", None, 4),
+    )
+    station_history = _station_history_with_children(
+        {
+            "id_entity_connection": 99,
+            "id_entity_child": 12345,
+            "time_from": "2020-01-01T00:00:00",
+            "time_to": "2022-01-01T00:00:00",
+        }
+    )
+
+    rows = device_sessions(client, station_history)
+
+    # 2 sub-windows on the firmware boundary
+    assert len(rows) == 2
+    assert rows[0]["id_entity_connection"] == 99
+    assert rows[0]["device"]["date_from"] == "2020-01-01T00:00:00"
+    assert rows[0]["device"]["firmware_version"] == "5.20"
+    assert rows[1]["device"]["date_from"] == "2021-01-01T00:00:00"
+    assert rows[1]["device"]["firmware_version"] == "5.42"
+
+
+# ---------------------------------------------------------------------------
+# station_sessions / station_at
+# ---------------------------------------------------------------------------
+
+
+def test_station_sessions_returns_empty_when_station_missing():
+    client = MagicMock()
+    client.get_entity_history.return_value = None
+    assert station_sessions(client, 999) == []
+
+
+def test_station_at_returns_session_covering_date():
+    """Pivots produce datetime objects; station_at matches by lexical ISO."""
+    client = MagicMock()
+    client.get_entity_history.side_effect = [
+        _station_history_with_children(
+            {
+                "id_entity_connection": 1,
+                "id_entity_child": 200,
+                "time_from": "2020-01-01T00:00:00",
+                "time_to": "2021-01-01T00:00:00",
+            },
+            {
+                "id_entity_connection": 2,
+                "id_entity_child": 200,
+                "time_from": "2021-01-01T00:00:00",
+                "time_to": None,
+            },
+        ),
+        # Same device fetched twice (one per join)
+        _gnss_device(
+            _attr("serial_number", "G1", "2020-01-01T00:00:00", None, 1),
+            _attr("model", "NETR9", "2020-01-01T00:00:00", None, 2),
+        ),
+        _gnss_device(
+            _attr("serial_number", "G1", "2020-01-01T00:00:00", None, 1),
+            _attr("model", "NETR9", "2020-01-01T00:00:00", None, 2),
+        ),
+    ]
+
+    result = station_at(client, 100, "2020-06-15")
+    assert result is not None
+    assert result["time_from"].year == 2020
+    assert result["time_to"].year == 2021
+    assert result["gnss_receiver"]["serial_number"] == "G1"
+
+
+def test_station_at_returns_none_before_first_session():
+    client = MagicMock()
+    client.get_entity_history.side_effect = [
+        _station_history_with_children(
+            {
+                "id_entity_connection": 1,
+                "id_entity_child": 200,
+                "time_from": "2020-01-01T00:00:00",
+                "time_to": None,
+            }
+        ),
+        _gnss_device(
+            _attr("serial_number", "G1", "2020-01-01T00:00:00", None, 1),
+        ),
+    ]
+    assert station_at(client, 100, "2019-01-01") is None

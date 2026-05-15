@@ -70,11 +70,22 @@ Write — attributes layer:
   one on the same date (history-preserving).
 * :func:`set_open_attribute` — idempotent set of the open period;
   PATCH if value differs, else POST. History-destructive on PATCH.
+
+Session composers (§3e):
+
+* :func:`device_sessions` — per-join sub-sessions for a station's
+  tracked children (replaces ``gps_metadata_qc.get_device_sessions``).
+* :func:`station_sessions` — pivot ``device_sessions`` into
+  per-station-session rows (replaces
+  ``gps_metadata_qc.get_device_history``).
+* :func:`station_at` — convenience wrapper returning the
+  ``station_sessions`` row covering a given date.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .api.tos_client import TOSClient
 from .api.tos_writer import TOSWriter
@@ -761,3 +772,251 @@ def slice_attributes_by_window(
         rows.append(_row_at(sorted_bounds[-1], None))
 
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Session composers (§3e)
+#
+# These compose the read primitives above into the shapes consumed by site
+# logs, GAMIT station.info, and tosGPS PrintTOS. They replace the legacy
+# synthesis chain (gps_metadata_qc.get_device_sessions +
+# get_device_history), but until phase 4 lands the adapter, callers should
+# continue to use gps_metadata_qc.gps_metadata for any user-facing path.
+# ---------------------------------------------------------------------------
+
+
+DEFAULT_GPS_SUBTYPES: Tuple[str, ...] = (
+    "gnss_receiver",
+    "antenna",
+    "radome",
+    "monument",
+)
+
+
+def device_sessions(
+    client: TOSClient,
+    station_history: Dict[str, Any],
+    *,
+    subtypes: Sequence[str] = DEFAULT_GPS_SUBTYPES,
+    fine: bool = True,
+) -> List[Dict[str, Any]]:
+    """All per-join sub-sessions for a station's tracked children.
+
+    Requires a **station** history (one with ``children_connections``).
+    Passing a device's history (which has ``parent_connections``) yields
+    an empty list — use :func:`parent_joins` instead for the device side.
+
+    For each child connection whose subtype is in ``subtypes`` the
+    function fetches the child's full history (one ``GET`` per child) and
+    runs :func:`slice_attributes_by_window` over the join window using
+    :data:`LEGACY_GPS_ATTRIBUTE_CODES`. Zero-duration joins (``time_from
+    == time_to``) are skipped, matching legacy behaviour.
+
+    Returns a flat list, sorted by sub-session ``date_from`` ascending.
+    Each row is the join's ``children_connections`` dict augmented with a
+    ``"device"`` key holding the resolved attribute slice row (carrying
+    ``id_entity`` + ``code_entity_subtype`` + ``date_from`` / ``date_to``
+    + one key per legacy code). Replaces
+    ``gps_metadata_qc.get_device_sessions``; ``fine=True`` matches the
+    legacy output exactly.
+    """
+    sessions: List[Dict[str, Any]] = []
+
+    subtypes_set = set(subtypes)
+    children = station_history.get("children_connections") or []
+
+    for connection in children:
+        if connection.get("time_from") == connection.get("time_to"):
+            continue
+
+        id_child = connection.get("id_entity_child")
+        if id_child is None:
+            continue
+
+        device = client.get_entity_history(id_child)
+        if device is None:
+            continue
+
+        if device.get("code_entity_subtype") not in subtypes_set:
+            continue
+
+        slices = slice_attributes_by_window(
+            device,
+            connection["time_from"],
+            connection.get("time_to"),
+            codes=LEGACY_GPS_ATTRIBUTE_CODES,
+            fine=fine,
+        )
+
+        for row in slices:
+            entry = dict(connection)
+            entry["device"] = row
+            sessions.append(entry)
+
+    sessions.sort(key=lambda s: s["device"]["date_from"])
+    return sessions
+
+
+def _device_structure(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Per-subtype field extraction for the station-session pivot.
+
+    Mirrors ``gps_metadata_qc.device_structure``. Inlined here so the new
+    composer chain has no runtime dependency on the soon-to-be-deprecated
+    legacy module. Float coercion (``None`` → ``0.0``) follows the legacy
+    contract; consumers (site log, GAMIT export) rely on the numeric
+    columns never being ``None``.
+    """
+    subtype = row.get("code_entity_subtype")
+
+    if subtype == "gnss_receiver":
+        return {
+            "model": row.get("model"),
+            "serial_number": row.get("serial_number"),
+            "firmware_version": row.get("firmware_version"),
+            "software_version": row.get("software_version"),
+        }
+
+    if subtype == "antenna":
+        antenna_height = row.get("antenna_height")
+        antenna_height = float(antenna_height) if antenna_height is not None else 0.0
+        offset_north = row.get("antenna_offset_north")
+        offset_north = float(offset_north) if offset_north is not None else 0.0
+        offset_east = row.get("antenna_offset_east")
+        offset_east = float(offset_east) if offset_east is not None else 0.0
+        return {
+            "model": row.get("model"),
+            "serial_number": row.get("serial_number"),
+            "antenna_height": antenna_height,
+            "antenna_offset_east": offset_east,
+            "antenna_offset_north": offset_north,
+            "antenna_reference_point": row.get("antenna_reference_point"),
+        }
+
+    if subtype == "radome":
+        return {
+            "model": row.get("model"),
+            "serial_number": row.get("serial_number"),
+        }
+
+    if subtype == "monument":
+        monument_height = row.get("monument_height") or row.get("antenna_height")
+        monument_height = float(monument_height) if monument_height is not None else 0.0
+        offset_north = row.get("antenna_offset_north")
+        offset_north = float(offset_north) if offset_north is not None else 0.0
+        offset_east = row.get("antenna_offset_east")
+        offset_east = float(offset_east) if offset_east is not None else 0.0
+        return {
+            "serial_number": row.get("serial_number"),
+            "monument_height": monument_height,
+            "monument_offset_north": offset_north,
+            "monument_offset_east": offset_east,
+        }
+
+    return {}
+
+
+def station_sessions(
+    client: TOSClient,
+    station_id: int,
+    *,
+    subtypes: Sequence[str] = DEFAULT_GPS_SUBTYPES,
+) -> List[Dict[str, Any]]:
+    """Per-station-session rows for one station.
+
+    Pivots :func:`device_sessions` into the shape consumed by
+    ``print_station_info``, ``site_log``, and the GAMIT
+    ``station.info`` writer. Each row carries::
+
+        {
+            "time_from": datetime,
+            "time_to":   datetime | None,
+            "gnss_receiver": {model, serial_number, firmware_version, software_version},
+            "antenna":       {model, serial_number, antenna_height, antenna_offset_east,
+                              antenna_offset_north, antenna_reference_point},
+            "radome":        {model, serial_number},
+            "monument":      {serial_number, monument_height,
+                              monument_offset_north, monument_offset_east},
+        }
+
+    Replaces ``gps_metadata_qc.get_device_history``. The pivot mirrors
+    legacy semantics exactly: build the sorted set of unique sub-session
+    starts and the sorted set of unique closed-period ends, pair them up,
+    and for each ``(start, end)`` interval claim each subtype's slot from
+    whichever sub-session covers the interval (``date_from <= start`` and
+    either ``date_to >= end`` or the period is open).
+    """
+    station_history = client.get_entity_history(station_id)
+    if station_history is None:
+        return []
+
+    sessions = device_sessions(client, station_history, subtypes=subtypes, fine=True)
+
+    starts = iter(sorted({s["device"]["date_from"] for s in sessions}))
+    ends = iter(
+        sorted(
+            {
+                s["device"]["date_to"]
+                for s in sessions
+                if s["device"].get("date_to") is not None
+            }
+        )
+    )
+
+    pivoted: List[Dict[str, Any]] = []
+    for start in starts:
+        try:
+            end = next(ends)
+        except StopIteration:
+            end = None
+
+        record: Dict[str, Any] = {
+            "time_from": (
+                datetime.strptime(start, "%Y-%m-%dT%H:%M:%S") if start else None
+            ),
+            "time_to": (datetime.strptime(end, "%Y-%m-%dT%H:%M:%S") if end else None),
+        }
+
+        for session in sessions:
+            dev = session["device"]
+            df = dev.get("date_from")
+            dt = dev.get("date_to")
+
+            if end is not None:
+                if df is None or df > start:
+                    continue
+                if dt is None or dt >= end:
+                    record[dev["code_entity_subtype"]] = _device_structure(dev)
+            else:
+                if dt is None:
+                    record[dev["code_entity_subtype"]] = _device_structure(dev)
+
+        pivoted.append(record)
+
+    return pivoted
+
+
+def station_at(
+    client: TOSClient,
+    station_id: int,
+    when: str,
+    *,
+    subtypes: Sequence[str] = DEFAULT_GPS_SUBTYPES,
+) -> Optional[Dict[str, Any]]:
+    """Return the :func:`station_sessions` row covering ``when``, or None.
+
+    ``when`` is an ISO date or datetime string (bare ``YYYY-MM-DD`` is
+    promoted to midnight via :func:`_normalise_iso_for_compare`). Matching
+    rule: a row covers ``when`` when its ``time_from <= when`` and either
+    ``time_to`` is ``None`` or ``when < time_to``.
+    """
+    when_n = _normalise_iso_for_compare(when)
+    for row in station_sessions(client, station_id, subtypes=subtypes):
+        tf = row.get("time_from")
+        tt = row.get("time_to")
+        tf_iso = tf.isoformat() if tf is not None else "0000-01-01T00:00:00"
+        if tf_iso > when_n:
+            continue
+        if tt is not None and tt.isoformat() <= when_n:
+            continue
+        return row
+    return None
