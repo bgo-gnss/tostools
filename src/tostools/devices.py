@@ -80,6 +80,20 @@ Session composers (§3e):
   ``gps_metadata_qc.get_device_history``).
 * :func:`station_at` — convenience wrapper returning the
   ``station_sessions`` row covering a given date.
+
+Joins-layer composite (§3f):
+
+* :func:`move_device` — close one open join and open a new one at a
+  different parent on the same date (relocation).
+
+Cross-layer composites (§3h):
+
+* :func:`decommission_device` — retire a device: close every open
+  parent join + transition status virkt→óvirkt.
+* :func:`install_device` — activate a device: open the parent→device
+  join + apply status / initial attributes idempotently.
+* :func:`replace_device` — swap one device for another at the same
+  parent on a given date (decommission_device + install_device).
 """
 
 from __future__ import annotations
@@ -1020,3 +1034,249 @@ def station_at(
             continue
         return row
     return None
+
+
+# ---------------------------------------------------------------------------
+# Joins-layer composite (§3f)
+# ---------------------------------------------------------------------------
+
+
+def move_device(
+    writer: TOSWriter,
+    *,
+    id_connection: int,
+    child_id: int,
+    to_parent_id: int,
+    date: str,
+) -> Dict[str, Any]:
+    """Relocate a device by closing one open join and opening a new one.
+
+    Pure joins-layer write: 1 PATCH (close old join) + 1 POST (open new
+    join at ``to_parent_id``). No reads — the caller is responsible for
+    resolving ``id_connection`` (typically via
+    :func:`parent_joins` on the device's history, or a receivers
+    ``cfg move`` lookup).
+
+    Args:
+        writer: An authenticated :class:`TOSWriter`.
+        id_connection: The currently-open parent join to close.
+        child_id: The device being moved (used to open the new join).
+        to_parent_id: The new parent's ``id_entity``.
+        date: ISO date or datetime — applies to both the close and the
+            new join's ``date_from``.
+
+    Returns:
+        ``{"closed": <patch_resp>, "opened": <post_resp>}``.
+    """
+    closed = close_join(writer, id_connection=id_connection, date_to=date)
+    opened = open_join(
+        writer, parent_id=to_parent_id, child_id=child_id, date_from=date
+    )
+    return {"closed": closed, "opened": opened}
+
+
+# ---------------------------------------------------------------------------
+# Cross-layer composites (§3h)
+# ---------------------------------------------------------------------------
+
+
+def decommission_device(
+    writer: TOSWriter,
+    client: TOSClient,
+    *,
+    device_id: int,
+    date: str,
+) -> Dict[str, Any]:
+    """Retire a device on ``date``.
+
+    Three steps:
+
+    1. Fetch the device's history (1 GET via :func:`find_device`).
+    2. Close every open parent join on ``date`` (M PATCHes; the common
+       case is M=1, but multiple opens can exist on a misconfigured
+       device — close them all).
+    3. Transition the ``status`` attribute virkt→óvirkt on ``date``
+       (1 PATCH + 1 POST via :func:`transition_attribute`).
+
+    Returns:
+        ``{
+            "closed_joins": [<patch_resp>, ...],
+            "status_transition": {"closed": ..., "opened": ...},
+        }``
+
+    Failure semantics: writes are not transactional. If join close
+    succeeds and the status transition fails, the join is already
+    closed on the server — re-run after fixing the underlying problem.
+    The idempotent paths (already-closed joins, already-óvirkt status)
+    will silently succeed. Already implemented inline in
+    ``tos._dispatch_decommission``; this primitive extracts the
+    orchestration so the REPL, the ``receivers`` package, and a future
+    ``tos device retire`` verb can share it.
+    """
+    history = find_device(client, id_entity=device_id)
+    opens = open_joins(history, role="child")
+
+    closed: List[Any] = []
+    for join in opens:
+        id_conn = join.get("id_entity_connection")
+        if id_conn is None:
+            continue
+        resp = close_join(writer, id_connection=int(id_conn), date_to=date)
+        closed.append(resp)
+
+    status_resp = transition_attribute(
+        writer,
+        device_id=device_id,
+        code="status",
+        new_value="óvirkt",
+        date=date,
+    )
+
+    return {"closed_joins": closed, "status_transition": status_resp}
+
+
+def install_device(
+    writer: TOSWriter,
+    client: TOSClient,
+    *,
+    parent_id: int,
+    device_id: int,
+    date: str,
+    initial_attributes: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """Activate a device on ``date`` under ``parent_id``.
+
+    Steps:
+
+    1. Fetch the device's history (1 GET via :func:`find_device`).
+    2. Open the parent→device join from ``date`` (1 POST via
+       :func:`open_join`).
+    3. Reconcile the ``status`` attribute to ``virkt``:
+
+       - Open period with value ``"virkt"`` already exists → no-op.
+       - No open period → :func:`set_attribute` to open one starting
+         on ``date``.
+       - Open period with any other value (typically ``"óvirkt"`` —
+         the reactivation path) → :func:`transition_attribute`,
+         preserving the prior retirement record.
+
+    4. For each ``(code, value)`` in ``initial_attributes`` (if given),
+       apply the same idempotent reconciliation pattern as status —
+       no-op when already matching, set when never set, transition
+       when changing.
+
+    Returns:
+        ``{
+            "opened_join": <post_resp>,
+            "status": <reconcile_outcome or None>,
+            "attributes": {<code>: <reconcile_outcome>, ...},
+        }``
+
+    The reconcile outcome is ``"noop"`` (already matched), the
+    :func:`set_attribute` POST response (no prior period), or the
+    :func:`transition_attribute` ``{"closed", "opened"}`` dict.
+    ``status`` is ``None`` when no status reconciliation was needed —
+    a freshly installed device with no prior status periods is handled
+    via the set-attribute branch and surfaces a non-``None`` value.
+    """
+    history = find_device(client, id_entity=device_id)
+
+    opened_join = open_join(
+        writer,
+        parent_id=parent_id,
+        child_id=device_id,
+        date_from=date,
+    )
+
+    status_outcome = _reconcile_open_attribute(
+        writer, history, device_id=device_id, code="status", target="virkt", date=date
+    )
+
+    attr_outcomes: Dict[str, Any] = {}
+    for code, value in (initial_attributes or {}).items():
+        attr_outcomes[code] = _reconcile_open_attribute(
+            writer, history, device_id=device_id, code=code, target=value, date=date
+        )
+
+    return {
+        "opened_join": opened_join,
+        "status": status_outcome,
+        "attributes": attr_outcomes,
+    }
+
+
+def _reconcile_open_attribute(
+    writer: TOSWriter,
+    history: Dict[str, Any],
+    *,
+    device_id: int,
+    code: str,
+    target: str,
+    date: str,
+) -> Any:
+    """Idempotent reconciliation helper used by :func:`install_device`.
+
+    Branches on the device's current open value for ``code``:
+
+    - matches ``target``  → ``"noop"`` (no write)
+    - no open period      → :func:`set_attribute` (POST)
+    - other open value    → :func:`transition_attribute` (PATCH + POST)
+    """
+    current = open_attribute(history, code)
+    if current == target:
+        return "noop"
+    if current is None:
+        return set_attribute(
+            writer,
+            device_id=device_id,
+            code=code,
+            value=target,
+            date_from=date,
+        )
+    return transition_attribute(
+        writer,
+        device_id=device_id,
+        code=code,
+        new_value=target,
+        date=date,
+    )
+
+
+def replace_device(
+    writer: TOSWriter,
+    client: TOSClient,
+    *,
+    parent_id: int,
+    out_device_id: int,
+    in_device_id: int,
+    date: str,
+    initial_attributes: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """Swap one device for another at the same parent on ``date``.
+
+    Two-step composite — :func:`decommission_device` for the outgoing
+    device followed by :func:`install_device` for the incoming one.
+    Operator use case: receiver swap during a site visit.
+
+    ``initial_attributes`` is forwarded to :func:`install_device` and
+    lets the operator seed the incoming device's metadata (firmware,
+    GPS/GLO config, ...) in the same call.
+
+    Returns:
+        ``{
+            "decommissioned": <decommission_device result>,
+            "installed":      <install_device result>,
+        }``
+    """
+    decommission = decommission_device(
+        writer, client, device_id=out_device_id, date=date
+    )
+    install = install_device(
+        writer,
+        client,
+        parent_id=parent_id,
+        device_id=in_device_id,
+        date=date,
+        initial_attributes=initial_attributes,
+    )
+    return {"decommissioned": decommission, "installed": install}

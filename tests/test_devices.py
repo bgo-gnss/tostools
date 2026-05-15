@@ -25,12 +25,16 @@ from tostools.devices import (
     child_joins,
     close_join,
     correct_attribute,
+    decommission_device,
     device_sessions,
     end_attribute,
     fill_join_gap,
+    install_device,
+    move_device,
     open_join,
     open_joins,
     parent_joins,
+    replace_device,
     set_attribute,
     set_open_attribute,
     slice_attributes_by_window,
@@ -873,3 +877,307 @@ def test_station_at_returns_none_before_first_session():
         ),
     ]
     assert station_at(client, 100, "2019-01-01") is None
+
+
+# ---------------------------------------------------------------------------
+# move_device (§3f) — pure joins layer
+# ---------------------------------------------------------------------------
+
+
+def test_move_device_patches_old_join_and_posts_new():
+    writer = MagicMock()
+    writer.patch_entity_connection.return_value = {"id": 1, "time_to": "2026-05-13"}
+    writer.create_entity_connection.return_value = {"id": 2, "time_from": "2026-05-13"}
+
+    result = move_device(
+        writer,
+        id_connection=1,
+        child_id=200,
+        to_parent_id=400,
+        date="2026-05-13",
+    )
+
+    writer.patch_entity_connection.assert_called_once_with(1, time_to="2026-05-13")
+    writer.create_entity_connection.assert_called_once_with(
+        id_parent=400, id_child=200, time_from="2026-05-13", time_to=None
+    )
+    assert result == {
+        "closed": {"id": 1, "time_to": "2026-05-13"},
+        "opened": {"id": 2, "time_from": "2026-05-13"},
+    }
+
+
+# ---------------------------------------------------------------------------
+# decommission_device (§3h)
+# ---------------------------------------------------------------------------
+
+
+def _device_with_open_parent_join(*, id_entity: int = 200, join_id: int = 99):
+    return {
+        "id_entity": id_entity,
+        "code_entity_subtype": "gnss_receiver",
+        "attributes": [
+            _attr("status", "virkt", "2020-01-01T00:00:00", None, 5),
+        ],
+        "parent_connections": [
+            {
+                "id_entity_connection": join_id,
+                "id_entity_parent": 100,
+                "id_entity_child": id_entity,
+                "time_from": "2020-01-01T00:00:00",
+                "time_to": None,
+            }
+        ],
+    }
+
+
+def test_decommission_device_closes_open_join_and_transitions_status():
+    client = MagicMock()
+    client.get_entity_history.return_value = _device_with_open_parent_join()
+
+    writer = MagicMock()
+    writer.patch_entity_connection.return_value = {"id": 99, "time_to": "2026-05-13"}
+    writer.transition_attribute_value.return_value = {
+        "closed": {"id": 5},
+        "opened": {"id": 6, "value": "óvirkt"},
+    }
+
+    result = decommission_device(writer, client, device_id=200, date="2026-05-13")
+
+    writer.patch_entity_connection.assert_called_once_with(99, time_to="2026-05-13")
+    writer.transition_attribute_value.assert_called_once_with(
+        id_entity=200, code="status", new_value="óvirkt", transition_date="2026-05-13"
+    )
+    assert len(result["closed_joins"]) == 1
+    assert result["status_transition"]["opened"]["value"] == "óvirkt"
+
+
+def test_decommission_device_skips_join_close_when_none_open():
+    client = MagicMock()
+    history = _device_with_open_parent_join()
+    history["parent_connections"][0]["time_to"] = "2024-01-01T00:00:00"  # closed
+    client.get_entity_history.return_value = history
+
+    writer = MagicMock()
+    writer.transition_attribute_value.return_value = {"closed": None, "opened": {}}
+
+    result = decommission_device(writer, client, device_id=200, date="2026-05-13")
+
+    writer.patch_entity_connection.assert_not_called()
+    assert result["closed_joins"] == []
+    writer.transition_attribute_value.assert_called_once()
+
+
+def test_decommission_device_closes_every_open_parent_join():
+    """A device with multiple open parents (misconfigured state) → close all."""
+    client = MagicMock()
+    history = _device_with_open_parent_join()
+    history["parent_connections"].append(
+        {
+            "id_entity_connection": 100,
+            "id_entity_parent": 101,
+            "id_entity_child": 200,
+            "time_from": "2021-01-01T00:00:00",
+            "time_to": None,
+        }
+    )
+    client.get_entity_history.return_value = history
+
+    writer = MagicMock()
+    writer.patch_entity_connection.return_value = {}
+    writer.transition_attribute_value.return_value = {"closed": None, "opened": {}}
+
+    result = decommission_device(writer, client, device_id=200, date="2026-05-13")
+
+    assert writer.patch_entity_connection.call_count == 2
+    assert len(result["closed_joins"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# install_device (§3h)
+# ---------------------------------------------------------------------------
+
+
+def _fresh_device(id_entity: int = 200) -> Dict[str, Any]:
+    """Device with no status periods yet — case (a) for install_device."""
+    return {
+        "id_entity": id_entity,
+        "code_entity_subtype": "gnss_receiver",
+        "attributes": [],
+        "parent_connections": [],
+    }
+
+
+def test_install_device_fresh_opens_join_and_sets_initial_status():
+    client = MagicMock()
+    client.get_entity_history.return_value = _fresh_device()
+
+    writer = MagicMock()
+    writer.create_entity_connection.return_value = {"id": 50}
+    writer.add_attribute_value.return_value = {"id": 7, "value": "virkt"}
+
+    result = install_device(
+        writer, client, parent_id=100, device_id=200, date="2026-05-13"
+    )
+
+    writer.create_entity_connection.assert_called_once_with(
+        id_parent=100, id_child=200, time_from="2026-05-13", time_to=None
+    )
+    writer.add_attribute_value.assert_called_once_with(
+        id_entity=200,
+        code="status",
+        value="virkt",
+        date_from="2026-05-13",
+        date_to=None,
+    )
+    writer.transition_attribute_value.assert_not_called()
+    assert result["status"] == {"id": 7, "value": "virkt"}
+    assert result["attributes"] == {}
+
+
+def test_install_device_already_virkt_is_status_noop():
+    """Device currently active → join is still opened, but status untouched."""
+    client = MagicMock()
+    client.get_entity_history.return_value = _device_with_open_parent_join()
+
+    writer = MagicMock()
+    writer.create_entity_connection.return_value = {"id": 50}
+
+    result = install_device(
+        writer, client, parent_id=101, device_id=200, date="2026-05-13"
+    )
+
+    writer.create_entity_connection.assert_called_once()
+    writer.add_attribute_value.assert_not_called()
+    writer.transition_attribute_value.assert_not_called()
+    assert result["status"] == "noop"
+
+
+def test_install_device_ovirkt_reactivates_via_transition():
+    """Decommissioned device (open status='óvirkt') → transition path."""
+    client = MagicMock()
+    history = _fresh_device()
+    history["attributes"] = [
+        _attr("status", "óvirkt", "2024-01-01T00:00:00", None, 8),
+    ]
+    client.get_entity_history.return_value = history
+
+    writer = MagicMock()
+    writer.create_entity_connection.return_value = {"id": 51}
+    writer.transition_attribute_value.return_value = {
+        "closed": {"id": 8},
+        "opened": {"id": 9, "value": "virkt"},
+    }
+
+    result = install_device(
+        writer, client, parent_id=100, device_id=200, date="2026-05-13"
+    )
+
+    writer.transition_attribute_value.assert_called_once_with(
+        id_entity=200, code="status", new_value="virkt", transition_date="2026-05-13"
+    )
+    writer.add_attribute_value.assert_not_called()
+    assert result["status"]["opened"]["value"] == "virkt"
+
+
+def test_install_device_initial_attributes_mix_of_noop_set_transition():
+    """Three initial attrs covering all reconcile branches."""
+    client = MagicMock()
+    history = _fresh_device()
+    history["attributes"] = [
+        _attr("status", "virkt", "2020-01-01T00:00:00", None, 5),
+        # model already matches target — noop
+        _attr("model", "SEPT POLARX5", "2020-01-01T00:00:00", None, 10),
+        # firmware open with different value → transition
+        _attr("firmware_version", "5.4.0", "2020-01-01T00:00:00", None, 11),
+        # serial_number has no period → set
+    ]
+    client.get_entity_history.return_value = history
+
+    writer = MagicMock()
+    writer.create_entity_connection.return_value = {"id": 50}
+    writer.add_attribute_value.return_value = {"id": 99}
+    writer.transition_attribute_value.return_value = {
+        "closed": {"id": 11},
+        "opened": {"id": 12, "value": "5.4.1"},
+    }
+
+    result = install_device(
+        writer,
+        client,
+        parent_id=100,
+        device_id=200,
+        date="2026-05-13",
+        initial_attributes={
+            "model": "SEPT POLARX5",
+            "firmware_version": "5.4.1",
+            "serial_number": "abc123",
+        },
+    )
+
+    # status is already virkt → no-op
+    assert result["status"] == "noop"
+    # model matches → no-op
+    assert result["attributes"]["model"] == "noop"
+    # firmware open with different value → transition called
+    writer.transition_attribute_value.assert_called_once_with(
+        id_entity=200,
+        code="firmware_version",
+        new_value="5.4.1",
+        transition_date="2026-05-13",
+    )
+    # serial_number had no period → add_attribute_value POST
+    writer.add_attribute_value.assert_any_call(
+        id_entity=200,
+        code="serial_number",
+        value="abc123",
+        date_from="2026-05-13",
+        date_to=None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# replace_device (§3h)
+# ---------------------------------------------------------------------------
+
+
+def test_replace_device_decommissions_then_installs():
+    """Chains decommission(out) + install(in) at the same parent."""
+    client = MagicMock()
+    # First lookup: out device (open join, virkt status)
+    out_history = _device_with_open_parent_join(id_entity=201, join_id=10)
+    # Second lookup: in device (fresh)
+    in_history = _fresh_device(id_entity=202)
+    client.get_entity_history.side_effect = [out_history, in_history]
+
+    writer = MagicMock()
+    writer.patch_entity_connection.return_value = {"id": 10}
+    writer.transition_attribute_value.return_value = {
+        "closed": {"id": 5},
+        "opened": {"id": 6, "value": "óvirkt"},
+    }
+    writer.create_entity_connection.return_value = {"id": 50}
+    writer.add_attribute_value.return_value = {"id": 7, "value": "virkt"}
+
+    result = replace_device(
+        writer,
+        client,
+        parent_id=100,
+        out_device_id=201,
+        in_device_id=202,
+        date="2026-05-13",
+    )
+
+    # Decommission side
+    writer.patch_entity_connection.assert_called_once_with(10, time_to="2026-05-13")
+    transition_calls = writer.transition_attribute_value.call_args_list
+    assert any(call.kwargs.get("new_value") == "óvirkt" for call in transition_calls)
+
+    # Install side — new join at parent_id=100
+    writer.create_entity_connection.assert_called_once_with(
+        id_parent=100, id_child=202, time_from="2026-05-13", time_to=None
+    )
+
+    assert "decommissioned" in result and "installed" in result
+    assert result["decommissioned"]["status_transition"]["opened"]["value"] == "óvirkt"
+    assert result["installed"]["status"]["value"] == "virkt"
