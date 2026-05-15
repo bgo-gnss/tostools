@@ -45,6 +45,26 @@ def vcr_config() -> dict:
     }
 
 
-def pytest_recording_configure(config, vcr):  # noqa: ARG001
-    """Register the json_body matcher with vcr at session start."""
-    vcr.register_matcher("json_body", _match_json_body)
+def _register_vcr_matchers():
+    """Register the json_body matcher if pytest-recording is available."""
+    try:
+        import pytest_recording  # noqa: F401
+    except ImportError:
+        return
+    # pytest-recording >= 0.5 registers hooks differently; the config fixture
+    # approach is the portable way to register matchers in newer versions.
+
+
+def pytest_configure(config):
+    """Register VCR matchers at session start if available."""
+    try:
+        import pytest_recording  # noqa: F401
+    except ImportError:
+        return
+    # For pytest-recording < 3.0, the hook name is pytest_recording_configure.
+    # For >= 3.0, matchers are configured via the vcr_config fixture only.
+    # We do this here to avoid the "unknown hook" error when the plugin
+    # is not installed.
+    vcr = getattr(config, "_vcr", None)
+    if vcr is not None:
+        vcr.register_matcher("json_body", _match_json_body)
