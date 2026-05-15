@@ -1,0 +1,152 @@
+{
+  "altitude": 78.764,
+  "bedrock_condition": "weathered",
+  "bedrock_type": "igneous",
+  "contact": {
+    "contact": {
+      "abbreviation": "IMO",
+      "address": "B\u00fasta\u00f0arvegur 7-9, 105 Reykjav\u00edk, \u00cdsland",
+      "address_en": "B\u00fasta\u00f0arvegur 7-9, 105 Reykjav\u00edk, Iceland",
+      "comment": "",
+      "department": "Infrastructure Division",
+      "email": "gnss-epos@vedur.is",
+      "id_entity": 1256,
+      "main_url": "https://vedur.is",
+      "main_url_en": "https://en.vedur.is",
+      "name": "Ve\u00f0urstofa \u00cdslands",
+      "name_en": "Icelandic Meteorological Office",
+      "phone_primary": "5226000",
+      "primary_contact": "GNSS Operator",
+      "role": "owner",
+      "role_is": "Eigandi st\u00f6\u00f0var",
+      "ssid": "6309080350"
+    },
+    "operator": {
+      "abbreviation": "",
+      "address": "B\u00fasta\u00f0arvegur 9",
+      "address_en": "",
+      "comment": "",
+      "department": "",
+      "email": "",
+      "id_entity": 2483,
+      "main_url": "",
+      "main_url_en": "",
+      "name": "Benedikt G. \u00d3feigsson",
+      "name_en": "",
+      "phone_primary": "5226000",
+      "primary_contact": "",
+      "role": "operator",
+      "role_is": "Rekstrara\u00f0ili st\u00f6\u00f0var",
+      "ssid": ""
+    },
+    "owner": {
+      "abbreviation": "IMO",
+      "address": "B\u00fasta\u00f0arvegur 7-9, 105 Reykjav\u00edk, \u00cdsland",
+      "address_en": "B\u00fasta\u00f0arvegur 7-9, 105 Reykjav\u00edk, Iceland",
+      "comment": "",
+      "department": "Infrastructure Division",
+      "email": "gnss-epos@vedur.is",
+      "id_entity": 1256,
+      "main_url": "https://vedur.is",
+      "main_url_en": "https://en.vedur.is",
+      "name": "Ve\u00f0urstofa \u00cdslands",
+      "name_en": "Icelandic Meteorological Office",
+      "phone_primary": "5226000",
+      "primary_contact": "GNSS Operator",
+      "role": "owner",
+      "role_is": "Eigandi st\u00f6\u00f0var",
+      "ssid": "6309080350"
+    }
+  },
+  "date_start": "2001-07-19 00:00",
+  "device_history": [
+    {
+      "antenna": {
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP",
+        "model": "ASH701945C_M",
+        "serial_number": "1999040150"
+      },
+      "gnss_receiver": {
+        "firmware_version": "UFB1",
+        "model": "ASHTECH UZ-12",
+        "serial_number": "633Z024",
+        "software_version": null
+      },
+      "monument": {
+        "monument_height": 1.014,
+        "monument_offset_east": 0.0,
+        "monument_offset_north": 0.0,
+        "serial_number": "monument-RHOF-20010719"
+      },
+      "radome": {
+        "model": "SCIS",
+        "serial_number": null
+      },
+      "time_from": "2001-07-19T00:00:00",
+      "time_to": "2002-03-29T00:00:00"
+    },
+    {
+      "antenna": {
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP",
+        "model": "ASH701945C_M",
+        "serial_number": "1999040150"
+      },
+      "gnss_receiver": {
+        "firmware_version": "CJ00",
+        "model": "ASHTECH UZ-12",
+        "serial_number": "220013831",
+        "software_version": "9.93"
+      },
+      "monument": {
+        "monument_height": 1.014,
+        "monument_offset_east": 0.0,
+        "monument_offset_north": 0.0,
+        "serial_number": "monument-RHOF-20010719"
+      },
+      "radome": {
+        "model": "SCIS",
+        "serial_number": null
+      },
+      "time_from": "2002-03-29T00:00:00",
+      "time_to": "2012-08-28T00:00:00"
+    },
+    {
+      "antenna": {
+        "antenna_height": -0.007,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP",
+        "model": "TRM57971.00",
+        "serial_number": "1441045161"
+      },
+      "gnss_receiver": {
+        "firmware_version": "NP 4.60 / SP 4.60",
+        "model": "TRIMBLE NETR9",
+        "serial_number": "5038K70713",
+        "software_version": "4.60"
+      },
+      "monument": {
+        "monument_height": 1.014,
+        "monument_offset_east": 0.0,
+        "monument_offset_north": 0.0,
+        "serial_number": "monument-RHOF-20010719"
+      },
+      "time_from": "2012-08-28T00:00:00",
+      "time_to": null
+    }
+  ],
+  "geological_characteristic": "bedrock",
+  "iers_domes_number": "10216M001",
+  "in_network_epos": "true",
+  "is_near_fault_zones": "nei",
+  "lat": 66.461122,
+  "lon": -15.946708,
+  "marker": "rhof",
+  "name": "Raufarh\u00f6fn"
+}
