@@ -121,9 +121,15 @@ to_igs_radome(None)         # → "NONE"
 5. **dry_run default is True** — Confirm payloads via dry-run before setting `dry_run=False`.
 6. **Device entity writes** — Receiver model/serial/firmware live on the gnss_receiver child entity. Resolve via `children_connections[].id_entity_child`, then fetch its history separately.
 
+## Non-Public Endpoints
+
+### `PUT /admin_entity_row/<id_entity>`
+
+Used by :meth:`TOSWriter.update_entity_subtype` — the only write method
+hitting a non-public endpoint. The public ``/entity/<id>`` is read-only
+(``Allow: HEAD, GET, OPTIONS``). Requires admin-level TOS access. Prefer
+the attribute and join verbs for routine metadata writes.
+
 ## Future Work
 
-- **Pattern 2 in `receivers cfg reconcile`** — `--push-tos` handles Pattern 1 only. Closing old periods and opening new ones for instrument changes is not yet implemented.
-- **Pattern 4 with `date_hint`** — `upsert_attribute_value` needs a `date_hint` parameter to target a specific closed period rather than always operating on the most recent open value.
-- **Device entity writes via reconcile** — `--push-tos` writes to the station entity only. Receiver and antenna attributes require separate child entity resolution.
 - **Join record updates** — Device session start/end dates live in the join record. `patch_entity_connection` is implemented but not yet wired to any reconcile workflow.

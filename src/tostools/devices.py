@@ -577,9 +577,10 @@ def set_open_attribute(
     misentered open value; for genuine state changes use
     :func:`transition_attribute`.
 
-    This is the Pattern 1 write that today's ``cfg reconcile
-    --push-tos`` uses. Migrating ``--push-tos`` to
-    :func:`transition_attribute` is the receivers-side TODO.
+    This is the Pattern 1 write used by ``cfg reconcile --push-tos``
+    when ``--no-transition`` is set or for brand-new attributes.
+    By default, ``--push-tos`` now routes value *changes* to
+    :func:`transition_attribute` (Pattern 2) to preserve history.
 
     Thin wrapper over :meth:`TOSWriter.upsert_attribute_value`.
     """

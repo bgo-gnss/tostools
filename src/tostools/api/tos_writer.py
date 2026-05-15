@@ -681,16 +681,64 @@ class TOSWriter:
         value: str,
         date_from: str,
         date_to: Optional[str] = None,
+        *,
+        date_hint: Optional[str] = None,
     ) -> Any:
-        """Idempotent write: PATCH the open attribute value if it exists, else POST.
+        """Idempotent write: PATCH the matching attribute value if it exists, else POST.
 
-        "Open" means the most recent value with ``date_to`` of ``None`` or
-        the latest by ``date_from``.  Only the value field is updated on PATCH;
-        the dates are left unchanged unless they differ from what we intend to set.
+        By default (``date_hint=None``), "matching" means the most recent
+        **open** value with ``date_to`` of ``None`` — Pattern 1 (correct the
+        current value in place, history-destructive).
+
+        When ``date_hint`` is an ISO-8601 date/datetime string, the method
+        instead finds the attribute period that *covers* that date (whether
+        open or closed) and PATCHes it — Pattern 4 (correct a historical
+        value). If no period covers ``date_hint``, the method falls back to
+        POSTing a new value — same as when no matching period exists.
+
+        Only the value field is updated on PATCH; the dates are left
+        unchanged unless they differ from what we intend to set.
 
         Returns the PATCH or POST response, or :class:`DryRunResult`.
         """
         existing = self.get_attribute_values(id_entity, code)
+
+        if date_hint is not None:
+            # Pattern 4 — find the period covering date_hint.
+            # Normalise bare YYYY-MM-DD to full datetime so comparisons
+            # against TOS-stored datetimes work (same logic as
+            # _normalise_iso_for_compare in devices.py).
+            hint_n = self._tos_date(date_hint)
+            if hint_n is None:
+                raise ValueError("upsert_attribute_value: date_hint resolved to None")
+            for a in existing:
+                df = a.get("date_from") or ""
+                dt = a.get("date_to")
+                if df > hint_n:
+                    continue
+                if dt is not None and dt <= hint_n:
+                    continue
+                # This period covers date_hint — PATCH it.
+                if a.get("value") == value:
+                    return a  # already correct, skip PATCH
+                id_av = a.get("id_attribute_value")
+                if id_av is None:
+                    self._logger.warning(
+                        "upsert_attribute_value: period for %s/%s covering %s has no id"
+                        " — falling back to POST",
+                        id_entity,
+                        code,
+                        date_hint,
+                    )
+                    break
+                patch_body: Dict[str, Any] = {"value": value}
+                return self._request(
+                    "PATCH", f"/attribute_value/{id_av}", data=patch_body
+                )
+            # No period covering date_hint (or it had no id) — fall through to POST.
+            return self.add_attribute_value(id_entity, code, value, date_from, date_to)
+
+        # Default: Pattern 1 — target the most recent open value.
         open_values = [a for a in existing if a.get("date_to") is None]
 
         if open_values:
@@ -828,6 +876,16 @@ class TOSWriter:
         id_entity_subtype: int,
     ) -> Any:
         """Reclassify an existing entity by changing its subtype.
+
+        .. warning::
+
+           This method hits the **admin** endpoint
+           ``PUT /admin_entity_row/<id_entity>`` — the only non-public
+           endpoint used by ``TOSWriter``. The public ``/entity/<id>``
+           is read-only (``Allow: HEAD, GET, OPTIONS``). Use only when
+           you have admin-level TOS access and a confirmed subtype
+           integer FK; prefer the attribute and join verbs for routine
+           writes.
 
         Uses the admin endpoint ``PUT /admin_entity_row/<id_entity>``,
         the only TOS verb that lets us flip ``code_entity_subtype`` on
