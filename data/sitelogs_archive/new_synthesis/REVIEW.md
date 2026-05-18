@@ -139,6 +139,30 @@ read the table's emptiness as approval and proceed.
 
 | Station | Reviewer | Date | Issue |
 |---|---|---|---|
+| AUST | BGO | 2026-05-18 | Over-splits. The 2000-07-06 → 2000-07-10 region should be **one** session — the new chain emits 3 sub-windows, the first two of which (`2000-07-06→07`, `2000-07-07→08`) have identical equipment in every slot. Phantom boundary at 2000-07-07. Similar over-split at 2003-06-18 → 2003-06-21 (should be one session). |
+| HOFN | BGO | 2026-05-18 | Over-splits. The 2013-10-09 → Present period should be **one** physical configuration; the new chain emits 3 sub-windows triggered by firmware-bump and late-arriving serial-number boundaries that don't reflect equipment changes. |
+
+### Proposed fix — slicer coalescing pass
+
+A coalescing pass in `station_sessions` after the slicer emits
+atomic sub-windows: merge consecutive sub-windows whose four
+subtype slots (`gnss_receiver`, `antenna`, `radome`, `monument`)
+are identical. This catches the AUST 2000-07-06 → 2000-07-10 case
+cleanly (all four slots match across both phantom sub-windows).
+
+Does **not** catch:
+
+- AUST 2003-06-18 → 2003-06-21 — receiver SN and firmware
+  genuinely differ between the two sub-windows; from TOS's
+  perspective they are different sessions.
+- HOFN 2013-10-09 → 2014-10-17 — firmware changes
+  (`3.01/6.2 → 3.03/6.12`) and serial number populates late
+  (`N/A → 1830199`). TOS records these as boundary transitions.
+
+For those, the underlying TOS data needs cleanup — the boundary
+records exist because someone added/edited periods at those dates
+even though the physical equipment was unchanged. The synthesis
+chain can only render what TOS contains.
 
 ## TOS data issues surfaced during review
 
