@@ -44,6 +44,18 @@ REFERENCE_DATA_CONFIG = {
 }
 
 
+def _select_synthesizer(args):
+    """Return the gps_metadata function selected by ``--use-new-synthesis``.
+
+    Both candidates have the same calling convention — drop-in
+    swappable. Defaults to the legacy chain so flag-less invocations
+    are byte-stable.
+    """
+    if getattr(args, "use_new_synthesis", False):
+        return gpsqc.gps_metadata_via_devices
+    return gpsqc.gps_metadata
+
+
 def generate_igs_sitelog_filename(
     station_marker: str,
     country_code: str = "ISL",
@@ -420,6 +432,20 @@ Contact: Benni (bgo@vedur.is) or Hildur (hildur@vedur.is)
     )
     server_options.add_argument(
         "-t", "--timeout", type=int, default=4, help="Connection timeout:"
+    )
+
+    synthesis_options = parser.add_argument_group(title="Synthesis options")
+    synthesis_options.add_argument(
+        "--use-new-synthesis",
+        action="store_true",
+        help=(
+            "Use the new devices.station_sessions composer chain for "
+            "device_history instead of the legacy gps_metadata_qc "
+            "synthesis. Affects PrintTOS and sitelog. For RHOF / VMEY / "
+            "SKRO the output is byte-equal; for AUST / AKUR / REYK / "
+            "HOFN expect divergence (see "
+            "docs/architecture/synthesis-legacy-divergence.md)."
+        ),
     )
 
     # making subcommands
@@ -1036,7 +1062,7 @@ def _handle_print_subcommand(args, stations, url, log_level):
             }
 
     for sta in stations:
-        station_info = gpsqc.gps_metadata(sta, url, loglevel=log_level.value)
+        station_info = _select_synthesizer(args)(sta, url, loglevel=log_level.value)
 
         if not station_info:
             continue
@@ -1098,7 +1124,9 @@ def _handle_rinex_subcommand(args, stations, url, log_level):
 
         # Get station metadata using legacy system (more reliable for validation)
         try:
-            station_data = gpsqc.gps_metadata(station, url, loglevel=log_level.value)
+            station_data = _select_synthesizer(args)(
+                station, url, loglevel=log_level.value
+            )
             if not station_data:
                 print(
                     f"Error: Could not retrieve metadata for station {station}",
@@ -1206,8 +1234,19 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
             print(f"Generating site log for station {station}", file=sys.stderr)
 
         try:
-            # Get complete station metadata with proper device sessions (like legacy system)
-            complete_station_data = tos_client.get_complete_station_metadata(station)
+            # Get complete station metadata with proper device sessions.
+            # The default path uses TOSClient.get_complete_station_metadata
+            # (custom history-from-connections logic). With --use-new-synthesis,
+            # route through the devices.station_sessions composer chain for
+            # consistency with PrintTOS and rinex.
+            if getattr(args, "use_new_synthesis", False):
+                complete_station_data = gpsqc.gps_metadata_via_devices(
+                    station, url, loglevel=log_level.value
+                )
+            else:
+                complete_station_data = tos_client.get_complete_station_metadata(
+                    station
+                )
             if not complete_station_data:
                 print(
                     f"Error: Could not retrieve metadata for station {station}",

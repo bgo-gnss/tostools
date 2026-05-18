@@ -599,6 +599,51 @@ def gps_metadata(station_identifier, url_rest, loglevel=logging.WARNING):
     return station
 
 
+def gps_metadata_via_devices(station_identifier, url_rest, loglevel=logging.WARNING):
+    """Drop-in replacement for :func:`gps_metadata` using the new synthesis chain.
+
+    Bridges the legacy ``station`` dict shape (consumed by
+    ``tosGPS PrintTOS`` / ``tosGPS sitelog``) onto the
+    :func:`tostools.devices.station_sessions` composer. The
+    top-level station metadata (``marker``, ``name``, ``lat``,
+    ``lon``, ``altitude``, ``contact``, ...) is still pulled from
+    :func:`get_station_metadata` — only ``device_history`` is
+    replaced.
+
+    Behaviour against the legacy chain:
+
+    * For stations with clean attribute periods + non-overlapping
+      device installations (RHOF, AKUR, VMEY, SKRO): byte-equal
+      output. Locked by
+      ``test_rhof_gps_metadata_via_devices_matches_legacy_snapshot``.
+    * For stations exhibiting either of the two legacy bugs or the
+      "receiver-swap gap" enrichment pattern: divergent output.
+      See ``docs/architecture/synthesis-legacy-divergence.md``.
+
+    Gated behind the ``tosGPS --use-new-synthesis`` flag — once the
+    sitelog golden files have been re-captured + domain-expert
+    reviewed for the divergent stations, this becomes the default
+    (phase 5).
+    """
+    from . import devices
+    from .api.tos_client import TOSClient
+
+    module_logger = get_logger(__name__, loglevel)
+    station, devices_history = get_station_metadata(
+        station_identifier, url_rest, loglevel=loglevel
+    )
+    if not station:
+        module_logger.warning(
+            "dictionary for station %s is empty returning", station_identifier
+        )
+        return {}
+
+    client = TOSClient(base_url=url_rest)
+    station_id = int(devices_history["id_entity"])
+    station["device_history"] = devices.station_sessions(client, station_id)
+    return station
+
+
 def get_station_metadata(station_identifier, url_rest, loglevel=logging.WARNING):
     """"""
 
@@ -614,12 +659,8 @@ def get_station_metadata(station_identifier, url_rest, loglevel=logging.WARNING)
         )[0]
         module_logger.setLevel(loglevel)
     except IndexError as error:
-        module_logger.error(
-            "{} station {} not found in TOS database. \
-            Error {}".format(
-                domain, station_identifier, error
-            )
-        )
+        module_logger.error("{} station {} not found in TOS database. \
+            Error {}".format(domain, station_identifier, error))
         return [], []
 
     module_logger.debug(

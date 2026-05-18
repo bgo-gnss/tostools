@@ -79,6 +79,28 @@ def test_rhof_station_sessions_matches_legacy_device_history():
 
 
 @pytest.mark.vcr
+def test_rhof_gps_metadata_via_devices_matches_legacy_snapshot():
+    """gps_metadata_via_devices('RHOF') must byte-equal legacy gps_metadata('RHOF').
+
+    Locks the phase-4 adapter against the same RHOF snapshot as the
+    legacy chain. This is the integration-level gate: the adapter
+    not only produces the right device_history list but also wraps
+    it in the legacy station-shaped dict (top-level marker, name,
+    lat, lon, altitude, contact, ...). Any divergence here means
+    either the adapter dropped a field or the station-metadata
+    fetch path drifted from legacy.
+    """
+    result = gps_metadata_qc.gps_metadata_via_devices(
+        "RHOF",
+        gps_metadata_qc.URL_REST_TOS,
+        loglevel=logging.WARNING,
+    )
+    snapshot_path = SNAPSHOTS / "RHOF_legacy.json"
+    expected = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert canonicalize(result) == expected
+
+
+@pytest.mark.vcr
 def test_aust_station_sessions_locked():
     """station_sessions('AUST') must match its captured new-behaviour snapshot.
 
