@@ -1447,6 +1447,10 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
 
         except Exception as e:
             print(f"Error generating site log for {station}: {e}", file=sys.stderr)
+            if log_level.value <= logging.DEBUG:
+                import traceback as _tb
+
+                _tb.print_exc(file=sys.stderr)
 
 
 def _get_station_config_dir():

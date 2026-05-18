@@ -210,11 +210,11 @@ holds the per-station review bundle.
    attribute differences at boundaries that don't reflect physical
    equipment changes. Candidates for `tos audit apply` corrections
    once the pattern is mapped.
-2. **Fix pre-existing IGS-text-renderer crashes** in
-   `legacy/gps_metadata_functions.py` (NoneType / empty-datetime on
-   AUST / REYK / HOFN) — hits both synthesis chains identically;
-   blocks producing full IGS site logs for those stations until
-   resolved.
+2. **Fix legacy `site_log()` non-determinism**: pre-existing race /
+   iteration-order bug in `legacy/gps_metadata_functions.py:site_log`
+   produces different antenna-serial-number output on consecutive
+   runs (observed on SJUK; flakes both chains since IGS text path
+   bypasses the synthesis output). Goes away when legacy is removed.
 3. **Wire `--push-tos` Pattern 2 / Pattern 4** (in `receivers`
    package, separate repo): underlying writer support is in place
    (`TOSWriter.transition_attribute_value` +

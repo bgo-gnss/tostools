@@ -1,0 +1,11 @@
+--- SJUK_sitelog_legacy.txt	2026-05-18 22:33:18.044508343 +0000
++++ SJUK_sitelog_new.txt	2026-05-18 22:33:16.633482008 +0000
+@@ -75,7 +75,7 @@
+ 4.   GNSS Antenna Information
+ 
+ 4.1  Antenna Type             : TRM57971.00    NONE
+-     Serial Number            : 532098
++     Serial Number            : None
+      Antenna Reference Point  : BAM
+      Marker->ARP Up Ecc. (m)  :   0.0000
+      Marker->ARP North Ecc(m) :   0.0000

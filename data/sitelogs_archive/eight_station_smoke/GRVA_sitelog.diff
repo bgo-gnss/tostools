@@ -1,0 +1,20 @@
+--- GRVA_sitelog_legacy.txt	2026-05-18 22:42:41.971326237 +0000
++++ GRVA_sitelog_new.txt	2026-05-18 22:42:40.620299835 +0000
+@@ -53,7 +53,7 @@
+ 
+ 3.1  Receiver Type            : TRIMBLE NETRS
+      Satellite System         : GPS
+-     Serial Number            : None
++     Serial Number            : 4731136285
+      Firmware Version         : NP 1.25
+      Elevation Cutoff Setting : 0 deg
+      Date Installed           : 2014-10-17T00:00Z
+@@ -75,7 +75,7 @@
+ 4.   GNSS Antenna Information
+ 
+ 4.1  Antenna Type             : TRM41249.00    NONE
+-     Serial Number            : None
++     Serial Number            : 60240833
+      Antenna Reference Point  : BAM
+      Marker->ARP Up Ecc. (m)  :   0.0000
+      Marker->ARP North Ecc(m) :   0.0000
