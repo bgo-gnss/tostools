@@ -1,0 +1,620 @@
+[
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": -0.0033,
+      "antenna_offset_north": -0.0056,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM14532.00",
+      "serial_number": "7008"
+    },
+    "gnss_receiver": {
+      "firmware_version": "NP 4.64 / SP 1.15",
+      "model": "TRIMBLE 4000ST",
+      "serial_number": "2361",
+      "software_version": "4.64"
+    },
+    "monument": {
+      "monument_height": 0.9114,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-19930610"
+    },
+    "time_from": "1993-06-10T00:00:00",
+    "time_to": "1993-06-14T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": -0.0033,
+      "antenna_offset_north": -0.0056,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM14532.00",
+      "serial_number": "antenna-AUST-19940526"
+    },
+    "monument": {
+      "monument_height": 0.858,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-19940526"
+    },
+    "time_from": "1994-05-26T00:00:00",
+    "time_to": "1994-05-29T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": -0.0023,
+      "antenna_offset_north": -0.0035,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM33429.00+GP",
+      "serial_number": "156516"
+    },
+    "gnss_receiver": {
+      "firmware_version": null,
+      "model": "TRIMBLE 4000SSI",
+      "serial_number": "26093",
+      "software_version": "7.29"
+    },
+    "monument": {
+      "monument_height": 1.031,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20000326"
+    },
+    "time_from": "2000-03-26T00:00:00",
+    "time_to": "2000-04-03T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.8433,
+      "antenna_offset_east": -0.0024,
+      "antenna_offset_north": -0.0036,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM33429.20+GP",
+      "serial_number": "156024"
+    },
+    "gnss_receiver": {
+      "firmware_version": "4.83 / 1.15",
+      "model": "TRIMBLE 4000SST",
+      "serial_number": "2459",
+      "software_version": "4.83"
+    },
+    "monument": {
+      "monument_height": 0.9237,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20000706"
+    },
+    "time_from": "2000-07-06T00:00:00",
+    "time_to": "2000-07-07T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.8433,
+      "antenna_offset_east": -0.0024,
+      "antenna_offset_north": -0.0036,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM33429.20+GP",
+      "serial_number": "156024"
+    },
+    "gnss_receiver": {
+      "firmware_version": "4.83 / 1.15",
+      "model": "TRIMBLE 4000SST",
+      "serial_number": "2459",
+      "software_version": "4.83"
+    },
+    "monument": {
+      "monument_height": 0.9237,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20000706"
+    },
+    "time_from": "2000-07-07T00:00:00",
+    "time_to": "2000-07-08T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": -0.0024,
+      "antenna_offset_north": -0.0036,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM33429.20+GP",
+      "serial_number": "156024"
+    },
+    "gnss_receiver": {
+      "firmware_version": "4.83 / 1.15",
+      "model": "TRIMBLE 4000SST",
+      "serial_number": "2459",
+      "software_version": "4.83"
+    },
+    "monument": {
+      "monument_height": 0.9237,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20000706"
+    },
+    "time_from": "2000-07-08T00:00:00",
+    "time_to": "2000-07-10T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM33429.00+GP",
+      "serial_number": "156516"
+    },
+    "gnss_receiver": {
+      "firmware_version": "NP 7.29 / SP 3.07",
+      "model": "TRIMBLE 4000SSI",
+      "serial_number": "25148",
+      "software_version": "7.29"
+    },
+    "monument": {
+      "monument_height": 1.0636,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20010326"
+    },
+    "time_from": "2001-03-26T00:00:00",
+    "time_to": "2001-04-03T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": -0.0023,
+      "antenna_offset_north": 0.0002,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM29659.00",
+      "serial_number": "190269"
+    },
+    "gnss_receiver": {
+      "firmware_version": "NP 7.19 / SP 3.04",
+      "model": "TRIMBLE 4000SSI",
+      "serial_number": "15404",
+      "software_version": "7.19"
+    },
+    "monument": {
+      "monument_height": 0.862,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20010611"
+    },
+    "time_from": "2001-06-12T00:00:00",
+    "time_to": "2001-06-14T12:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM33429.20+GP",
+      "serial_number": "168784"
+    },
+    "gnss_receiver": {
+      "firmware_version": "NP 7.29 / SP 3.07      ",
+      "model": "TRIMBLE 4000SSI",
+      "serial_number": "26094",
+      "software_version": "7.29"
+    },
+    "monument": {
+      "monument_height": 1.0262,
+      "monument_offset_east": -0.0024,
+      "monument_offset_north": -0.0036,
+      "serial_number": "monument-AUST-20020522"
+    },
+    "time_from": "2002-05-22T00:00:00",
+    "time_to": "2002-05-26T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM33429.00+GP",
+      "serial_number": "156516"
+    },
+    "gnss_receiver": {
+      "firmware_version": "NP 7.29 / SP 3.07",
+      "model": "TRIMBLE 4000SSI",
+      "serial_number": "25148",
+      "software_version": "7.29"
+    },
+    "monument": {
+      "monument_height": 1.3771,
+      "monument_offset_east": -0.0023,
+      "monument_offset_north": -0.0035,
+      "serial_number": "monument-AUST-20030304"
+    },
+    "time_from": "2003-03-04T00:00:00",
+    "time_to": "2003-03-10T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM33429.20+GP",
+      "serial_number": "171774"
+    },
+    "gnss_receiver": {
+      "firmware_version": null,
+      "model": "TRIMBLE 4000SSI",
+      "serial_number": "25992",
+      "software_version": null
+    },
+    "monument": {
+      "monument_height": 0.0,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20030618"
+    },
+    "time_from": "2003-06-18T00:00:00",
+    "time_to": "2003-06-19T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM33429.20+GP",
+      "serial_number": "171774"
+    },
+    "gnss_receiver": {
+      "firmware_version": "NP 7.19 / SP 3.04",
+      "model": "TRIMBLE 4000SSI",
+      "serial_number": "25992",
+      "software_version": "7.19"
+    },
+    "monument": {
+      "monument_height": 0.954,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20030618"
+    },
+    "time_from": "2003-06-19T00:00:00",
+    "time_to": "2003-06-21T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM33429.20+GP",
+      "serial_number": "171774"
+    },
+    "gnss_receiver": {
+      "firmware_version": "NP 7.29 / SP 3.07",
+      "model": "TRIMBLE 4000SSI",
+      "serial_number": "25148",
+      "software_version": "7.29"
+    },
+    "monument": {
+      "monument_height": 0.0,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20040127"
+    },
+    "time_from": "2004-01-27T00:00:00",
+    "time_to": "2004-01-31T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM33429.20+GP",
+      "serial_number": "221333"
+    },
+    "gnss_receiver": {
+      "firmware_version": null,
+      "model": "TRIMBLE 4000SSI",
+      "serial_number": "14629",
+      "software_version": null
+    },
+    "monument": {
+      "monument_height": 0.0,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20040203"
+    },
+    "time_from": "2004-02-03T00:00:00",
+    "time_to": "2004-02-09T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM33429.20+GP",
+      "serial_number": "171774"
+    },
+    "gnss_receiver": {
+      "firmware_version": "7.19",
+      "model": "TRIMBLE 4000SSI",
+      "serial_number": "14629",
+      "software_version": "7.19"
+    },
+    "monument": {
+      "monument_height": 0.0,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20040614"
+    },
+    "time_from": "2004-06-14T00:00:00",
+    "time_to": "2004-06-19T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM41249.00",
+      "serial_number": "12605840"
+    },
+    "gnss_receiver": {
+      "firmware_version": "2.01",
+      "model": "TRIMBLE 5700",
+      "serial_number": "0220325904",
+      "software_version": "2.01"
+    },
+    "monument": {
+      "monument_height": 0.0,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20050217"
+    },
+    "time_from": "2005-02-17T00:00:00",
+    "time_to": "2005-02-23T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM41249.00",
+      "serial_number": "12605840"
+    },
+    "gnss_receiver": {
+      "firmware_version": null,
+      "model": "TRIMBLE 5700",
+      "serial_number": "0220331856",
+      "software_version": null
+    },
+    "monument": {
+      "monument_height": 0.0,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20060313"
+    },
+    "time_from": "2006-03-13T00:00:00",
+    "time_to": "2006-03-17T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM41249.00",
+      "serial_number": "antenna-AUST-20070305"
+    },
+    "gnss_receiver": {
+      "firmware_version": "2.01",
+      "model": "TRIMBLE R7",
+      "serial_number": "0220330305",
+      "software_version": "2.01"
+    },
+    "monument": {
+      "monument_height": 0.0,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20070305"
+    },
+    "time_from": "2007-03-05T00:00:00",
+    "time_to": "2007-03-20T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM41249.00",
+      "serial_number": "196282"
+    },
+    "gnss_receiver": {
+      "firmware_version": null,
+      "model": null,
+      "serial_number": null,
+      "software_version": "1.13"
+    },
+    "monument": {
+      "monument_height": 0.0,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20080718"
+    },
+    "time_from": "2008-07-18T00:00:00",
+    "time_to": "2008-07-21T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM41249.00",
+      "serial_number": "223471"
+    },
+    "gnss_receiver": {
+      "firmware_version": "2.30",
+      "model": "TRIMBLE R7",
+      "serial_number": "0220390338",
+      "software_version": "2.30"
+    },
+    "monument": {
+      "monument_height": 0.0,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST-20090322"
+    },
+    "time_from": "2009-03-22T00:00:00",
+    "time_to": "2009-03-31T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM41249.00",
+      "serial_number": "60220780"
+    },
+    "gnss_receiver": {
+      "firmware_version": "1.2-5",
+      "model": "TRIMBLE NETRS",
+      "serial_number": "4752143431",
+      "software_version": "1.25"
+    },
+    "monument": {
+      "monument_height": 0.971,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST20100428"
+    },
+    "time_from": "2010-04-28T00:00:00",
+    "time_to": "2011-06-13T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM57971.00",
+      "serial_number": null
+    },
+    "gnss_receiver": {
+      "firmware_version": "4.41",
+      "model": "TRIMBLE NETR9",
+      "serial_number": null,
+      "software_version": "4.41"
+    },
+    "monument": {
+      "monument_height": 0.971,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST20100428"
+    },
+    "time_from": "2011-06-21T00:00:00",
+    "time_to": "2011-09-19T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM57971.00",
+      "serial_number": null
+    },
+    "gnss_receiver": {
+      "firmware_version": "4.81",
+      "model": "TRIMBLE NETR9",
+      "serial_number": null,
+      "software_version": "4.81"
+    },
+    "monument": {
+      "monument_height": 0.971,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST20100428"
+    },
+    "time_from": "2014-06-01T00:00:00",
+    "time_to": "2013-12-09T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM57971.00",
+      "serial_number": "antenna-AUST-20110621"
+    },
+    "gnss_receiver": {
+      "firmware_version": "4.81",
+      "model": "TRIMBLE NETR9",
+      "serial_number": null,
+      "software_version": "4.81"
+    },
+    "monument": {
+      "monument_height": 0.971,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST20100428"
+    },
+    "time_from": "2014-10-17T00:00:00",
+    "time_to": "2014-09-30T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM57971.00",
+      "serial_number": "antenna-AUST-20110621"
+    },
+    "gnss_receiver": {
+      "firmware_version": "NP 4.81 / SP 4.81",
+      "model": "TRIMBLE NETR9",
+      "serial_number": "5212K83333",
+      "software_version": "4.81"
+    },
+    "monument": {
+      "monument_height": 0.971,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST20100428"
+    },
+    "time_from": "2016-02-12T14:00:00",
+    "time_to": "2014-10-17T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM57971.00",
+      "serial_number": "antenna-AUST-20110621"
+    },
+    "gnss_receiver": {
+      "firmware_version": "5.5.0",
+      "model": "SEPT POLARX5",
+      "serial_number": "3047787               ",
+      "software_version": "5.20"
+    },
+    "monument": {
+      "monument_height": 0.971,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST20100428"
+    },
+    "time_from": "2019-06-05T00:00:00",
+    "time_to": "2019-01-20T00:00:00"
+  }
+]

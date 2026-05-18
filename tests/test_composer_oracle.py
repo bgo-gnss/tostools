@@ -2,9 +2,15 @@
 
 Phase 1c sign-off (§9 byte-equality ladder, level 2) requires the new
 ``station_sessions`` composer to produce byte-equal output to legacy
-``gps_metadata_qc.gps_metadata``. The legacy-side test locks the oracle
-against a captured VCR cassette + JSON snapshot; the composer-side test
-asserts the new chain reproduces the same ``device_history`` slice.
+``gps_metadata_qc.gps_metadata`` for stations where legacy is known
+correct (RHOF, AKUR, VMEY, SKRO — clean attribute periods, no
+overlapping device installations).
+
+For stations where legacy is known *buggy* (AUST severe, REYK + HOFN
+mild — see ``docs/architecture/synthesis-legacy-divergence.md``) we
+instead lock the *new* composer output against its own captured
+snapshot. That prevents accidental regressions to legacy semantics
+without forcing the new code to reproduce known wrong output.
 
 Each test gets its own cassette via the ``@pytest.mark.vcr`` default
 path (``tests/cassettes/test_composer_oracle/test_<name>.yaml``).
@@ -69,4 +75,36 @@ def test_rhof_station_sessions_matches_legacy_device_history():
     expected_doc = json.loads(snapshot_path.read_text(encoding="utf-8"))
     expected = expected_doc["device_history"]
 
+    assert canonicalize(result) == expected
+
+
+@pytest.mark.vcr
+def test_aust_station_sessions_locked():
+    """station_sessions('AUST') must match its captured new-behaviour snapshot.
+
+    AUST is the canonical "legacy is wrong" fixture: 17 of legacy's 24
+    sessions emerge with ``time_to < time_from`` because the legacy
+    slicer under-emits sub-windows when attribute periods misalign, and
+    the pivot's independent-iter zip then pairs unrelated boundaries.
+    The new chain produces 26 well-ordered sessions; this test locks
+    that output so future refactors can't accidentally regress to the
+    legacy pair-based behaviour. See
+    ``docs/architecture/synthesis-legacy-divergence.md`` for the full
+    write-up of the two legacy bugs and the new-behaviour contract.
+    """
+    client = TOSClient(base_url=gps_metadata_qc.URL_REST_TOS)
+    hits = client.search_stations("AUST", domains="geophysical")
+    assert hits, "AUST not found in TOS — cassette out of date?"
+    station_id = hits[0]["id_entity"]
+
+    result = devices.station_sessions(client, station_id)
+
+    snapshot_path = SNAPSHOTS / "AUST_new.json"
+    if not snapshot_path.exists():
+        pytest.fail(
+            f"Snapshot missing: {snapshot_path}\n"
+            f"Capture it from the recorded cassette with:\n"
+            f"  python scripts/capture_oracle.py AUST --source new"
+        )
+    expected = json.loads(snapshot_path.read_text(encoding="utf-8"))
     assert canonicalize(result) == expected
