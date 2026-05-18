@@ -1,0 +1,868 @@
+{
+  "station": "REYK",
+  "metadata": {
+    "contact": {
+      "owner": {
+        "id_entity": 2509,
+        "role": "owner",
+        "role_is": "Eigandi st\u00f6\u00f0var",
+        "name": "Landm\u00e6lingar \u00cdslands",
+        "address": "",
+        "comment": "",
+        "phone_primary": "",
+        "ssid": "",
+        "abbreviation": "",
+        "name_en": "",
+        "email": "",
+        "primary_contact": "",
+        "department": "",
+        "address_en": "",
+        "main_url": "",
+        "main_url_en": ""
+      },
+      "operator": {
+        "role": "operator",
+        "role_is": "Rekstrara\u00f0ili st\u00f6\u00f0var",
+        "name": "Landm\u00e6lingar \u00cdslands"
+      },
+      "contact": {
+        "id_entity": 2509,
+        "role": "owner",
+        "role_is": "Eigandi st\u00f6\u00f0var",
+        "name": "Landm\u00e6lingar \u00cdslands",
+        "address": "",
+        "comment": "",
+        "phone_primary": "",
+        "ssid": "",
+        "abbreviation": "",
+        "name_en": "",
+        "email": "",
+        "primary_contact": "",
+        "department": "",
+        "address_en": "",
+        "main_url": "",
+        "main_url_en": ""
+      }
+    },
+    "altitude": 93.012961,
+    "name": "Reykjav\u00edk - Hjar\u00f0arhagi",
+    "iers_domes_number": "10202M001",
+    "marker": "reyk",
+    "lat": 64.138786,
+    "lon": -21.955488,
+    "device_history": [
+      {
+        "time_from": "1995-11-02 00:00:00",
+        "time_to": "1998-09-13 00:00:00",
+        "antenna": {
+          "model": "AOAD/M_T",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "gnss_receiver": {
+          "model": "ROGUE SNR-8000",
+          "serial_number": null,
+          "firmware_version": "3.2",
+          "software_version": "3.20"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.068,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        }
+      },
+      {
+        "time_from": "1998-09-13 00:00:00",
+        "time_to": "1999-03-11 00:00:00",
+        "antenna": {
+          "model": "AOAD/M_T",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "gnss_receiver": {
+          "model": "ROGUE SNR-8000",
+          "serial_number": null,
+          "firmware_version": "3.2.32.4",
+          "software_version": "3.20"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.0685,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        }
+      },
+      {
+        "time_from": "1999-03-11 00:00:00",
+        "time_to": "1999-07-21 11:00:00",
+        "antenna": {
+          "model": "AOAD/M_T",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "gnss_receiver": {
+          "model": "ROGUE SNR-8000",
+          "serial_number": null,
+          "firmware_version": "3.2.32.4",
+          "software_version": "3.20"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.068,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        }
+      },
+      {
+        "time_from": "1999-07-21 11:00:00",
+        "time_to": "2000-07-11 09:00:00",
+        "antenna": {
+          "model": "AOAD/M_T",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.068,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "gnss_receiver": {
+          "model": "ROGUE SNR-8000",
+          "serial_number": null,
+          "firmware_version": "3.2.32.9",
+          "software_version": "3.20"
+        }
+      },
+      {
+        "time_from": "2000-07-11 09:00:00",
+        "time_to": "2003-06-13 15:00:00",
+        "antenna": {
+          "model": "AOAD/M_T",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.068,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "gnss_receiver": {
+          "model": "AOA SNR-8000 ACT",
+          "serial_number": null,
+          "firmware_version": "3.3.32.3",
+          "software_version": "3.30"
+        }
+      },
+      {
+        "time_from": "2003-06-13 15:00:00",
+        "time_to": "2004-06-30 13:30:00",
+        "gnss_receiver": {
+          "model": "AOA SNR-8000 ACT",
+          "serial_number": null,
+          "firmware_version": "3.3.32.3",
+          "software_version": "3.30"
+        },
+        "antenna": {
+          "model": "AOAD/M_T",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.0555,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        }
+      },
+      {
+        "time_from": "2004-06-30 13:30:00",
+        "time_to": "2006-07-17 09:57:00",
+        "antenna": {
+          "model": "AOAD/M_T",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.0555,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "gnss_receiver": {
+          "model": "AOA SNR-8000 ACT",
+          "serial_number": null,
+          "firmware_version": "3.3.32.4",
+          "software_version": "3.30"
+        }
+      },
+      {
+        "time_from": "2006-07-17 09:57:00",
+        "time_to": "2006-08-16 14:25:00",
+        "antenna": {
+          "model": "AOAD/M_T",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.0555,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "gnss_receiver": {
+          "model": "AOA SNR-8000 ACT",
+          "serial_number": null,
+          "firmware_version": "3.3.32.4",
+          "software_version": "3.30"
+        }
+      },
+      {
+        "time_from": "2006-08-16 14:25:00",
+        "time_to": "2007-09-19 16:00:00",
+        "antenna": {
+          "model": "AOAD/M_T",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.0555,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "gnss_receiver": {
+          "model": "AOA SNR-8000 ACT",
+          "serial_number": null,
+          "firmware_version": "3.3.32.4",
+          "software_version": "3.30"
+        }
+      },
+      {
+        "time_from": "2007-09-19 16:00:00",
+        "time_to": "2007-09-20 16:30:00",
+        "antenna": {
+          "model": "ASH701073.1",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "gnss_receiver": {
+          "model": "TPS E_GGD",
+          "serial_number": null,
+          "firmware_version": "2.6.0 APR, 18, 2007",
+          "software_version": "2.60"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.063,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "radome": {
+          "model": "SNOW",
+          "serial_number": null
+        }
+      },
+      {
+        "time_from": "2007-09-20 16:30:00",
+        "time_to": "2008-01-14 00:00:00",
+        "antenna": {
+          "model": "ASH701073.1",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "gnss_receiver": {
+          "model": "TPS E_GGD",
+          "serial_number": null,
+          "firmware_version": "2.6.0 APR, 18, 2007",
+          "software_version": "2.60"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.063,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        }
+      },
+      {
+        "time_from": "2008-01-14 00:00:00",
+        "time_to": "2008-03-13 00:00:00",
+        "antenna": {
+          "model": "ASH701073.1",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.063,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "gnss_receiver": {
+          "model": "TPS E_GGD",
+          "serial_number": null,
+          "firmware_version": "2.6.1 JAN, 10, 2008",
+          "software_version": "2.61"
+        }
+      },
+      {
+        "time_from": "2008-03-13 00:00:00",
+        "time_to": "2010-03-26 09:45:00",
+        "gnss_receiver": {
+          "model": "TPS E_GGD",
+          "serial_number": null,
+          "firmware_version": "2.6.1 JAN, 10, 2008",
+          "software_version": "2.61"
+        },
+        "antenna": {
+          "model": "TPSCR.G3",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.057,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "radome": {
+          "model": "TPSH",
+          "serial_number": null
+        }
+      },
+      {
+        "time_from": "2010-03-26 09:45:00",
+        "time_to": "2013-05-02 12:00:00",
+        "antenna": {
+          "model": "TPSCR.G3",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.057,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "radome": {
+          "model": "TPSH",
+          "serial_number": null
+        },
+        "gnss_receiver": {
+          "model": "TPS E_GGD",
+          "serial_number": null,
+          "firmware_version": "3.4 DEC,12,2009 P2",
+          "software_version": "3.40"
+        }
+      },
+      {
+        "time_from": "2013-05-02 12:00:00",
+        "time_to": "2014-10-17 00:00:00",
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.057,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "antenna": {
+          "model": "LEIAR25.R4",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "gnss_receiver": {
+          "model": "LEICA GR25",
+          "serial_number": null,
+          "firmware_version": "3.00/6.113",
+          "software_version": "3.00"
+        },
+        "radome": {
+          "model": "LEIT",
+          "serial_number": null
+        }
+      },
+      {
+        "time_from": "2014-10-17 00:00:00",
+        "time_to": null,
+        "antenna": {
+          "model": "LEIAR25.R4",
+          "serial_number": "725281",
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "gnss_receiver": {
+          "model": "LEICA GR25",
+          "serial_number": "1830201",
+          "firmware_version": "3.00/6.113",
+          "software_version": "3.00"
+        },
+        "monument": {
+          "serial_number": "monument-REYK-20080313",
+          "monument_height": 0.057,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "radome": {
+          "model": "LEIT",
+          "serial_number": "radome-REYK-20130502"
+        }
+      }
+    ]
+  },
+  "device_sessions": [
+    {
+      "time_from": "1995-11-02 00:00:00",
+      "time_to": "1998-09-13 00:00:00",
+      "antenna": {
+        "model": "AOAD/M_T",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "gnss_receiver": {
+        "model": "ROGUE SNR-8000",
+        "serial_number": null,
+        "firmware_version": "3.2",
+        "software_version": "3.20"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.068,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      }
+    },
+    {
+      "time_from": "1998-09-13 00:00:00",
+      "time_to": "1999-03-11 00:00:00",
+      "antenna": {
+        "model": "AOAD/M_T",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "gnss_receiver": {
+        "model": "ROGUE SNR-8000",
+        "serial_number": null,
+        "firmware_version": "3.2.32.4",
+        "software_version": "3.20"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.0685,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      }
+    },
+    {
+      "time_from": "1999-03-11 00:00:00",
+      "time_to": "1999-07-21 11:00:00",
+      "antenna": {
+        "model": "AOAD/M_T",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "gnss_receiver": {
+        "model": "ROGUE SNR-8000",
+        "serial_number": null,
+        "firmware_version": "3.2.32.4",
+        "software_version": "3.20"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.068,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      }
+    },
+    {
+      "time_from": "1999-07-21 11:00:00",
+      "time_to": "2000-07-11 09:00:00",
+      "antenna": {
+        "model": "AOAD/M_T",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.068,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "gnss_receiver": {
+        "model": "ROGUE SNR-8000",
+        "serial_number": null,
+        "firmware_version": "3.2.32.9",
+        "software_version": "3.20"
+      }
+    },
+    {
+      "time_from": "2000-07-11 09:00:00",
+      "time_to": "2003-06-13 15:00:00",
+      "antenna": {
+        "model": "AOAD/M_T",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.068,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "gnss_receiver": {
+        "model": "AOA SNR-8000 ACT",
+        "serial_number": null,
+        "firmware_version": "3.3.32.3",
+        "software_version": "3.30"
+      }
+    },
+    {
+      "time_from": "2003-06-13 15:00:00",
+      "time_to": "2004-06-30 13:30:00",
+      "gnss_receiver": {
+        "model": "AOA SNR-8000 ACT",
+        "serial_number": null,
+        "firmware_version": "3.3.32.3",
+        "software_version": "3.30"
+      },
+      "antenna": {
+        "model": "AOAD/M_T",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.0555,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      }
+    },
+    {
+      "time_from": "2004-06-30 13:30:00",
+      "time_to": "2006-07-17 09:57:00",
+      "antenna": {
+        "model": "AOAD/M_T",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.0555,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "gnss_receiver": {
+        "model": "AOA SNR-8000 ACT",
+        "serial_number": null,
+        "firmware_version": "3.3.32.4",
+        "software_version": "3.30"
+      }
+    },
+    {
+      "time_from": "2006-07-17 09:57:00",
+      "time_to": "2006-08-16 14:25:00",
+      "antenna": {
+        "model": "AOAD/M_T",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.0555,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "gnss_receiver": {
+        "model": "AOA SNR-8000 ACT",
+        "serial_number": null,
+        "firmware_version": "3.3.32.4",
+        "software_version": "3.30"
+      }
+    },
+    {
+      "time_from": "2006-08-16 14:25:00",
+      "time_to": "2007-09-19 16:00:00",
+      "antenna": {
+        "model": "AOAD/M_T",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.0555,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "gnss_receiver": {
+        "model": "AOA SNR-8000 ACT",
+        "serial_number": null,
+        "firmware_version": "3.3.32.4",
+        "software_version": "3.30"
+      }
+    },
+    {
+      "time_from": "2007-09-19 16:00:00",
+      "time_to": "2007-09-20 16:30:00",
+      "antenna": {
+        "model": "ASH701073.1",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "gnss_receiver": {
+        "model": "TPS E_GGD",
+        "serial_number": null,
+        "firmware_version": "2.6.0 APR, 18, 2007",
+        "software_version": "2.60"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.063,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "radome": {
+        "model": "SNOW",
+        "serial_number": null
+      }
+    },
+    {
+      "time_from": "2007-09-20 16:30:00",
+      "time_to": "2008-01-14 00:00:00",
+      "antenna": {
+        "model": "ASH701073.1",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "gnss_receiver": {
+        "model": "TPS E_GGD",
+        "serial_number": null,
+        "firmware_version": "2.6.0 APR, 18, 2007",
+        "software_version": "2.60"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.063,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      }
+    },
+    {
+      "time_from": "2008-01-14 00:00:00",
+      "time_to": "2008-03-13 00:00:00",
+      "antenna": {
+        "model": "ASH701073.1",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.063,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "gnss_receiver": {
+        "model": "TPS E_GGD",
+        "serial_number": null,
+        "firmware_version": "2.6.1 JAN, 10, 2008",
+        "software_version": "2.61"
+      }
+    },
+    {
+      "time_from": "2008-03-13 00:00:00",
+      "time_to": "2010-03-26 09:45:00",
+      "gnss_receiver": {
+        "model": "TPS E_GGD",
+        "serial_number": null,
+        "firmware_version": "2.6.1 JAN, 10, 2008",
+        "software_version": "2.61"
+      },
+      "antenna": {
+        "model": "TPSCR.G3",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.057,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "radome": {
+        "model": "TPSH",
+        "serial_number": null
+      }
+    },
+    {
+      "time_from": "2010-03-26 09:45:00",
+      "time_to": "2013-05-02 12:00:00",
+      "antenna": {
+        "model": "TPSCR.G3",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.057,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "radome": {
+        "model": "TPSH",
+        "serial_number": null
+      },
+      "gnss_receiver": {
+        "model": "TPS E_GGD",
+        "serial_number": null,
+        "firmware_version": "3.4 DEC,12,2009 P2",
+        "software_version": "3.40"
+      }
+    },
+    {
+      "time_from": "2013-05-02 12:00:00",
+      "time_to": "2014-10-17 00:00:00",
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.057,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "antenna": {
+        "model": "LEIAR25.R4",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "gnss_receiver": {
+        "model": "LEICA GR25",
+        "serial_number": null,
+        "firmware_version": "3.00/6.113",
+        "software_version": "3.00"
+      },
+      "radome": {
+        "model": "LEIT",
+        "serial_number": null
+      }
+    },
+    {
+      "time_from": "2014-10-17 00:00:00",
+      "time_to": null,
+      "antenna": {
+        "model": "LEIAR25.R4",
+        "serial_number": "725281",
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "gnss_receiver": {
+        "model": "LEICA GR25",
+        "serial_number": "1830201",
+        "firmware_version": "3.00/6.113",
+        "software_version": "3.00"
+      },
+      "monument": {
+        "serial_number": "monument-REYK-20080313",
+        "monument_height": 0.057,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "radome": {
+        "model": "LEIT",
+        "serial_number": "radome-REYK-20130502"
+      }
+    }
+  ],
+  "generated_date": "2026-05-18T13:57:34.019554",
+  "format": "site_log_json_v1"
+}

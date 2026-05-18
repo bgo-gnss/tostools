@@ -1,0 +1,190 @@
+{
+  "station": "AKUR",
+  "metadata": {
+    "is_near_fault_zones": "true",
+    "date_start": "2001-07-31 00:00",
+    "bedrock_condition": "weathered",
+    "name": "Akureyri",
+    "in_network_epos": "true",
+    "marker": "akur",
+    "bedrock_type": "igneous",
+    "altitude": 134.20651,
+    "lat": 65.685427,
+    "iers_domes_number": "10206M001",
+    "geological_characteristic": "bedrock",
+    "lon": -18.122483,
+    "device_history": [
+      {
+        "time_from": "2001-07-31 00:00:00",
+        "time_to": null,
+        "monument": {
+          "serial_number": "monument-AKUR-20010731",
+          "monument_height": 0.0,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "antenna": {
+          "model": "TRM29659.00",
+          "serial_number": "0220145519",
+          "antenna_height": 0.055,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "radome": {
+          "model": "SCIS",
+          "serial_number": "radome-AKUR-20010731"
+        }
+      },
+      {
+        "time_from": "2001-07-31 00:00:00",
+        "time_to": "2015-12-21 00:00:00",
+        "gnss_receiver": {
+          "model": "TRIMBLE 4700",
+          "serial_number": "20221607",
+          "firmware_version": "Nav 1.30 Sig 0.00",
+          "software_version": "1.30"
+        }
+      },
+      {
+        "time_from": "2015-12-21 00:00:00",
+        "time_to": "2018-01-21 00:00:00",
+        "gnss_receiver": {
+          "model": "NOV OEM638",
+          "serial_number": "BMAW14440059V",
+          "firmware_version": "6.51",
+          "software_version": "6.51"
+        }
+      },
+      {
+        "time_from": "2018-01-30 00:00:00",
+        "time_to": "2025-04-15 00:00:00",
+        "gnss_receiver": {
+          "model": "TRIMBLE NETR5",
+          "serial_number": "4806K53395",
+          "firmware_version": "4.03",
+          "software_version": "4.03"
+        }
+      },
+      {
+        "time_from": "2025-04-15 00:00:00",
+        "time_to": null,
+        "gnss_receiver": {
+          "model": "TRIMBLE NETR5",
+          "serial_number": "4825K56777",
+          "firmware_version": "4.41",
+          "software_version": "4.41"
+        }
+      }
+    ],
+    "id_entity": 4229,
+    "contact": {
+      "owner": {
+        "address": "",
+        "comment": "",
+        "contact_end_date": null,
+        "contact_start_date": "1956-01-01T00:00:00",
+        "id_contact": 2509,
+        "id_contact_entity_relationship": 4483,
+        "id_entity": 4229,
+        "job_title": "",
+        "name": "Landm\u00e6lingar \u00cdslands",
+        "organization": "Landm\u00e6lingar \u00cdslands",
+        "per_time_from": "2006-01-01T00:00:00",
+        "per_time_to": null,
+        "phone_primary": "",
+        "phone_secondary": "",
+        "phone_tertiary": "",
+        "role": "owner",
+        "role_is": "Eigandi st\u00f6\u00f0var",
+        "ssid": ""
+      },
+      "operator": {
+        "address": "",
+        "comment": "",
+        "contact_end_date": null,
+        "contact_start_date": "1956-01-01T00:00:00",
+        "id_contact": 2509,
+        "id_contact_entity_relationship": 5102,
+        "id_entity": 4229,
+        "job_title": "",
+        "name": "Landm\u00e6lingar \u00cdslands",
+        "organization": "Landm\u00e6lingar \u00cdslands",
+        "per_time_from": "2025-05-08T09:48:48",
+        "per_time_to": null,
+        "phone_primary": "",
+        "phone_secondary": "",
+        "phone_tertiary": "",
+        "role": "operator",
+        "role_is": "Rekstrara\u00f0ili st\u00f6\u00f0var",
+        "ssid": ""
+      }
+    }
+  },
+  "device_sessions": [
+    {
+      "time_from": "2001-07-31 00:00:00",
+      "time_to": null,
+      "monument": {
+        "serial_number": "monument-AKUR-20010731",
+        "monument_height": 0.0,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "antenna": {
+        "model": "TRM29659.00",
+        "serial_number": "0220145519",
+        "antenna_height": 0.055,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "radome": {
+        "model": "SCIS",
+        "serial_number": "radome-AKUR-20010731"
+      }
+    },
+    {
+      "time_from": "2001-07-31 00:00:00",
+      "time_to": "2015-12-21 00:00:00",
+      "gnss_receiver": {
+        "model": "TRIMBLE 4700",
+        "serial_number": "20221607",
+        "firmware_version": "Nav 1.30 Sig 0.00",
+        "software_version": "1.30"
+      }
+    },
+    {
+      "time_from": "2015-12-21 00:00:00",
+      "time_to": "2018-01-21 00:00:00",
+      "gnss_receiver": {
+        "model": "NOV OEM638",
+        "serial_number": "BMAW14440059V",
+        "firmware_version": "6.51",
+        "software_version": "6.51"
+      }
+    },
+    {
+      "time_from": "2018-01-30 00:00:00",
+      "time_to": "2025-04-15 00:00:00",
+      "gnss_receiver": {
+        "model": "TRIMBLE NETR5",
+        "serial_number": "4806K53395",
+        "firmware_version": "4.03",
+        "software_version": "4.03"
+      }
+    },
+    {
+      "time_from": "2025-04-15 00:00:00",
+      "time_to": null,
+      "gnss_receiver": {
+        "model": "TRIMBLE NETR5",
+        "serial_number": "4825K56777",
+        "firmware_version": "4.41",
+        "software_version": "4.41"
+      }
+    }
+  ],
+  "generated_date": "2026-05-18T13:57:27.477263",
+  "format": "site_log_json_v1"
+}
