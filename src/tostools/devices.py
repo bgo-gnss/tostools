@@ -952,59 +952,95 @@ def station_sessions(
                               monument_offset_north, monument_offset_east},
         }
 
-    Replaces ``gps_metadata_qc.get_device_history``. The pivot mirrors
-    legacy semantics exactly: build the sorted set of unique sub-session
-    starts and the sorted set of unique closed-period ends, pair them up,
-    and for each ``(start, end)`` interval claim each subtype's slot from
-    whichever sub-session covers the interval (``date_from <= start`` and
-    either ``date_to >= end`` or the period is open).
+    Replaces ``gps_metadata_qc.get_device_history``. Differs from legacy
+    in one place: the pivot uses a **boundary-merge** rather than the
+    legacy ``zip(sorted(starts), sorted(ends))`` position-wise pairing.
+    The legacy zip is correct only when every device sub-session's end
+    interleaves with the next sub-session's start (true for stations
+    with single-device-at-a-time lifecycles — RHOF, AKUR, VMEY, SKRO).
+    When two device subtypes overlap (e.g. an antenna installed mid-way
+    through a receiver's lifetime), the legacy zip pairs unrelated
+    boundaries and emits sessions with ``time_to < time_from``. See
+    ``docs/architecture/synthesis-legacy-divergence.md`` for the full
+    write-up.
+
+    Algorithm:
+
+    1. Collect every distinct finite boundary
+       (``date_from`` and ``date_to``) across all sub-sessions.
+    2. Sort. Each adjacent pair ``(b[i], b[i+1])`` defines a candidate
+       station-level session window. If any sub-session is still open
+       (``date_to is None``), append one trailing open window
+       ``(b[-1], None)``.
+    3. For each window, slot-fill each subtype from a covering
+       sub-session — ``date_from <= start`` and (``date_to`` is None or
+       ``date_to >= end``) for closed windows; sub-session must itself
+       be open for the trailing window. Drop windows where no subtype
+       got filled (pure gaps).
+
+    For clean stations this yields the same windows as the legacy zip
+    (the byte-equality oracle test on RHOF locks that invariant). For
+    AUST and other overlap-heavy stations it eliminates the inverted
+    sessions legacy produces.
     """
     station_history = client.get_entity_history(station_id)
     if station_history is None:
         return []
 
     sessions = device_sessions(client, station_history, subtypes=subtypes, fine=True)
+    if not sessions:
+        return []
 
-    starts = iter(sorted({s["device"]["date_from"] for s in sessions}))
-    ends = iter(
-        sorted(
-            {
-                s["device"]["date_to"]
-                for s in sessions
-                if s["device"].get("date_to") is not None
-            }
-        )
-    )
+    boundaries: set[str] = set()
+    has_open_subsession = False
+    for s in sessions:
+        dev = s["device"]
+        df = dev.get("date_from")
+        dt = dev.get("date_to")
+        if df:
+            boundaries.add(df)
+        if dt:
+            boundaries.add(dt)
+        else:
+            has_open_subsession = True
+
+    sorted_bounds = sorted(boundaries)
+    if not sorted_bounds:
+        return []
+
+    intervals: List[tuple] = [
+        (sorted_bounds[i], sorted_bounds[i + 1]) for i in range(len(sorted_bounds) - 1)
+    ]
+    if has_open_subsession:
+        intervals.append((sorted_bounds[-1], None))
 
     pivoted: List[Dict[str, Any]] = []
-    for start in starts:
-        try:
-            end = next(ends)
-        except StopIteration:
-            end = None
-
+    for start, end in intervals:
         record: Dict[str, Any] = {
-            "time_from": (
-                datetime.strptime(start, "%Y-%m-%dT%H:%M:%S") if start else None
-            ),
+            "time_from": datetime.strptime(start, "%Y-%m-%dT%H:%M:%S"),
             "time_to": (datetime.strptime(end, "%Y-%m-%dT%H:%M:%S") if end else None),
         }
 
+        filled = False
         for session in sessions:
             dev = session["device"]
             df = dev.get("date_from")
             dt = dev.get("date_to")
 
-            if end is not None:
-                if df is None or df > start:
+            if df is None or df > start:
+                continue
+            if end is None:
+                if dt is not None:
                     continue
-                if dt is None or dt >= end:
-                    record[dev["code_entity_subtype"]] = _device_structure(dev)
             else:
-                if dt is None:
-                    record[dev["code_entity_subtype"]] = _device_structure(dev)
+                if dt is not None and dt < end:
+                    continue
 
-        pivoted.append(record)
+            record[dev["code_entity_subtype"]] = _device_structure(dev)
+            filled = True
+
+        if filled:
+            pivoted.append(record)
 
     return pivoted
 

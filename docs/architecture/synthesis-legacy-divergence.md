@@ -60,8 +60,7 @@ sub-windows: 2013-05-05 → 2014-10-17 (with model + ARP only) and
 
 ## Bug 2 — pivot's independent-iter zip inverts sessions
 
-The legacy `get_device_history` pivot — preserved exactly by the new
-`station_sessions` for compatibility — builds the per-station session
+The legacy `get_device_history` pivot builds the per-station session
 list like this:
 
 ```python
@@ -79,36 +78,82 @@ sub-session's `date_to` equals the next sub-session's `date_from`, so
 the `i`-th `start` and the `i`-th `end` describe the same logical
 session.
 
-That precondition holds when the slicer's output is well-ordered. The
-new slicer guarantees it by construction: each atomic sub-window's end
-is the next sub-window's start. The legacy slicer's pair-based output
-does *not* guarantee it. On AUST, the resulting position-wise zip
-produces 17 sessions where `time_to < time_from` — e.g. the legacy
-`device_history` reports a session running from `2001-03-26` back to
-`2000-07-10`.
+That precondition fails any time two device subtypes have overlapping
+but non-aligned lifecycles. Example: a receiver installed 2010 → 2020
+together with an antenna installed 2012 → 2018 produces
+`starts = {2010, 2012}`, `ends = {2018, 2020}`. The pairwise zip emits
+`(2010, 2018), (2012, 2020)` — neither pair describing a real
+configuration. On AUST the same pattern across ~10 overlapping device
+installations produces sessions with `time_to < time_from` —
+e.g. `2001-03-26 → 2000-07-10`.
 
-Mathematically: when `sorted(starts)[i]` and `sorted(ends)[i]` are
-drawn from sets of different sizes or with non-interleaving values,
-they describe unrelated boundaries. The pivot then renders these as
-malformed sessions.
+The new chain replaces the position-wise zip with a **boundary
+merge**:
 
-The new chain fixes this not by changing the pivot but by feeding it
-well-ordered slicer output.
+```python
+boundaries = sorted({df for df in all_date_from} |
+                    {dt for dt in all_date_to if dt is not None})
+intervals  = [(boundaries[i], boundaries[i+1])
+              for i in range(len(boundaries) - 1)]
+if any sub-session is open:
+    intervals.append((boundaries[-1], None))
+```
+
+Each adjacent boundary pair defines exactly one station-level
+session window. For clean stations (every sub-session's end aligns
+with the next sub-session's start) the merge produces the same
+window set as the legacy zip — RHOF byte-equality holds. For
+overlap-heavy stations it produces 0 inverted sessions where legacy
+had many. After this fix the AUST snapshot drops from 26 sessions
+with 4 inversions to 31 sessions with 0 inversions, and every
+session has `time_to > time_from` by construction.
+
+## Enrichment — receiver-swap gap windows
+
+Beyond the two legacy bugs, the boundary-merge pivot exposes a third
+class of difference that is **not a bug on either side** but a
+modeling choice. When a device of one subtype is swapped (old unit
+removed → gap → new unit installed) while another subtype's device
+remains in place, the gap interval is a real period during which the
+station had partial equipment installed.
+
+Concrete case — AKUR receiver swap 2018-01-21 → 2018-01-30:
+
+```
+old receiver: ... → 2018-01-21
+new receiver: 2018-01-30 → ...
+antenna:      2015 → 2020   (covers the gap)
+radome:       2015 → 2020   (covers the gap)
+monument:     2001 → open   (covers the gap)
+```
+
+Legacy `gps_metadata` drops the 9-day gap because its slicer's
+pair-based dedup produces no sub-session with `date_from = 2018-01-21`
+— so the position-wise zip pairs `start=2018-01-30` with the
+preceding end, eliding the gap.
+
+The new chain emits one session covering the gap with the
+`gnss_receiver` slot absent and the antenna/radome/monument slots
+present. Downstream consumers that require a complete equipment
+configuration (IGS site logs, GAMIT `station.info`) can filter
+sessions missing the receiver slot. Consumers that want the raw
+temporal model (audit, web/phone UI) get the more accurate picture.
 
 ## Known-divergent stations
 
-| Station | Sessions (new / legacy) | Failure mode |
+| Station | Sessions (new / legacy) | Cause |
 |---|---|---|
-| AUST    | 26 / 24  | 17 of legacy's 24 sessions have `time_to < time_from` (bug 2). 2 sessions missing from legacy tail (bug 1 dropping late sub-windows). |
-| REYK    | n / n−1  | One legacy session has `time_to < time_from` (bug 2). |
-| HOFN    | n / n    | One legacy session reports `None` for 3 subtypes because their pre-serial sub-window was dropped (bug 1). |
+| AUST | 31 / 24 | bugs 1 + 2 + enrichment — legacy under-emitted and inverted; new is well-ordered and granular. |
+| AKUR | 6 / 5 | enrichment — one 9-day receiver-swap gap window legacy collapsed. |
+| REYK | n / n−1 | bug 2 — one inverted legacy session. |
+| HOFN | n+ / n | bug 1 — legacy session reporting `None` for 3 subtypes because the pre-serial sub-window was dropped. |
 
-These three are real production stations. The legacy synthesis output
-has been the source of GAMIT `station.info` and IGS site logs for
-years. Either downstream consumers tolerate the inverted / incomplete
-windows silently (most likely — IGS site logs render `time_from` only
-for the current session), or the divergence shows up as harmless
-metadata noise that humans have learned to filter out.
+These are real production stations. The legacy synthesis output has
+been the source of GAMIT `station.info` and IGS site logs for years.
+Either downstream consumers tolerate the inverted / incomplete windows
+silently (most likely — IGS site logs render `time_from` only for the
+current session), or the divergence shows up as harmless metadata
+noise that humans have learned to filter out.
 
 ## Why we do not match bug-for-bug
 
@@ -132,23 +177,25 @@ Three reasons:
 
 For each station in scope of the byte-equality gate:
 
-* **Legacy-correct stations** (RHOF, AKUR, VMEY, SKRO):
-  `station_sessions(...)` must byte-equal
+* **Legacy-correct stations** (RHOF, VMEY, SKRO — clean, no
+  cross-subtype gaps): `station_sessions(...)` must byte-equal
   `gps_metadata(...)["device_history"]`. Locked by
   `test_rhof_station_sessions_matches_legacy_device_history` in
   `tests/test_composer_oracle.py`. Snapshot: `RHOF_legacy.json`.
 
-* **Legacy-buggy stations** (AUST and friends): the new composer
-  output is locked against its own captured snapshot, *not* against
-  legacy. The snapshot is captured once from the new chain (after
-  human review of the divergence) and replayed on every CI run.
-  Locked by `test_aust_station_sessions_locked` in
-  `tests/test_composer_oracle.py`. Snapshot: `AUST_new.json`.
+* **Legacy-divergent stations** (AUST, AKUR, REYK, HOFN): the new
+  composer output is locked against its own captured snapshot, *not*
+  against legacy. The snapshot is captured once from the new chain
+  (after human review of the divergence) and replayed on every CI
+  run. Locked by `test_aust_station_sessions_locked` in
+  `tests/test_composer_oracle.py`. Snapshot: `AUST_new.json`. AKUR,
+  REYK, HOFN can be added in the same pattern (`<MARKER>_new.json`)
+  when their downstream artefacts are reviewed.
 
-REYK and HOFN can be added in the same pattern (`<MARKER>_new.json`)
-as the need arises — neither blocks phase 1c sign-off because they're
-mild single-session divergences, not the fleet-wide pattern AUST
-exhibits.
+The byte-equality test for `station_sessions` on AUST also serves as
+a structural guard: any session with `time_to < time_from` would
+indicate a regression in the boundary-merge pivot. The locked
+snapshot has zero such sessions.
 
 ## Implications for phase 4 (site-log gate)
 
@@ -156,9 +203,9 @@ Phase 4 of the design lands a `--use-new-synthesis` flag on
 `tosGPS sitelog` / `tosGPS PrintTOS`. The sign-off there is the
 golden-file diff against `data/sitelogs_archive/<STATION>_*.txt`.
 
-For RHOF / AKUR / VMEY / SKRO that diff must be empty.
+For RHOF / VMEY / SKRO that diff must be empty.
 
-For AUST / REYK / HOFN the diff will be non-empty by definition. New
+For AUST / AKUR / REYK / HOFN the diff will be non-empty by definition. New
 golden files for these stations must be captured from the new chain
 and **manually reviewed by a domain expert** (GAMIT operator or IGS
 site-log curator) before they are committed as the new reference. The

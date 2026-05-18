@@ -503,6 +503,24 @@
       "antenna_offset_east": 0.0,
       "antenna_offset_north": 0.0,
       "antenna_reference_point": "DHARP",
+      "model": "TRM41249.00",
+      "serial_number": "60220780"
+    },
+    "monument": {
+      "monument_height": 0.971,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST20100428"
+    },
+    "time_from": "2011-06-13T00:00:00",
+    "time_to": "2011-06-21T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
       "model": "TRM57971.00",
       "serial_number": null
     },
@@ -531,10 +549,10 @@
       "serial_number": null
     },
     "gnss_receiver": {
-      "firmware_version": "4.81",
+      "firmware_version": "4.41",
       "model": "TRIMBLE NETR9",
       "serial_number": null,
-      "software_version": "4.81"
+      "software_version": "4.41"
     },
     "monument": {
       "monument_height": 0.971,
@@ -542,7 +560,7 @@
       "monument_offset_north": 0.0,
       "serial_number": "monument-AUST20100428"
     },
-    "time_from": "2014-06-01T00:00:00",
+    "time_from": "2011-09-19T00:00:00",
     "time_to": "2013-12-09T00:00:00"
   },
   {
@@ -552,7 +570,25 @@
       "antenna_offset_north": 0.0,
       "antenna_reference_point": "DHARP",
       "model": "TRM57971.00",
-      "serial_number": "antenna-AUST-20110621"
+      "serial_number": null
+    },
+    "monument": {
+      "monument_height": 0.971,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST20100428"
+    },
+    "time_from": "2013-12-09T00:00:00",
+    "time_to": "2014-06-01T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM57971.00",
+      "serial_number": null
     },
     "gnss_receiver": {
       "firmware_version": "4.81",
@@ -566,8 +602,44 @@
       "monument_offset_north": 0.0,
       "serial_number": "monument-AUST20100428"
     },
-    "time_from": "2014-10-17T00:00:00",
+    "time_from": "2014-06-01T00:00:00",
     "time_to": "2014-09-30T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM57971.00",
+      "serial_number": null
+    },
+    "monument": {
+      "monument_height": 0.971,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST20100428"
+    },
+    "time_from": "2014-09-30T00:00:00",
+    "time_to": "2014-10-17T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM57971.00",
+      "serial_number": "antenna-AUST-20110621"
+    },
+    "monument": {
+      "monument_height": 0.971,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST20100428"
+    },
+    "time_from": "2014-10-17T00:00:00",
+    "time_to": "2016-02-12T14:00:00"
   },
   {
     "antenna": {
@@ -591,7 +663,25 @@
       "serial_number": "monument-AUST20100428"
     },
     "time_from": "2016-02-12T14:00:00",
-    "time_to": "2014-10-17T00:00:00"
+    "time_to": "2019-01-20T00:00:00"
+  },
+  {
+    "antenna": {
+      "antenna_height": 0.0,
+      "antenna_offset_east": 0.0,
+      "antenna_offset_north": 0.0,
+      "antenna_reference_point": "DHARP",
+      "model": "TRM57971.00",
+      "serial_number": "antenna-AUST-20110621"
+    },
+    "monument": {
+      "monument_height": 0.971,
+      "monument_offset_east": 0.0,
+      "monument_offset_north": 0.0,
+      "serial_number": "monument-AUST20100428"
+    },
+    "time_from": "2019-01-20T00:00:00",
+    "time_to": "2019-06-05T00:00:00"
   },
   {
     "antenna": {
@@ -615,6 +705,6 @@
       "serial_number": "monument-AUST20100428"
     },
     "time_from": "2019-06-05T00:00:00",
-    "time_to": "2019-01-20T00:00:00"
+    "time_to": null
   }
 ]
