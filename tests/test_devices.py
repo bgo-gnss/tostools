@@ -426,7 +426,7 @@ def test_transition_attribute_forwards_to_transition_attribute_value():
         date="2026-05-13",
     )
     writer.transition_attribute_value.assert_called_once_with(
-        id_entity=19712,
+        19712,
         code="status",
         new_value="óvirkt",
         transition_date="2026-05-13",
@@ -946,7 +946,7 @@ def test_decommission_device_closes_open_join_and_transitions_status():
 
     writer.patch_entity_connection.assert_called_once_with(99, time_to="2026-05-13")
     writer.transition_attribute_value.assert_called_once_with(
-        id_entity=200, code="status", new_value="óvirkt", transition_date="2026-05-13"
+        200, code="status", new_value="óvirkt", transition_date="2026-05-13"
     )
     assert len(result["closed_joins"]) == 1
     assert result["status_transition"]["opened"]["value"] == "óvirkt"
@@ -1074,7 +1074,7 @@ def test_install_device_ovirkt_reactivates_via_transition():
     )
 
     writer.transition_attribute_value.assert_called_once_with(
-        id_entity=200, code="status", new_value="virkt", transition_date="2026-05-13"
+        200, code="status", new_value="virkt", transition_date="2026-05-13"
     )
     writer.add_attribute_value.assert_not_called()
     assert result["status"]["opened"]["value"] == "virkt"
@@ -1121,7 +1121,7 @@ def test_install_device_initial_attributes_mix_of_noop_set_transition():
     assert result["attributes"]["model"] == "noop"
     # firmware open with different value → transition called
     writer.transition_attribute_value.assert_called_once_with(
-        id_entity=200,
+        200,
         code="firmware_version",
         new_value="5.4.1",
         transition_date="2026-05-13",

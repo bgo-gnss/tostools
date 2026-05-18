@@ -580,7 +580,7 @@ def transition_attribute(
         is ``None`` when there was no pre-existing open period.
     """
     return writer.transition_attribute_value(
-        id_entity=int(device_id),
+        int(device_id),
         code=code,
         new_value=new_value,
         transition_date=date,

@@ -2796,29 +2796,43 @@ def _dispatch_decommission(
 
     Two writes per device:
 
-    1. **Close the open join** with ``time_to=<retirement_date>``.
-       Skipped (with a noted ``closed_join=False`` in the detail) when
-       the device has no open join — that's a legitimate state for a
-       device already lifted out of TOS.
+    1. **Close the open join** with ``time_to=<retirement_date>`` via
+       :func:`devices.close_join`. Skipped (with a noted "no open join
+       — skip close" in the detail) when the device has no open join —
+       that's a legitimate state for a device already lifted out of
+       TOS.
     2. **Transition the ``status`` attribute** from its open value (most
-       commonly ``virkt``) to ``óvirkt``, with the same date.
-       :meth:`TOSWriter.transition_attribute_value` preserves the old
-       period rather than overwriting it.
+       commonly ``virkt``) to ``óvirkt`` via
+       :func:`devices.transition_attribute`. History-preserving.
 
     A partial failure (e.g. join closed OK, status PATCH 400s) still
     returns ``failed`` so the operator notices, but the closed-join
     side will already have happened on the server. The detail string
     enumerates both write outcomes so the operator can see exactly
     what state TOS is in.
+
+    The :func:`devices.decommission_device` composite does the same
+    workflow plus an internal history fetch and "close all open
+    joins" loop; the apply path uses the pre-computed
+    ``open_joins_by_device`` cache from
+    :func:`_build_open_joins_lookup` to avoid a redundant GET, and
+    fleet survey shows zero devices with multiple open parent joins
+    so the "close all" semantics is moot in practice. Both paths now
+    invoke the same :func:`devices.close_join` /
+    :func:`devices.transition_attribute` sub-primitives.
     """
+    from . import devices
+
     retirement_date = action.args[0]
     open_join = open_joins_by_device.get(action.id_entity)
 
     join_detail = "no open join — skip close"
     if open_join is not None:
         try:
-            writer.patch_entity_connection(
-                open_join.id_entity_connection, time_to=retirement_date
+            devices.close_join(
+                writer,
+                id_connection=open_join.id_entity_connection,
+                date_to=retirement_date,
             )
             join_detail = (
                 f"PATCH /join/{open_join.id_entity_connection} "
@@ -2832,11 +2846,12 @@ def _dispatch_decommission(
             )
 
     try:
-        status_resp = writer.transition_attribute_value(
-            action.id_entity,
+        status_resp = devices.transition_attribute(
+            writer,
+            device_id=action.id_entity,
             code="status",
             new_value="óvirkt",
-            transition_date=retirement_date,
+            date=retirement_date,
         )
     except Exception as exc:  # noqa: BLE001
         return ActionResult(
