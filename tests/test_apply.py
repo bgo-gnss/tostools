@@ -89,11 +89,11 @@ def test_parse_action_file_rejects_non_int_id():
 
 
 def test_parse_action_file_rejects_unknown_verb():
-    text = "ACTION 16321 fill-gap 1 4\n"
+    text = "ACTION 16321 frobnicate 1 4\n"
     actions, errors = _parse_action_file(text)
     assert actions == []
     assert len(errors) == 1
-    assert "unknown verb 'fill-gap'" in errors[0].message
+    assert "unknown verb 'frobnicate'" in errors[0].message
 
 
 def test_parse_action_file_change_subtype_requires_one_arg():
@@ -485,3 +485,187 @@ def test_transition_attribute_value_no_prior_just_opens():
     mock_add.assert_called_once()
     assert result["closed"] is None
     assert result["opened"] is not None
+
+
+# ---------------------------------------------------------------------------
+# move verb — parser
+# ---------------------------------------------------------------------------
+
+
+def test_parse_move_requires_two_args():
+    text = "ACTION 19712 move 4523\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "move requires exactly two arguments" in errors[0].message
+
+
+def test_parse_move_rejects_extra_args():
+    text = "ACTION 19712 move 4523 2025-12-31 extra\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "move requires exactly two arguments" in errors[0].message
+
+
+def test_parse_move_with_two_args():
+    text = "ACTION 19712 move 4523 2025-12-31\n"
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert actions[0].verb == "move"
+    assert actions[0].args == ["4523", "2025-12-31"]
+
+
+# ---------------------------------------------------------------------------
+# move verb — dispatcher
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_move_closes_old_join_and_opens_new():
+    """Happy path: open join exists, close + open both succeed."""
+    writer = MagicMock()
+    writer.patch_entity_connection.return_value = {
+        "id_entity_connection": 27500,
+        "time_to": "2025-12-31",
+    }
+    writer.create_entity_connection.return_value = {
+        "id_entity_connection": 27999,
+        "id_entity_parent": 4523,
+        "time_from": "2025-12-31",
+    }
+    join = _open_join(parent=4, connection=27500)
+    result = _dispatch_action(
+        writer,
+        _make_action(19712, "move", "4523", "2025-12-31"),
+        open_joins_by_device={19712: join},
+    )
+    assert result.status == "ok"
+    writer.patch_entity_connection.assert_called_once_with(27500, time_to="2025-12-31")
+    writer.create_entity_connection.assert_called_once_with(
+        id_parent=4523,
+        id_child=19712,
+        time_from="2025-12-31",
+        time_to=None,
+    )
+    assert "PATCH /join/27500" in result.detail
+    assert "parent=4523" in result.detail
+
+
+def test_dispatch_move_fails_loudly_without_open_join():
+    """Unlike decommission, missing open join is a hard failure — there's
+    nothing to close, so the move is ill-defined."""
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(19712, "move", "4523", "2025-12-31"),
+        open_joins_by_device={19712: None},
+    )
+    assert result.status == "failed"
+    assert "no open parent join" in result.detail
+    writer.patch_entity_connection.assert_not_called()
+    writer.create_entity_connection.assert_not_called()
+
+
+def test_dispatch_move_close_failure_doesnt_open_new():
+    """If the close fails, don't POST the new join — we'd duplicate."""
+    writer = MagicMock()
+    writer.patch_entity_connection.side_effect = RuntimeError("simulated 400")
+    result = _dispatch_action(
+        writer,
+        _make_action(19712, "move", "4523", "2025-12-31"),
+        open_joins_by_device={19712: _open_join(parent=4, connection=27500)},
+    )
+    assert result.status == "failed"
+    assert "simulated 400" in result.detail
+    writer.create_entity_connection.assert_not_called()
+
+
+def test_dispatch_move_open_failure_after_close_surfaces_both():
+    """If close succeeds but open fails, the device is parent-less in TOS;
+    the detail must mention both outcomes so operator can clean up."""
+    writer = MagicMock()
+    writer.create_entity_connection.side_effect = RuntimeError("open 400")
+    result = _dispatch_action(
+        writer,
+        _make_action(19712, "move", "4523", "2025-12-31"),
+        open_joins_by_device={19712: _open_join(parent=4, connection=27500)},
+    )
+    assert result.status == "failed"
+    assert "PATCH /join/27500" in result.detail
+    assert "open 400" in result.detail
+    assert "parent-less" in result.detail
+
+
+def test_dispatch_move_rejects_non_int_parent():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(19712, "move", "nope", "2025-12-31"),
+        open_joins_by_device={19712: _open_join(parent=4, connection=27500)},
+    )
+    assert result.status == "failed"
+    assert "integer to_parent_id" in result.detail
+    writer.patch_entity_connection.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# fill-gap verb — parser
+# ---------------------------------------------------------------------------
+
+
+def test_parse_fill_gap_requires_three_args():
+    text = "ACTION 19712 fill-gap 4523 2010-01-01\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "fill-gap requires exactly three arguments" in errors[0].message
+
+
+def test_parse_fill_gap_with_three_args():
+    text = "ACTION 19712 fill-gap 4523 2010-01-01 2012-06-30\n"
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert actions[0].verb == "fill-gap"
+    assert actions[0].args == ["4523", "2010-01-01", "2012-06-30"]
+
+
+# ---------------------------------------------------------------------------
+# fill-gap verb — dispatcher
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_fill_gap_calls_create_entity_connection():
+    writer = MagicMock()
+    writer.create_entity_connection.return_value = {"id_entity_connection": 27800}
+    result = _dispatch_action(
+        writer,
+        _make_action(19712, "fill-gap", "4523", "2010-01-01", "2012-06-30"),
+    )
+    assert result.status == "ok"
+    writer.create_entity_connection.assert_called_once_with(
+        id_parent=4523,
+        id_child=19712,
+        time_from="2010-01-01",
+        time_to="2012-06-30",
+    )
+    assert "child=19712" in result.detail
+    assert "2010-01-01 → 2012-06-30" in result.detail
+
+
+def test_dispatch_fill_gap_captures_writer_exception():
+    writer = MagicMock()
+    writer.create_entity_connection.side_effect = RuntimeError("simulated 400")
+    result = _dispatch_action(
+        writer,
+        _make_action(19712, "fill-gap", "4523", "2010-01-01", "2012-06-30"),
+    )
+    assert result.status == "failed"
+    assert "simulated 400" in result.detail
+
+
+def test_dispatch_fill_gap_rejects_non_int_parent():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(19712, "fill-gap", "nope", "2010-01-01", "2012-06-30"),
+    )
+    assert result.status == "failed"
+    assert "integer parent_id" in result.detail
+    writer.create_entity_connection.assert_not_called()

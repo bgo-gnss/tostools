@@ -2351,6 +2351,12 @@ def _audit_main(argv):
             "with id_entity_subtype=<resolved-int>\n"
             "  decommission <date>       Close the device's open join + "
             "transition status to óvirkt on <date>\n"
+            "  move <to_parent_id> <date>\n"
+            "                            Close the device's open join + "
+            "open a new join at <to_parent_id> on <date>\n"
+            "  fill-gap <parent_id> <date_from> <date_to>\n"
+            "                            POST a closed join for a known "
+            "historical window (cfg-fix backfill)\n"
             "  defer                      no-op placeholder (review next run)\n\n"
             "Validation: each ACTION line is parsed before any HTTP call. "
             "If any line is malformed, nothing is sent. Otherwise actions "
@@ -2628,7 +2634,13 @@ class ParseError:
     raw: str
 
 
-_SUPPORTED_VERBS = ("change-subtype", "decommission", "defer")
+_SUPPORTED_VERBS = (
+    "change-subtype",
+    "decommission",
+    "defer",
+    "fill-gap",
+    "move",
+)
 
 
 def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]:
@@ -2733,6 +2745,29 @@ def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]
                 )
             )
             continue
+        if verb == "move" and len(tokens) != 5:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "move requires exactly two arguments: " "<to_parent_id> <date>"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        if verb == "fill-gap" and len(tokens) != 6:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "fill-gap requires exactly three arguments: "
+                        "<parent_id> <date_from> <date_to>"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
         actions.append(
             ParsedAction(
                 line_no=i,
@@ -2822,6 +2857,135 @@ def _dispatch_decommission(
     )
 
 
+def _dispatch_move(
+    writer, action: ParsedAction, *, open_joins_by_device: "Dict[int, Any]"
+) -> ActionResult:
+    """Relocate a device — close its open join and open a new one on the same date.
+
+    Unlike :func:`_dispatch_decommission`, a missing open join is a
+    hard failure here: there's nothing to close, so the move is
+    ill-defined. Don't silently POST the new join on its own — the
+    operator's input file is wrong.
+
+    The dispatcher invokes ``close_join`` + ``open_join`` directly
+    (rather than the bundled :func:`devices.move_device` composite)
+    so a second-step failure surfaces the first step's success in
+    the detail string. That lets the operator see exactly what state
+    TOS is in if the new join POST fails: the old parent is closed,
+    the device is parent-less, and the new join needs manual
+    creation.
+    """
+    from . import devices
+
+    to_parent_token, date = action.args[0], action.args[1]
+    try:
+        to_parent_id = int(to_parent_token)
+    except ValueError:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(f"move requires integer to_parent_id, got {to_parent_token!r}"),
+        )
+
+    open_join = open_joins_by_device.get(action.id_entity)
+    if open_join is None:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"cannot move device {action.id_entity}: no open parent "
+                "join to close"
+            ),
+        )
+
+    try:
+        devices.close_join(
+            writer, id_connection=open_join.id_entity_connection, date_to=date
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"close_join raised: {exc}",
+        )
+
+    close_detail = (
+        f"PATCH /join/{open_join.id_entity_connection} "
+        f"time_to={date} (was parent={open_join.id_entity_parent})"
+    )
+
+    try:
+        devices.open_join(
+            writer,
+            parent_id=to_parent_id,
+            child_id=action.id_entity,
+            date_from=date,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"close: {close_detail}; open_join raised: {exc} — "
+                "device is parent-less, manual cleanup needed"
+            ),
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"close: {close_detail}; "
+            f"open: POST /join parent={to_parent_id} date_from={date}"
+        ),
+    )
+
+
+def _dispatch_fill_gap(writer, action: ParsedAction) -> ActionResult:
+    """Backfill a closed historical join for a known window.
+
+    Pure single-write verb — no prerequisite reads. The action shape
+    is ``ACTION <child_id> fill-gap <parent_id> <date_from>
+    <date_to>``. Surfaces the writer's response or exception verbatim
+    in the detail string.
+    """
+    from . import devices
+
+    parent_token, date_from, date_to = action.args[0], action.args[1], action.args[2]
+    try:
+        parent_id = int(parent_token)
+    except ValueError:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"fill-gap requires integer parent_id, got {parent_token!r}",
+        )
+
+    try:
+        devices.fill_join_gap(
+            writer,
+            parent_id=parent_id,
+            child_id=action.id_entity,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"fill_join_gap raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"POST /join parent={parent_id} child={action.id_entity} "
+            f"{date_from} → {date_to}"
+        ),
+    )
+
+
 def _dispatch_action(
     writer,
     action: ParsedAction,
@@ -2851,6 +3015,12 @@ def _dispatch_action(
         return _dispatch_decommission(
             writer, action, open_joins_by_device=open_joins_by_device or {}
         )
+    if action.verb == "move":
+        return _dispatch_move(
+            writer, action, open_joins_by_device=open_joins_by_device or {}
+        )
+    if action.verb == "fill-gap":
+        return _dispatch_fill_gap(writer, action)
     if action.verb == "change-subtype":
         code = action.args[0]
         mapping = subtype_id_by_code or {}
@@ -3066,16 +3236,18 @@ def _apply_main(args) -> int:
     needs_subtypes = any(a.verb == "change-subtype" for a in actions)
     subtype_id_by_code = _fetch_subtype_id_by_code(client) if needs_subtypes else {}
 
-    # Build the open-join lookup lazily — only when decommission appears.
-    # The index build is the ~110s cost; once built, the per-device open
-    # join is an O(1) dict access. Shared across all decommission actions
-    # in this run.
-    needs_join_index = any(a.verb == "decommission" for a in actions)
+    # Build the open-join lookup lazily — only when decommission or move
+    # appears. Both verbs need to close the device's currently-open parent
+    # join. The index build is the ~110s cost; once built, the per-device
+    # open join is an O(1) dict access. Shared across all such actions in
+    # this run.
+    _NEEDS_JOIN_INDEX = {"decommission", "move"}
+    needs_join_index = any(a.verb in _NEEDS_JOIN_INDEX for a in actions)
     open_joins_by_device: Dict[int, Any] = {}
     if needs_join_index:
         open_joins_by_device = _build_open_joins_lookup(
             client,
-            target_ids={a.id_entity for a in actions if a.verb == "decommission"},
+            target_ids={a.id_entity for a in actions if a.verb in _NEEDS_JOIN_INDEX},
         )
 
     writer = TOSWriter(base_url=base_url, dry_run=dry_run)
