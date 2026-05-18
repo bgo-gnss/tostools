@@ -1,0 +1,300 @@
+{
+  "station": "HOFN",
+  "metadata": {
+    "lat": 64.267293,
+    "iers_domes_number": "10204M002",
+    "name": "H\u00f6fn",
+    "marker": "hofn",
+    "altitude": 82.839886,
+    "lon": -15.197917,
+    "device_history": [
+      {
+        "time_from": "1997-05-27 00:00:00",
+        "time_to": "2001-09-21 18:00:00",
+        "antenna": {
+          "model": "TRM22020.00+GP",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.055,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "radome": {
+          "model": "DOME",
+          "serial_number": null
+        }
+      },
+      {
+        "time_from": "1997-05-27 00:00:00",
+        "time_to": "2007-02-13 00:00:00",
+        "gnss_receiver": {
+          "model": "TRIMBLE 4000SSI",
+          "serial_number": null,
+          "firmware_version": "7.12",
+          "software_version": "7.12"
+        }
+      },
+      {
+        "time_from": "2001-09-21 18:00:00",
+        "time_to": "2007-09-23 17:00:00",
+        "antenna": {
+          "model": "TRM29659.00",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.051,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        }
+      },
+      {
+        "time_from": "2007-02-13 00:00:00",
+        "time_to": "2007-09-23 17:00:00",
+        "gnss_receiver": {
+          "model": "TRIMBLE 4000SSI",
+          "serial_number": null,
+          "firmware_version": "00729|00307|00334",
+          "software_version": "7.29"
+        }
+      },
+      {
+        "time_from": "2007-09-23 17:00:00",
+        "time_to": "2013-05-05 11:30:00",
+        "antenna": {
+          "model": "TPSCR3_GGD",
+          "serial_number": null,
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "gnss_receiver": {
+          "model": "TPS E_GGD",
+          "serial_number": null,
+          "firmware_version": "2.6.0 APR, 18, 2007",
+          "software_version": "2.60"
+        },
+        "radome": {
+          "model": "CONE",
+          "serial_number": null
+        }
+      },
+      {
+        "time_from": "2007-09-23 17:00:00",
+        "time_to": "2010-03-26 09:55:00",
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.0676,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        }
+      },
+      {
+        "time_from": "2010-03-26 09:55:00",
+        "time_to": "2013-05-05 11:30:00",
+        "monument": {
+          "serial_number": null,
+          "monument_height": 0.0675,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        }
+      },
+      {
+        "time_from": "2013-05-05 11:30:00",
+        "time_to": null,
+        "antenna": {
+          "model": "LEIAR25.R4",
+          "serial_number": "7252843",
+          "antenna_height": 0.0,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "gnss_receiver": {
+          "model": "LEICA GR25",
+          "serial_number": "1830199",
+          "firmware_version": "3.03/6.214",
+          "software_version": "3.03"
+        },
+        "monument": {
+          "serial_number": "monument-HOFN-20130505",
+          "monument_height": 0.0319,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "radome": {
+          "model": "LEIT",
+          "serial_number": "radome-HOFN-20130505"
+        }
+      }
+    ],
+    "id_entity": 4328,
+    "contact": {
+      "owner": {
+        "address": null,
+        "comment": null,
+        "contact_end_date": null,
+        "contact_start_date": "1000-01-01T00:00:00",
+        "id_contact": 2471,
+        "id_contact_entity_relationship": 4489,
+        "id_entity": 4328,
+        "job_title": null,
+        "name": "Deutsche GeoForschungsZentrum GFZ",
+        "organization": "Deutsche GeoForschungsZentrum GFZ",
+        "per_time_from": "1997-05-27T00:00:00",
+        "per_time_to": null,
+        "phone_primary": null,
+        "phone_secondary": null,
+        "phone_tertiary": null,
+        "role": "owner",
+        "role_is": "Eigandi st\u00f6\u00f0var",
+        "ssid": null
+      }
+    }
+  },
+  "device_sessions": [
+    {
+      "time_from": "1997-05-27 00:00:00",
+      "time_to": "2001-09-21 18:00:00",
+      "antenna": {
+        "model": "TRM22020.00+GP",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.055,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "radome": {
+        "model": "DOME",
+        "serial_number": null
+      }
+    },
+    {
+      "time_from": "1997-05-27 00:00:00",
+      "time_to": "2007-02-13 00:00:00",
+      "gnss_receiver": {
+        "model": "TRIMBLE 4000SSI",
+        "serial_number": null,
+        "firmware_version": "7.12",
+        "software_version": "7.12"
+      }
+    },
+    {
+      "time_from": "2001-09-21 18:00:00",
+      "time_to": "2007-09-23 17:00:00",
+      "antenna": {
+        "model": "TRM29659.00",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.051,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      }
+    },
+    {
+      "time_from": "2007-02-13 00:00:00",
+      "time_to": "2007-09-23 17:00:00",
+      "gnss_receiver": {
+        "model": "TRIMBLE 4000SSI",
+        "serial_number": null,
+        "firmware_version": "00729|00307|00334",
+        "software_version": "7.29"
+      }
+    },
+    {
+      "time_from": "2007-09-23 17:00:00",
+      "time_to": "2013-05-05 11:30:00",
+      "antenna": {
+        "model": "TPSCR3_GGD",
+        "serial_number": null,
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "gnss_receiver": {
+        "model": "TPS E_GGD",
+        "serial_number": null,
+        "firmware_version": "2.6.0 APR, 18, 2007",
+        "software_version": "2.60"
+      },
+      "radome": {
+        "model": "CONE",
+        "serial_number": null
+      }
+    },
+    {
+      "time_from": "2007-09-23 17:00:00",
+      "time_to": "2010-03-26 09:55:00",
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.0676,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      }
+    },
+    {
+      "time_from": "2010-03-26 09:55:00",
+      "time_to": "2013-05-05 11:30:00",
+      "monument": {
+        "serial_number": null,
+        "monument_height": 0.0675,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      }
+    },
+    {
+      "time_from": "2013-05-05 11:30:00",
+      "time_to": null,
+      "antenna": {
+        "model": "LEIAR25.R4",
+        "serial_number": "7252843",
+        "antenna_height": 0.0,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "gnss_receiver": {
+        "model": "LEICA GR25",
+        "serial_number": "1830199",
+        "firmware_version": "3.03/6.214",
+        "software_version": "3.03"
+      },
+      "monument": {
+        "serial_number": "monument-HOFN-20130505",
+        "monument_height": 0.0319,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "radome": {
+        "model": "LEIT",
+        "serial_number": "radome-HOFN-20130505"
+      }
+    }
+  ],
+  "generated_date": "2026-05-18T17:27:13.319157",
+  "format": "site_log_json_v1"
+}

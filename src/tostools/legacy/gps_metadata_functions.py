@@ -662,24 +662,25 @@ def get_monument_height(device_iter, date_from, date_to, loglevel=logging.WARNIN
         module_logger.debug("date input: %s - %s", date_from, date_to)
         module_logger.debug("current session: %s - %s", session_start, session_end)
 
+        raw_height = device.get("monument_height")
         if date_to:
             if date_to > session_start:
                 if session_end and date_from > session_end:
                     pass
                 else:
-                    monument_height = float(device["monument_height"])
-                    module_logger.debug(
-                        "monument_height: %s", device["monument_height"]
+                    monument_height = (
+                        float(raw_height) if raw_height is not None else 0.0
                     )
+                    module_logger.debug("monument_height: %s", raw_height)
         else:
             if session_end and session_end < date_from:
                 pass
             else:
                 if date_from >= session_start:
-                    monument_height = float(device["monument_height"])
-                    module_logger.debug(
-                        "monument_height: %s", device["monument_height"]
+                    monument_height = (
+                        float(raw_height) if raw_height is not None else 0.0
                     )
+                    module_logger.debug("monument_height: %s", raw_height)
 
     module_logger.debug("%s", "+" * 50)
 
@@ -781,15 +782,21 @@ def site_log(
     marker_description = station.get(
         "marker_description", "(CHISELLED CROSS/DIVOT/BRASS NAIL/etc)"
     )
-    station_start_date = station.get("date_start", "")
-    try:
-        station_start_date = dt.strptime(station_start_date, "%Y-%m-%d %H:%M").strftime(
-            "%Y-%m-%dT%H:%MZ"
-        )
-    except ValueError:
-        station_start_date = dt.strptime(
-            station_start_date[:19], "%Y-%m-%dT%H:%M:%S"
-        ).strftime("%Y-%m-%dT%H:%MZ")
+    station_start_date = station.get("date_start", "") or ""
+    if station_start_date:
+        try:
+            station_start_date = dt.strptime(
+                station_start_date, "%Y-%m-%d %H:%M"
+            ).strftime("%Y-%m-%dT%H:%MZ")
+        except ValueError:
+            try:
+                station_start_date = dt.strptime(
+                    station_start_date[:19], "%Y-%m-%dT%H:%M:%S"
+                ).strftime("%Y-%m-%dT%H:%MZ")
+            except ValueError:
+                station_start_date = "(CCYY-MM-DDThh:mmZ)"
+    else:
+        station_start_date = "(CCYY-MM-DDThh:mmZ)"
     geological_characteristic = station.get("geological_characteristic", "").upper()
     bedrock_type = station.get("bedrock_type", "").upper()
     bedrock_condition = station.get("bedrock_condition", "").upper()

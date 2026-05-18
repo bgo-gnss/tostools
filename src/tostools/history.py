@@ -97,6 +97,18 @@ DEVICE_GRAVEYARD_ID: int = 14
 
 KNOWN_INFRASTRUCTURE_IDS: tuple[int, ...] = KNOWN_WAREHOUSE_IDS + (DEVICE_GRAVEYARD_ID,)
 
+# Parent stations that exist in TOS but are missing from the deployed
+# stations.cfg (discovered during the 2026-05-12 fleet-gap synthesis run).
+# Each one hosted devices that would otherwise produce phantom gaps.
+# Pass these via ``extra_parent_ids`` (or rely on the default in
+# :func:`scan_fleet_gaps`) to avoid silent under-enumeration.
+KNOWN_MISSING_FROM_CFG_PARENT_IDS: tuple[int, ...] = (
+    18409,  # Fagradalsfjall
+    4243,  # Bláfjöll
+    4239,  # Bárðabunga
+    5444,  # Hestalda
+)
+
 
 # Subtypes treated as "station" (a device deployed in the field has one of these
 # as its current parent). Sourced from the TOS /entity_subtypes endpoint
@@ -256,6 +268,7 @@ def enumerate_known_parents(
     *,
     station_cfg_path: Optional[str] = None,
     extra_parent_ids: Iterable[int] = (),
+    progress: Optional[Callable[[int, int], None]] = None,
 ) -> List[ParentEntity]:
     """Return the bootstrap parent list for device-history reconstruction.
 
@@ -294,6 +307,11 @@ def enumerate_known_parents(
             ``extra_parent_ids`` are returned).
         extra_parent_ids: Caller-supplied additional parent entity ids.
             Useful for known-missing stations not in ``stations.cfg``.
+        progress: Optional ``(current, total)`` callback fired after each
+            marker-resolution step. ``total`` is the marker count from
+            ``stations.cfg``; the infrastructure and extras phases are
+            cheap and not reported. Useful for showing the operator that
+            the slow ~100s marker-resolution loop is alive.
 
     Returns:
         List of :class:`ParentEntity`, deduplicated by ``id_entity``.
@@ -335,7 +353,8 @@ def enumerate_known_parents(
             len(markers),
             cfg_path,
         )
-        for marker in markers:
+        total_markers = len(markers)
+        for i, marker in enumerate(markers, 1):
             try:
                 eid = resolve_marker_to_entity_id(client, marker)
             except Exception as exc:
@@ -344,14 +363,16 @@ def enumerate_known_parents(
                     marker,
                     exc,
                 )
-                continue
+                eid = None
             if eid is None:
                 logger.debug(
                     "enumerate_known_parents: marker %r not found in TOS; skipping",
                     marker,
                 )
-                continue
-            _add(eid)
+            else:
+                _add(eid)
+            if progress:
+                progress(i, total_markers)
     else:
         logger.info(
             "enumerate_known_parents: no stations.cfg available; "
@@ -655,3 +676,434 @@ def build_join_index(
             progress(i, total)
 
     return index
+
+
+# ---------------------------------------------------------------------------
+# Fleet-wide gap report (synthesis plan §5 step 4)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FleetGapDevice:
+    """One device row in the fleet-gap report.
+
+    ``gaps`` is the list of :class:`Gap` instances surviving the
+    ``min_days`` filter. ``is_truly_orphan`` mirrors
+    :attr:`DeviceTimeline.is_truly_orphan` (joins exist but none open).
+    The ``subtype`` / ``serial`` / ``model`` fields are populated only
+    when ``enrich=True`` was passed to :func:`scan_fleet_gaps`; otherwise
+    they remain ``None`` (the report is still useful — operators can
+    follow up with ``tos audit device --id <n>``).
+
+    ``last_parent_id`` / ``last_parent_name`` describe where a truly-orphan
+    device was last attached (the ``time_to`` of its most-recent closed
+    join). They're ``None`` for devices that have at least one open join.
+    """
+
+    id_entity: int
+    gaps: List[Gap]
+    is_truly_orphan: bool
+    subtype: Optional[str] = None
+    serial: Optional[str] = None
+    model: Optional[str] = None
+    last_parent_id: Optional[int] = None
+    last_parent_name: Optional[str] = None
+    # Populated only when scan_fleet_gaps(with_timelines=True). Carries
+    # the full join history of the device so a single invocation drives
+    # both the gap surface and the drill-down — no second index walk.
+    timeline: Optional["DeviceTimelineReport"] = None
+
+    @property
+    def max_gap_days(self) -> float:
+        """Longest gap duration, or 0 when there are no gaps."""
+        return max((g.duration_days for g in self.gaps), default=0.0)
+
+
+@dataclass
+class FleetGapReport:
+    """Result of a fleet-wide gap scan.
+
+    A read-only snapshot. The ``devices`` list contains every device that
+    matched the inclusion rules (gap above threshold or, if requested,
+    truly-orphan), sorted by longest gap descending then by ``id_entity``.
+    Counts are pre-computed properties so renderers don't have to reduce.
+
+    ``parent_names`` is populated when ``scan_fleet_gaps(with_timelines=
+    True)`` was called, so renderers showing the embedded timelines can
+    label parents without re-querying. Empty dict when timelines were
+    not requested.
+    """
+
+    min_days: float
+    parents_walked: int
+    parents_failed: int
+    total_joins: int
+    total_devices: int
+    devices: List[FleetGapDevice]
+    parent_names: Dict[int, Optional[str]] = field(default_factory=dict)
+
+    @property
+    def gap_count(self) -> int:
+        return sum(len(d.gaps) for d in self.devices)
+
+    @property
+    def devices_with_gaps(self) -> int:
+        return sum(1 for d in self.devices if d.gaps)
+
+    @property
+    def orphan_count(self) -> int:
+        return sum(1 for d in self.devices if d.is_truly_orphan)
+
+
+def _open_attribute_value(
+    attributes: Optional[List[Dict[str, Any]]], code: str
+) -> Optional[str]:
+    """Return the value of the open attribute period for *code*, or None.
+
+    TOS attribute periods carry ``date_to`` (not ``time_to``; that's for
+    connections). The open period is the one with ``date_to is None``.
+    Mirrors :func:`tostools.audit._open_attr_value` to avoid the
+    cross-module import.
+    """
+    for attr in attributes or []:
+        if attr.get("code") != code:
+            continue
+        if attr.get("date_to") is not None:
+            continue
+        value = attr.get("value")
+        if value is not None:
+            return str(value)
+    return None
+
+
+def _enrich_device(
+    client: TOSClient,
+    id_entity: int,
+    parent_names: Dict[int, Optional[str]],
+    timeline: DeviceTimeline,
+) -> Dict[str, Any]:
+    """Fetch a device's subtype / serial / model and last-parent name.
+
+    One ``get_entity_history`` call per device; meant for the small
+    set of devices that actually appear in the report (gaps + orphans).
+    Returns a dict suitable for splatting into :class:`FleetGapDevice`.
+    Best-effort: a missing or unreadable entity yields ``None`` fields.
+    """
+    out: Dict[str, Any] = {
+        "subtype": None,
+        "serial": None,
+        "model": None,
+        "last_parent_id": None,
+        "last_parent_name": None,
+    }
+    try:
+        history = client.get_entity_history(id_entity)
+    except Exception as exc:  # network errors, transient TOS failures
+        logger.warning(
+            "scan_fleet_gaps: enrich %d raised: %s; reporting unenriched",
+            id_entity,
+            exc,
+        )
+        history = None
+    if history:
+        out["subtype"] = history.get("code_entity_subtype") or None
+        attrs = history.get("attributes") or []
+        out["serial"] = _open_attribute_value(attrs, "serial_number")
+        out["model"] = _open_attribute_value(attrs, "model")
+
+    if not timeline.is_currently_attached and timeline.closed_joins:
+        last = max(
+            timeline.closed_joins,
+            key=lambda j: j.time_to or "",
+        )
+        out["last_parent_id"] = last.id_entity_parent
+        out["last_parent_name"] = parent_names.get(last.id_entity_parent)
+    return out
+
+
+def scan_fleet_gaps(
+    client: TOSClient,
+    *,
+    min_days: float = 30.0,
+    include_orphans: bool = True,
+    enrich: bool = True,
+    subtype: Optional[str] = None,
+    parents: Optional[Iterable[ParentEntity]] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+    enumerate_progress: Optional[Callable[[int, int], None]] = None,
+    with_timelines: bool = False,
+) -> FleetGapReport:
+    """Walk the fleet via :func:`build_join_index` and report gaps + orphans.
+
+    The output is the answer to the user's "are there gaps where
+    receivers are not accounted for?" question. Pure-read, no auth.
+
+    Args:
+        client: An unauthenticated :class:`TOSClient`.
+        min_days: Minimum gap duration to surface. Empirical guidance
+            from the 2026-05-12 fleet probe: ≥30 returns the actionable
+            tail (~50 devices), ≥365 the high-confidence subset (~40).
+            Below ~7 the result set is dominated by date-rounding
+            artifacts.
+        include_orphans: Also report devices whose timeline is non-empty
+            but has no open join (the audit's I1-orphan signal, derived
+            from the index rather than from ``id_entity_parent``).
+        enrich: Fetch subtype/serial/model for each reported device via
+            one ``get_entity_history`` call apiece (~50–100 extra calls
+            for a typical fleet). Required when ``subtype`` filters.
+            Disable for the fastest report — operators can follow up
+            with ``tos audit device --id <n>``.
+        subtype: When set, retain only devices whose
+            ``code_entity_subtype`` matches. Requires ``enrich=True``.
+        parents: Override the parent enumeration. ``None`` defaults to
+            :func:`enumerate_known_parents` augmented with
+            :data:`KNOWN_MISSING_FROM_CFG_PARENT_IDS` so the four parents
+            known to be absent from ``stations.cfg`` (Fagradalsfjall,
+            Bláfjöll, Bárðabunga, Hestalda) don't generate phantom gaps.
+        progress: Forwarded to :func:`build_join_index`. Useful for
+            ``tos audit fleet-gaps`` to show "walking parent N/M".
+        enumerate_progress: Forwarded to :func:`enumerate_known_parents`
+            (only used when ``parents`` is None). The marker-resolution
+            loop dominates wall-clock for a default run (~100s for ~191
+            markers) — surface it so the operator sees the slow step.
+        with_timelines: When True, attach the full per-device
+            :class:`DeviceTimelineReport` to each row's ``timeline``
+            field and populate ``report.parent_names``. Reuses the same
+            join index that fleet-gaps already built (no second walk).
+            This is the drill-down companion mode — operators can see
+            both the surfaced gap and the surrounding join history in
+            a single invocation. Implies ``enrich=True`` for the
+            timeline's own metadata population.
+
+    Returns:
+        :class:`FleetGapReport`. Devices sorted by longest gap descending,
+        then by ``id_entity`` for stability. Truly-orphan devices with
+        no gaps still appear when ``include_orphans=True``; they sort
+        below all gap-bearing rows because their ``max_gap_days`` is 0.
+    """
+    if subtype is not None and not enrich:
+        raise ValueError("scan_fleet_gaps: subtype filter requires enrich=True")
+    if with_timelines and not enrich:
+        # Timelines carry per-device metadata; without enrichment they'd
+        # have None subtype/serial/model. Keep the contract tight.
+        raise ValueError("scan_fleet_gaps: with_timelines=True requires enrich=True")
+
+    if parents is None:
+        parents = enumerate_known_parents(
+            client,
+            extra_parent_ids=KNOWN_MISSING_FROM_CFG_PARENT_IDS,
+            progress=enumerate_progress,
+        )
+    parent_list = list(parents)
+    parent_names: Dict[int, Optional[str]] = {p.id_entity: p.name for p in parent_list}
+
+    index = build_join_index(client, parents=parent_list, progress=progress)
+
+    rows: List[FleetGapDevice] = []
+    for did in index.device_ids:
+        tl = index.timeline(did)
+        gaps = tl.gaps(min_days=min_days)
+        is_orphan = tl.is_truly_orphan
+        if not gaps and not (include_orphans and is_orphan):
+            continue
+
+        meta: Dict[str, Any] = {
+            "subtype": None,
+            "serial": None,
+            "model": None,
+            "last_parent_id": None,
+            "last_parent_name": None,
+        }
+        if enrich:
+            meta = _enrich_device(client, did, parent_names, tl)
+            if subtype is not None and meta["subtype"] != subtype:
+                continue
+        elif is_orphan and tl.closed_joins:
+            # Cheap last-parent name without enrichment — the index
+            # already tells us where the device was last seen.
+            last = max(tl.closed_joins, key=lambda j: j.time_to or "")
+            meta["last_parent_id"] = last.id_entity_parent
+            meta["last_parent_name"] = parent_names.get(last.id_entity_parent)
+
+        timeline_report = None
+        if with_timelines:
+            timeline_report = DeviceTimelineReport(
+                id_entity=did,
+                subtype=meta["subtype"],
+                serial=meta["serial"],
+                model=meta["model"],
+                is_currently_attached=tl.is_currently_attached,
+                is_truly_orphan=is_orphan,
+                joins=list(tl.joins),
+                # Full history view: surface every gap, not just the
+                # min_days-filtered ones used for the headline row.
+                gaps=tl.gaps(min_days=0.0),
+            )
+
+        rows.append(
+            FleetGapDevice(
+                id_entity=did,
+                gaps=gaps,
+                is_truly_orphan=is_orphan,
+                **meta,
+                timeline=timeline_report,
+            )
+        )
+
+    rows.sort(key=lambda d: (-d.max_gap_days, d.id_entity))
+
+    return FleetGapReport(
+        min_days=min_days,
+        parents_walked=index.parents_walked,
+        parents_failed=index.parents_failed,
+        total_joins=index.total_joins,
+        total_devices=len(index.device_ids),
+        devices=rows,
+        parent_names=parent_names if with_timelines else {},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Per-device timeline report (synthesis plan §3: tos audit timeline)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DeviceTimelineReport:
+    """One device's complete join history, enriched with metadata.
+
+    ``joins`` is the chronologically-sorted list of every join the
+    device has ever had (open or closed). ``gaps`` is the filtered list
+    of coverage gaps from :meth:`DeviceTimeline.gaps`. Metadata fields
+    (``subtype`` / ``serial`` / ``model``) are populated only when
+    ``enrich=True`` was passed to :func:`get_device_timelines`.
+
+    A device with no joins indexed (e.g. an id that doesn't exist or
+    wasn't reachable from any walked parent) still produces a report —
+    the report just has ``joins=[]``. The CLI surfaces that as
+    "no joins indexed" rather than failing.
+    """
+
+    id_entity: int
+    subtype: Optional[str]
+    serial: Optional[str]
+    model: Optional[str]
+    is_currently_attached: bool
+    is_truly_orphan: bool
+    joins: List[Join]
+    gaps: List[Gap]
+
+
+@dataclass
+class TimelinesReport:
+    """Result of :func:`get_device_timelines` — one entry per requested id.
+
+    ``parent_names`` maps parent ``id_entity`` to the open ``name``
+    attribute (or ``None`` when TOS doesn't carry one), so renderers
+    can label parents without re-querying. Built from the walked
+    parent list.
+    """
+
+    parents_walked: int
+    parents_failed: int
+    total_joins: int
+    total_devices: int
+    parent_names: Dict[int, Optional[str]]
+    timelines: List[DeviceTimelineReport]
+
+
+def get_device_timelines(
+    client: TOSClient,
+    ids: Iterable[int],
+    *,
+    min_gap_days: float = 0.0,
+    enrich: bool = True,
+    parents: Optional[Iterable[ParentEntity]] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+    enumerate_progress: Optional[Callable[[int, int], None]] = None,
+) -> TimelinesReport:
+    """Return per-device full timelines for the given device ids.
+
+    Builds the global join index once (the same ~110s cost as
+    :func:`scan_fleet_gaps`) and looks up each id with O(1) per id. The
+    index build is amortised across all ids in a single invocation —
+    pass every id of interest in one call.
+
+    Args:
+        client: An unauthenticated :class:`TOSClient`.
+        ids: Iterable of device ``id_entity`` values to report on. Ids
+            with no indexed joins still produce a report row (with
+            empty ``joins``), which lets the CLI tell "not in index"
+            apart from "lookup failed".
+        min_gap_days: Threshold passed to :meth:`DeviceTimeline.gaps`.
+            Default 0 surfaces *every* gap regardless of duration —
+            timeline view normally wants the full picture, unlike the
+            fleet-gap view which filters noise.
+        enrich: Fetch subtype/serial/model per device. One
+            :meth:`TOSClient.get_entity_history` call per id, so the
+            cost is linear in ``len(ids)``.
+        parents: Override the parent enumeration. ``None`` defaults to
+            :func:`enumerate_known_parents` augmented with
+            :data:`KNOWN_MISSING_FROM_CFG_PARENT_IDS`.
+        progress / enumerate_progress: Forwarded to the index build
+            and parent enumeration respectively. Same semantics as
+            :func:`scan_fleet_gaps`.
+
+    Returns:
+        :class:`TimelinesReport`. ``timelines`` is in the order the ids
+        were requested (deduplicated, first occurrence wins).
+    """
+    if parents is None:
+        parents = enumerate_known_parents(
+            client,
+            extra_parent_ids=KNOWN_MISSING_FROM_CFG_PARENT_IDS,
+            progress=enumerate_progress,
+        )
+    parent_list = list(parents)
+    parent_names: Dict[int, Optional[str]] = {p.id_entity: p.name for p in parent_list}
+
+    index = build_join_index(client, parents=parent_list, progress=progress)
+
+    seen: set[int] = set()
+    ordered_ids: List[int] = []
+    for raw in ids:
+        did = int(raw)
+        if did in seen:
+            continue
+        seen.add(did)
+        ordered_ids.append(did)
+
+    timelines: List[DeviceTimelineReport] = []
+    for did in ordered_ids:
+        tl = index.timeline(did)
+        meta: Dict[str, Any] = {
+            "subtype": None,
+            "serial": None,
+            "model": None,
+        }
+        if enrich:
+            enriched = _enrich_device(client, did, parent_names, tl)
+            meta["subtype"] = enriched["subtype"]
+            meta["serial"] = enriched["serial"]
+            meta["model"] = enriched["model"]
+        timelines.append(
+            DeviceTimelineReport(
+                id_entity=did,
+                subtype=meta["subtype"],
+                serial=meta["serial"],
+                model=meta["model"],
+                is_currently_attached=tl.is_currently_attached,
+                is_truly_orphan=tl.is_truly_orphan,
+                joins=list(tl.joins),
+                gaps=tl.gaps(min_days=min_gap_days),
+            )
+        )
+
+    return TimelinesReport(
+        parents_walked=index.parents_walked,
+        parents_failed=index.parents_failed,
+        total_joins=index.total_joins,
+        total_devices=len(index.device_ids),
+        parent_names=parent_names,
+        timelines=timelines,
+    )

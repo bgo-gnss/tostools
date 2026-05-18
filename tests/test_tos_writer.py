@@ -263,6 +263,45 @@ def test_patch_entity_connection_raises_with_no_kwargs():
         w.patch_entity_connection(7)
 
 
+def test_update_entity_subtype_uses_admin_endpoint_with_put():
+    """Reclassifying a device sends PUT /admin_entity_row/<id>/ with the
+    integer id_entity_subtype (not the string code) — the public
+    /entity/<id>/ endpoint is read-only (Allow: HEAD, GET, OPTIONS)."""
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request") as mock_req:
+        mock_req.return_value = {"id": 16321, "id_entity_subtype": 25}
+        result = w.update_entity_subtype(16321, 25)
+
+    mock_req.assert_called_once()
+    call = mock_req.call_args
+    assert call.args[0] == "PUT"
+    assert "/admin_entity_row/16321" in call.args[1]
+    assert call.kwargs["data"] == {"id_entity_subtype": 25}
+    assert result["id_entity_subtype"] == 25
+
+
+def test_update_entity_subtype_coerces_id_to_int():
+    """A stringified int still produces a valid integer payload — guards
+    against operator passing args[0] from the parser as raw text."""
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request") as mock_req:
+        w.update_entity_subtype(16321, "25")  # type: ignore[arg-type]
+    assert mock_req.call_args.kwargs["data"] == {"id_entity_subtype": 25}
+
+
+def test_update_entity_subtype_respects_dry_run():
+    """In dry-run mode no HTTP request goes out; DryRunResult is returned."""
+    from tostools.api.tos_writer import DryRunResult
+
+    w = _logged_in_writer(dry_run=True)
+    with patch("requests.request") as mock_http:
+        result = w.update_entity_subtype(16321, 25)
+    mock_http.assert_not_called()
+    assert isinstance(result, DryRunResult)
+    assert result.method == "PUT"
+    assert "/admin_entity_row/16321" in result.endpoint
+
+
 # ---------------------------------------------------------------------------
 # TOSWriter — upsert_attribute_value logic
 # ---------------------------------------------------------------------------
@@ -314,6 +353,158 @@ def test_upsert_posts_when_no_open_value():
     call = mock_req.call_args
     assert call.args[0] == "POST"
     assert call.args[1] == "/attribute_values"
+
+
+# ---------------------------------------------------------------------------
+# TOSWriter — upsert_attribute_value with date_hint (Pattern 4)
+# ---------------------------------------------------------------------------
+
+
+def test_upsert_with_date_hint_patches_closed_period():
+    """date_hint targets the closed period that covers the given date."""
+    w = _logged_in_writer(dry_run=False)
+    existing = [
+        {
+            "id_attribute_value": 10,
+            "code": "firmware_version",
+            "value": "5.4.0",
+            "date_from": "2024-01-01T00:00:00",
+            "date_to": "2025-06-01T00:00:00",
+        },
+        {
+            "id_attribute_value": 20,
+            "code": "firmware_version",
+            "value": "5.5.0",
+            "date_from": "2025-06-01T00:00:00",
+            "date_to": None,
+        },
+    ]
+
+    with patch.object(w, "get_attribute_values", return_value=existing):
+        with patch.object(w, "_request") as mock_req:
+            mock_req.return_value = {"id": 10, "value": "5.4.1"}
+            w.upsert_attribute_value(
+                1,
+                "firmware_version",
+                "5.4.1",
+                "2024-01-01T00:00:00",
+                date_hint="2025-01-15T00:00:00",
+            )
+
+    # PATCHed the closed period (id=10), not the open one (id=20).
+    mock_req.assert_called_once()
+    call = mock_req.call_args
+    assert call.args[0] == "PATCH"
+    assert "/attribute_value/10" in call.args[1]
+    assert call.kwargs["data"]["value"] == "5.4.1"
+
+
+def test_upsert_with_date_hint_targets_open_period():
+    """date_hint that falls in the open period should PATCH the open period."""
+    w = _logged_in_writer(dry_run=False)
+    existing = [
+        {
+            "id_attribute_value": 10,
+            "code": "status",
+            "value": "virkt",
+            "date_from": "2020-01-01T00:00:00",
+            "date_to": None,
+        },
+    ]
+
+    with patch.object(w, "get_attribute_values", return_value=existing):
+        with patch.object(w, "_request") as mock_req:
+            mock_req.return_value = {"id": 10, "value": "óvirkt"}
+            w.upsert_attribute_value(
+                1, "status", "óvirkt", "2025-01-01T00:00:00", date_hint="2025-01-01"
+            )
+
+    mock_req.assert_called_once()
+    call = mock_req.call_args
+    assert "/attribute_value/10" in call.args[1]
+
+
+def test_upsert_with_date_hint_no_match_posts():
+    """date_hint that falls in no period falls back to POST."""
+    w = _logged_in_writer(dry_run=False)
+    existing = [
+        {
+            "id_attribute_value": 10,
+            "code": "firmware_version",
+            "value": "5.0.0",
+            "date_from": "2020-01-01T00:00:00",
+            "date_to": "2021-12-31T00:00:00",
+        },
+    ]
+
+    with patch.object(w, "get_attribute_values", return_value=existing):
+        with patch.object(w, "_request") as mock_req:
+            mock_req.return_value = {"id": 11}
+            w.upsert_attribute_value(
+                1,
+                "firmware_version",
+                "5.1.0",
+                "2022-01-01T00:00:00",
+                date_hint="2023-06-01T00:00:00",
+            )
+
+    mock_req.assert_called_once()
+    call = mock_req.call_args
+    assert call.args[0] == "POST"
+
+
+def test_upsert_with_date_hint_noop_when_value_matches():
+    """date_hint that hits a period with the same value skips PATCH."""
+    w = _logged_in_writer(dry_run=False)
+    existing = [
+        {
+            "id_attribute_value": 10,
+            "code": "model",
+            "value": "SEPT POLARX5",
+            "date_from": "2023-01-01T00:00:00",
+            "date_to": "2024-12-31T00:00:00",
+        },
+    ]
+
+    with patch.object(w, "get_attribute_values", return_value=existing):
+        with patch.object(w, "_request") as mock_req:
+            result = w.upsert_attribute_value(
+                1,
+                "model",
+                "SEPT POLARX5",
+                "2023-01-01T00:00:00",
+                date_hint="2024-03-01T00:00:00",
+            )
+
+    mock_req.assert_not_called()
+    assert result["id_attribute_value"] == 10
+
+
+def test_upsert_with_date_hint_bare_date_promoted():
+    """date_hint='2025-06-15' (bare date) covers the open period starting 2025-06-01."""
+    w = _logged_in_writer(dry_run=False)
+    existing = [
+        {
+            "id_attribute_value": 20,
+            "code": "firmware_version",
+            "value": "5.5.0",
+            "date_from": "2025-06-01T00:00:00",
+            "date_to": None,
+        },
+    ]
+
+    with patch.object(w, "get_attribute_values", return_value=existing):
+        with patch.object(w, "_request") as mock_req:
+            mock_req.return_value = {"id": 20, "value": "5.6.0"}
+            w.upsert_attribute_value(
+                1,
+                "firmware_version",
+                "5.6.0",
+                "2025-06-01T00:00:00",
+                date_hint="2025-06-15",
+            )
+
+    mock_req.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

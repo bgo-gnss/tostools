@@ -48,7 +48,7 @@ metadata2rmq = "tostools.metadata2rmq:main"
 # (25+, 26+) change line-splitting heuristics; without this pin, CI and
 # local installs can resolve different versions and the format check
 # oscillates. Bump when ready to reformat the whole tree.
-dev = ["pytest>=7.0", "black>=24.0,<25", "ruff>=0.1.0"]
+dev = ["pytest>=7.0", "pytest-recording>=0.13", "black>=24.0,<25", "ruff>=0.1.0"]
 
 [build-system]
 requires = ["hatchling"]
