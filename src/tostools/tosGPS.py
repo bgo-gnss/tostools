@@ -45,15 +45,19 @@ REFERENCE_DATA_CONFIG = {
 
 
 def _select_synthesizer(args):
-    """Return the gps_metadata function selected by ``--use-new-synthesis``.
+    """Return the gps_metadata function selected by ``--use-legacy-synthesis``.
 
     Both candidates have the same calling convention — drop-in
-    swappable. Defaults to the legacy chain so flag-less invocations
-    are byte-stable.
+    swappable. Defaults to the new ``devices.station_sessions``
+    composer chain (phase 5 default). Pass ``--use-legacy-synthesis``
+    to opt back into the legacy ``gps_metadata_qc.gps_metadata``
+    chain — kept available for ops compatibility during the
+    transition and for side-by-side debugging, but slated for
+    removal once production has run on the new chain long enough.
     """
-    if getattr(args, "use_new_synthesis", False):
-        return gpsqc.gps_metadata_via_devices
-    return gpsqc.gps_metadata
+    if getattr(args, "use_legacy_synthesis", False):
+        return gpsqc.gps_metadata
+    return gpsqc.gps_metadata_via_devices
 
 
 def generate_igs_sitelog_filename(
@@ -436,15 +440,19 @@ Contact: Benni (bgo@vedur.is) or Hildur (hildur@vedur.is)
 
     synthesis_options = parser.add_argument_group(title="Synthesis options")
     synthesis_options.add_argument(
-        "--use-new-synthesis",
+        "--use-legacy-synthesis",
         action="store_true",
         help=(
-            "Use the new devices.station_sessions composer chain for "
-            "device_history instead of the legacy gps_metadata_qc "
-            "synthesis. Affects PrintTOS and sitelog. For RHOF / VMEY / "
-            "SKRO the output is byte-equal; for AUST / AKUR / REYK / "
-            "HOFN expect divergence (see "
-            "docs/architecture/synthesis-legacy-divergence.md)."
+            "Fall back to the legacy gps_metadata_qc.gps_metadata "
+            "synthesis chain for device_history. The default since "
+            "phase 5 is the new devices.station_sessions composer "
+            "chain, which fixes the two legacy bugs (pair-based slicer "
+            "drop, position-wise pivot inversion) and emits well-paired "
+            "equipment slots. The legacy path is kept for ops "
+            "compatibility during the transition and side-by-side "
+            "debugging; slated for removal once the new chain has run "
+            "in production. See "
+            "docs/architecture/synthesis-legacy-divergence.md."
         ),
     )
 
@@ -1235,17 +1243,20 @@ def _handle_sitelog_subcommand(args, stations, url, log_level):
 
         try:
             # Get complete station metadata with proper device sessions.
-            # The default path uses TOSClient.get_complete_station_metadata
-            # (custom history-from-connections logic). With --use-new-synthesis,
-            # route through the devices.station_sessions composer chain for
-            # consistency with PrintTOS and rinex.
-            if getattr(args, "use_new_synthesis", False):
-                complete_station_data = gpsqc.gps_metadata_via_devices(
-                    station, url, loglevel=log_level.value
-                )
-            else:
+            # The default path (phase 5) routes through the
+            # devices.station_sessions composer chain for consistency
+            # with PrintTOS and rinex. Pass --use-legacy-synthesis to
+            # fall back to TOSClient.get_complete_station_metadata,
+            # which carries its own custom history-from-connections
+            # logic (a third synthesis path that predates the
+            # composer chain).
+            if getattr(args, "use_legacy_synthesis", False):
                 complete_station_data = tos_client.get_complete_station_metadata(
                     station
+                )
+            else:
+                complete_station_data = gpsqc.gps_metadata_via_devices(
+                    station, url, loglevel=log_level.value
                 )
             if not complete_station_data:
                 print(

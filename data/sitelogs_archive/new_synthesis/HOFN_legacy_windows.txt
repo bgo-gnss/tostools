@@ -5,4 +5,4 @@
 2007-09-23 17:00:00 → 2013-05-05 11:30:00  receiver=TPS E_GGD/—  antenna=TPSCR3_GGD/—
 2007-09-23 17:00:00 → 2010-03-26 09:55:00  receiver=—/—  antenna=—/—
 2010-03-26 09:55:00 → 2013-05-05 11:30:00  receiver=—/—  antenna=—/—
-2013-05-05 11:30:00 → open  receiver=LEICA GR25/—  antenna=LEIAR25.R4/7252843
+2013-05-05 11:30:00 → open  receiver=LEICA GR25/1830199  antenna=LEIAR25.R4/7252843

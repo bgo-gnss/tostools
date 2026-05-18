@@ -554,11 +554,25 @@ def get_contacts(id_entity_parent, url_rest, loglevel=logging.WARNING):
 
 
 def gps_metadata(station_identifier, url_rest, loglevel=logging.WARNING):
-    """
-    input:
-        Accessing TOS for GPS metadata
-        station: station 4 letter marker
-        url_res: rest service endpoint to access TOS
+    """**Deprecated.** Use :func:`gps_metadata_via_devices` instead.
+
+    Legacy synthesis chain — kept available for the
+    ``tosGPS --use-legacy-synthesis`` opt-out and for byte-equality
+    oracle tests on clean stations. The two known bugs are:
+
+    1. ``device_attribute_history`` slicer drops sub-windows when
+       attribute periods misalign (pair-based dedup).
+    2. ``get_device_history`` pivot zips sorted starts and ends
+       position-wise, producing inverted sessions on overlap-heavy
+       stations.
+
+    See ``docs/architecture/synthesis-legacy-divergence.md`` for the
+    full write-up. Slated for removal once the new chain has run in
+    production long enough to retire the ops fallback.
+
+    Args:
+        station_identifier: station 4 letter marker
+        url_rest: REST service endpoint to access TOS
     """
 
     # logging settings

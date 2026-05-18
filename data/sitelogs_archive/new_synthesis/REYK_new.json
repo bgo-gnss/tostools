@@ -197,54 +197,6 @@
       },
       {
         "time_from": "2004-06-30 13:30:00",
-        "time_to": "2006-07-17 09:57:00",
-        "antenna": {
-          "model": "AOAD/M_T",
-          "serial_number": null,
-          "antenna_height": 0.0,
-          "antenna_offset_east": 0.0,
-          "antenna_offset_north": 0.0,
-          "antenna_reference_point": "DHARP"
-        },
-        "monument": {
-          "serial_number": null,
-          "monument_height": 0.0555,
-          "monument_offset_north": 0.0,
-          "monument_offset_east": 0.0
-        },
-        "gnss_receiver": {
-          "model": "AOA SNR-8000 ACT",
-          "serial_number": null,
-          "firmware_version": "3.3.32.4",
-          "software_version": "3.30"
-        }
-      },
-      {
-        "time_from": "2006-07-17 09:57:00",
-        "time_to": "2006-08-16 14:25:00",
-        "antenna": {
-          "model": "AOAD/M_T",
-          "serial_number": null,
-          "antenna_height": 0.0,
-          "antenna_offset_east": 0.0,
-          "antenna_offset_north": 0.0,
-          "antenna_reference_point": "DHARP"
-        },
-        "monument": {
-          "serial_number": null,
-          "monument_height": 0.0555,
-          "monument_offset_north": 0.0,
-          "monument_offset_east": 0.0
-        },
-        "gnss_receiver": {
-          "model": "AOA SNR-8000 ACT",
-          "serial_number": null,
-          "firmware_version": "3.3.32.4",
-          "software_version": "3.30"
-        }
-      },
-      {
-        "time_from": "2006-08-16 14:25:00",
         "time_to": "2007-09-19 16:00:00",
         "antenna": {
           "model": "AOAD/M_T",
@@ -604,54 +556,6 @@
     },
     {
       "time_from": "2004-06-30 13:30:00",
-      "time_to": "2006-07-17 09:57:00",
-      "antenna": {
-        "model": "AOAD/M_T",
-        "serial_number": null,
-        "antenna_height": 0.0,
-        "antenna_offset_east": 0.0,
-        "antenna_offset_north": 0.0,
-        "antenna_reference_point": "DHARP"
-      },
-      "monument": {
-        "serial_number": null,
-        "monument_height": 0.0555,
-        "monument_offset_north": 0.0,
-        "monument_offset_east": 0.0
-      },
-      "gnss_receiver": {
-        "model": "AOA SNR-8000 ACT",
-        "serial_number": null,
-        "firmware_version": "3.3.32.4",
-        "software_version": "3.30"
-      }
-    },
-    {
-      "time_from": "2006-07-17 09:57:00",
-      "time_to": "2006-08-16 14:25:00",
-      "antenna": {
-        "model": "AOAD/M_T",
-        "serial_number": null,
-        "antenna_height": 0.0,
-        "antenna_offset_east": 0.0,
-        "antenna_offset_north": 0.0,
-        "antenna_reference_point": "DHARP"
-      },
-      "monument": {
-        "serial_number": null,
-        "monument_height": 0.0555,
-        "monument_offset_north": 0.0,
-        "monument_offset_east": 0.0
-      },
-      "gnss_receiver": {
-        "model": "AOA SNR-8000 ACT",
-        "serial_number": null,
-        "firmware_version": "3.3.32.4",
-        "software_version": "3.30"
-      }
-    },
-    {
-      "time_from": "2006-08-16 14:25:00",
       "time_to": "2007-09-19 16:00:00",
       "antenna": {
         "model": "AOAD/M_T",
@@ -863,6 +767,6 @@
       }
     }
   ],
-  "generated_date": "2026-05-18T13:57:34.019554",
+  "generated_date": "2026-05-18T17:27:05.791397",
   "format": "site_log_json_v1"
 }

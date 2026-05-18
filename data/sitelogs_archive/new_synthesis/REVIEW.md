@@ -12,11 +12,23 @@ For the design context, read first:
 - `docs/architecture/synthesis-legacy-divergence.md` — the two
   legacy bugs and the boundary-merge pivot fix.
 
-## How to review (silence = approval)
+## Status: phase 5 default flipped
 
-For each station, look at the `_table.colordiff` file — it's the
-`tosGPS PrintTOS` view (the same rich table you see at the
-terminal) with character-level coloring on the changes:
+As of phase 5 the new chain is the default in `tosGPS PrintTOS` /
+`tosGPS sitelog` / `tosGPS rinex`. Pass `--use-legacy-synthesis` to
+opt back into the legacy path during the transition.
+
+The four divergent stations below were reviewed before the default
+flipped. Issues that remain (over-splits driven by genuine
+attribute differences in TOS) are tracked in the "Review status"
+table as residual items requiring TOS data cleanup, not synthesis
+fixes.
+
+## How the review worked
+
+For each station, the `_table.colordiff` file holds the
+`tosGPS PrintTOS` view with character-level coloring on the
+changes:
 
 ```bash
 less -R data/sitelogs_archive/new_synthesis/AKUR_table.colordiff
@@ -26,11 +38,9 @@ less -R data/sitelogs_archive/new_synthesis/AKUR_table.colordiff
 # - inline char-level = corrected values within a line
 ```
 
-**If the new chain looks correct, do nothing.** The default state
-of every row in the "Review status" table below is approval. Only
-add an entry if a station's new output has an issue worth flagging
-— then phase 5 won't flip the default for that station until the
-issue is resolved.
+The convention was: **silence = approval**. The "Review status"
+table below carries one row per residual issue — stations not
+listed there were approved as-is.
 
 ## Files per station
 
@@ -67,13 +77,13 @@ divergence is what the new composer chain fixes upstream of the
 renderer; consumers other than PrintTOS (e.g. `receivers cfg
 reconcile`, future web UI) get the cleaner data directly.
 
-## Per-station summary
+## Per-station summary (post-coalescing)
 
 | Station | Sessions (legacy → new) | What changed in the rendered table |
 |---|---|---|
 | AKUR | 5 → 6 | one added: the 2018-01-21 → 2018-01-30 receiver-swap gap window |
-| AUST | 25 → 31 | seven added sub-windows + several `time_to` corrections (legacy had inverted ranges like `2001-03-26 → 2000-07-10`) |
-| REYK | 16 → 16 | content-level changes (no row count delta) — one inverted legacy row, several boundary corrections |
+| AUST | 25 → 29 | four added sub-windows + several `time_to` corrections (legacy had inverted ranges like `2001-03-26 → 2000-07-10`). Coalescing pass merged two phantom boundaries (2000-07-07 and 2011-09-19) that didn't reflect equipment changes. |
+| REYK | 16 → 14 | content-level changes plus 2 sessions dropped where coalescing merged adjacent identical sub-windows. One inverted legacy row corrected. |
 | HOFN | 8 → 13 | five added sub-windows around firmware bumps; one row gets serial `1830199` populated where legacy showed `N/A` |
 
 ## AKUR (the simplest case)

@@ -174,7 +174,7 @@
         "time_from": "2008-03-13 00:00:00",
         "time_to": null,
         "monument": {
-          "serial_number": null,
+          "serial_number": "monument-REYK-20080313",
           "monument_height": 0.057,
           "monument_offset_north": 0.0,
           "monument_offset_east": 0.0
@@ -185,7 +185,7 @@
         "time_to": null,
         "antenna": {
           "model": "LEIAR25.R4",
-          "serial_number": null,
+          "serial_number": "725281",
           "antenna_height": 0.0,
           "antenna_offset_east": 0.0,
           "antenna_offset_north": 0.0,
@@ -193,13 +193,13 @@
         },
         "gnss_receiver": {
           "model": "LEICA GR25",
-          "serial_number": null,
+          "serial_number": "1830201",
           "firmware_version": "3.00/6.113",
           "software_version": "3.00"
         },
         "radome": {
           "model": "LEIT",
-          "serial_number": null
+          "serial_number": "radome-REYK-20130502"
         }
       }
     ],
@@ -394,7 +394,7 @@
       "time_from": "2008-03-13 00:00:00",
       "time_to": null,
       "monument": {
-        "serial_number": null,
+        "serial_number": "monument-REYK-20080313",
         "monument_height": 0.057,
         "monument_offset_north": 0.0,
         "monument_offset_east": 0.0
@@ -405,7 +405,7 @@
       "time_to": null,
       "antenna": {
         "model": "LEIAR25.R4",
-        "serial_number": null,
+        "serial_number": "725281",
         "antenna_height": 0.0,
         "antenna_offset_east": 0.0,
         "antenna_offset_north": 0.0,
@@ -413,16 +413,16 @@
       },
       "gnss_receiver": {
         "model": "LEICA GR25",
-        "serial_number": null,
+        "serial_number": "1830201",
         "firmware_version": "3.00/6.113",
         "software_version": "3.00"
       },
       "radome": {
         "model": "LEIT",
-        "serial_number": null
+        "serial_number": "radome-REYK-20130502"
       }
     }
   ],
-  "generated_date": "2026-05-18T13:57:31.504922",
+  "generated_date": "2026-05-18T17:27:02.997340",
   "format": "site_log_json_v1"
 }

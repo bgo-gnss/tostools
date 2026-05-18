@@ -190,14 +190,49 @@ Key dependencies managed through `pyproject.toml`:
 
 ## Future Development Priorities
 
+### Devices §3 refactor status
+
+Phases 1–5 of the `devices` refactor are complete. The new
+`devices.station_sessions` composer chain is now the default
+synthesis path in `tosGPS PrintTOS` / `tosGPS sitelog` /
+`tosGPS rinex`. Pass `--use-legacy-synthesis` for the old chain
+(deprecated, slated for removal after production confidence
+builds). See `docs/architecture/synthesis-legacy-divergence.md`
+for the full picture; `data/sitelogs_archive/new_synthesis/`
+holds the per-station review bundle.
+
 ### Next Phase Tasks
 
-1. **Retrofit `_dispatch_decommission` + `display_device_record`** (devices §3 phase 3): both already work, but they predate the `devices` primitives. Refactor to call `devices.decommission_device` / `devices.attribute_periods` so the apply path and the inspection path share the same code with the new composers/composites.
-2. **Adapter + `--use-new-synthesis` flag** (devices §3 phase 4): write `_sessions_to_legacy_dict(station_sessions(...))`; gate `tosGPS PrintTOS` and `tosGPS sitelog` behind the flag. Sign-off: site log diff against `data/sitelogs_archive/RHOF_*.txt`. For AUST/AKUR/REYK/HOFN expect non-empty diff (see `docs/architecture/synthesis-legacy-divergence.md`) — capture new golden files with domain-expert review.
-3. **Flip flag default + deprecate legacy synthesis** (devices §3 phase 5).
-4. **Wire `--push-tos` Pattern 2 / Pattern 4** (in `receivers` package, separate repo): the underlying writer support is in place (`TOSWriter.transition_attribute_value` + `upsert_attribute_value(..., date_hint=...)`); the reconcile dispatcher just needs to call them when the diff shape demands it.
-5. **Device entity writes for `--push-tos`** (also in `receivers`): currently station-only. Receiver model/serial/firmware require resolving the gnss_receiver child entity — `devices.find_device(client, serial=..., subtype=...)` is the lookup primitive.
-6. **Web/phone interface**: CLI is the primary interface; a REST API wrapper (in `receivers`) will serve web and mobile UIs.
+1. **TOS data cleanup for noisy attribute periods**: triage AUST
+   2003-06 (receiver SN + firmware drift) and HOFN 2013-10 → 2014-10
+   (firmware bumps + late-arriving SN) — both surface as residual
+   over-splits in the new chain because TOS records genuine
+   attribute differences at boundaries that don't reflect physical
+   equipment changes. Candidates for `tos audit apply` corrections
+   once the pattern is mapped.
+2. **Fix pre-existing IGS-text-renderer crashes** in
+   `legacy/gps_metadata_functions.py` (NoneType / empty-datetime on
+   AUST / REYK / HOFN) — hits both synthesis chains identically;
+   blocks producing full IGS site logs for those stations until
+   resolved.
+3. **Wire `--push-tos` Pattern 2 / Pattern 4** (in `receivers`
+   package, separate repo): underlying writer support is in place
+   (`TOSWriter.transition_attribute_value` +
+   `upsert_attribute_value(..., date_hint=...)`); the reconcile
+   dispatcher just needs to call them when the diff shape demands.
+4. **Device entity writes for `--push-tos`** (also in `receivers`):
+   currently station-only. Receiver model / serial / firmware
+   require resolving the gnss_receiver child entity —
+   `devices.find_device(client, serial=..., subtype=...)` is the
+   lookup primitive.
+5. **Remove legacy synthesis after burn-in**: once
+   `--use-legacy-synthesis` has gone unused in production for a
+   reasonable interval, delete `gps_metadata_qc.gps_metadata`,
+   `gps_metadata_qc.get_device_history`,
+   `gps_metadata_qc.device_attribute_history`, and the
+   `TOSClient.get_complete_station_metadata` fallback path.
+6. **Web/phone interface**: CLI is the primary interface; a REST
+   API wrapper (in `receivers`) will serve web and mobile UIs.
 
 ### Long-term Architecture
 

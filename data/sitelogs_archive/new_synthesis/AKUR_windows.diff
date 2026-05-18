@@ -1,5 +1,5 @@
---- data/sitelogs_archive/new_synthesis/AKUR_legacy_windows.txt	2026-05-18 13:58:21.161644147 +0000
-+++ data/sitelogs_archive/new_synthesis/AKUR_new_windows.txt	2026-05-18 13:58:21.163644171 +0000
+--- data/sitelogs_archive/new_synthesis/AKUR_legacy_windows.txt	2026-05-18 17:27:00.448122077 +0000
++++ data/sitelogs_archive/new_synthesis/AKUR_new_windows.txt	2026-05-18 17:27:00.454122221 +0000
 @@ -1,5 +1,6 @@
 -2001-07-31 00:00:00 → open  receiver=—/—  antenna=TRM29659.00/0220145519
 -2001-07-31 00:00:00 → 2015-12-21 00:00:00  receiver=TRIMBLE 4700/20221607  antenna=—/—
