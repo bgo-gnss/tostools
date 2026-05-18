@@ -1,174 +1,151 @@
 # Phase 5 sign-off — domain review of divergent-station synthesis
 
-This bundle contains side-by-side legacy / new-synthesis output for the
-four stations where the new `tostools.devices.station_sessions`
-composer chain diverges from the legacy `gps_metadata_qc.gps_metadata`
-chain. Phase 5 (flip the `--use-new-synthesis` default in `tosGPS`)
-ships these behavior changes to production, so this review is the
-gate.
+This bundle contains side-by-side legacy / new-synthesis output for
+the four stations where the new `tostools.devices.station_sessions`
+composer chain diverges from the legacy
+`gps_metadata_qc.gps_metadata` chain. Phase 5 (flip the
+`--use-new-synthesis` default in `tosGPS`) ships these behavior
+changes to production, so this review is the gate.
 
 For the design context, read first:
 
-- `docs/architecture/synthesis-legacy-divergence.md` — the two legacy
-  bugs and the boundary-merge pivot fix.
+- `docs/architecture/synthesis-legacy-divergence.md` — the two
+  legacy bugs and the boundary-merge pivot fix.
 
-## Files
+## How to review (silence = approval)
 
-For each station `<MARKER>` in `{AUST, AKUR, REYK, HOFN}`:
+For each station, look at the `_table.colordiff` file — it's the
+`tosGPS PrintTOS` view (the same rich table you see at the
+terminal) with character-level coloring on the changes:
 
-| File | Content |
+```bash
+less -R data/sitelogs_archive/new_synthesis/AKUR_table.colordiff
+# - lines in plain text are unchanged
+# - red strikethroughs = removed from legacy
+# - green = added in new
+# - inline char-level = corrected values within a line
+```
+
+**If the new chain looks correct, do nothing.** The default state
+of every row in the "Review status" table below is approval. Only
+add an entry if a station's new output has an issue worth flagging
+— then phase 5 won't flip the default for that station until the
+issue is resolved.
+
+## Files per station
+
+| File | What it is |
 |---|---|
-| `<MARKER>_legacy.json` | `tosGPS sitelog <MARKER> --format json` |
-| `<MARKER>_new.json` | `tosGPS --use-new-synthesis sitelog <MARKER> --format json` |
-| `<MARKER>_legacy_windows.txt` | per-session digest (time_from → time_to + receiver/antenna model/serial) |
-| `<MARKER>_new_windows.txt` | same digest from the new chain |
+| `<MARKER>_legacy_table.txt` | plain-text PrintTOS rendering, legacy chain |
+| `<MARKER>_new_table.txt` | plain-text PrintTOS rendering, new chain |
+| `<MARKER>_table.colordiff` | character-level colored diff between the two (view with `less -R`) |
+| `<MARKER>_legacy.json` | raw `tosGPS sitelog --format json`, legacy chain |
+| `<MARKER>_new.json` | raw `tosGPS sitelog --format json`, new chain |
+| `<MARKER>_legacy_windows.txt` | compact `time_from → time_to | receiver | antenna` digest |
+| `<MARKER>_new_windows.txt` | same digest, new chain |
 | `<MARKER>_windows.diff` | unified diff between the two digests |
 
-We captured the JSON form rather than the full IGS site-log text
-because the text renderer (`legacy/gps_metadata_functions.py`) raises
-on AUST / REYK / HOFN with pre-existing NoneType / empty-string
-errors that surface only on these messy stations. The errors hit
-*both* chains identically, so they're unrelated to the synthesis
-change. Tracked separately; not in scope for phase 4/5.
+The `_table.colordiff` is the **primary review artifact** — it
+matches what an operator sees in the terminal. The JSON +
+windows files are reference detail.
 
-## Headline finding — legacy emits orphaned components
+Captured via JSON because the full IGS text-form renderer raises
+pre-existing NoneType / empty-string errors on AUST / REYK / HOFN
+that hit *both* chains identically (unrelated to the synthesis
+change). Tracked separately; not in scope for phase 4/5.
 
-Across all four divergent stations, the legacy chain produces sessions
-where the receiver slot is filled but the antenna slot is empty (or
-vice versa) — even though the station physically had both installed
-at the time. The new chain pairs them correctly.
+## Caveat on the underlying JSON
 
-Concrete examples below.
+The raw `device_sessions` JSON from the legacy chain contains
+sessions with orphaned slots (e.g. `gnss_receiver` present but
+`antenna: null`, or vice versa) for every divergent station.
+`tosGPS PrintTOS` post-processes this and fills slots from adjacent
+sessions before rendering — so the user-facing table is much closer
+to the new chain than the raw JSON suggests. The divergence the
+reviewer can actually see is the `_table.colordiff`. The JSON-level
+divergence is what the new composer chain fixes upstream of the
+renderer; consumers other than PrintTOS (e.g. `receivers cfg
+reconcile`, future web UI) get the cleaner data directly.
 
-## AUST
+## Per-station summary
 
-| chain | sessions | inverted (time_to < time_from) | orphaned slot |
-|---|---|---|---|
-| legacy | 25 | several (counted in earlier compare) | extensive |
-| new | 31 | **0** | 0 |
+| Station | Sessions (legacy → new) | What changed in the rendered table |
+|---|---|---|
+| AKUR | 5 → 6 | one added: the 2018-01-21 → 2018-01-30 receiver-swap gap window |
+| AUST | 25 → 31 | seven added sub-windows + several `time_to` corrections (legacy had inverted ranges like `2001-03-26 → 2000-07-10`) |
+| REYK | 16 → 16 | content-level changes (no row count delta) — one inverted legacy row, several boundary corrections |
+| HOFN | 8 → 13 | five added sub-windows around firmware bumps; one row gets serial `1830199` populated where legacy showed `N/A` |
 
-The new chain adds well-ordered sub-windows for every device
-transition and assigns equipment to every session. Legacy's
-position-wise zip produced bogus sessions and dropped equipment
-assignments.
+## AKUR (the simplest case)
 
-**Review checklist:**
-
-1. Do the new 31 windows match the physical installation timeline
-   for AUST?
-2. Are receiver / antenna model + serial assignments correct in
-   each window? (Cross-check against receiver health logs and field
-   visit records.)
-3. Were there genuinely overlapping installations during the
-   2000-07 to 2003-06 period (~10 sub-windows in 3 years)? If yes,
-   the new output reflects reality; if not, flag the slicer.
-
-## AKUR
-
-The most pedagogically clear case — legacy has the antenna installed
-*alone* for the entire 24-year history, with no receiver paired in
-any of those sessions:
+The only visible change is one new row — the 9-day receiver-swap gap:
 
 ```
-legacy:
-  2001-07-31 → open                    receiver=—              antenna=TRM29659.00
-  2001-07-31 → 2015-12-21              receiver=TRIMBLE 4700   antenna=—            ← receiver alone
-  2015-12-21 → 2018-01-21              receiver=NOV OEM638     antenna=—            ← receiver alone
-  2018-01-30 → 2025-04-15              receiver=TRIMBLE NETR5  antenna=—            ← receiver alone
-  2025-04-15 → open                    receiver=TRIMBLE NETR5  antenna=—            ← receiver alone
-
-new:
-  2001-07-31 → 2015-12-21              receiver=TRIMBLE 4700   antenna=TRM29659.00
-  2015-12-21 → 2018-01-21              receiver=NOV OEM638     antenna=TRM29659.00
-  2018-01-21 → 2018-01-30              receiver=—              antenna=TRM29659.00  ← 9-day swap gap
-  2018-01-30 → 2023-09-07              receiver=TRIMBLE NETR5  antenna=TRM29659.00
-  2023-09-07 → 2025-04-15              receiver=TRIMBLE NETR5  antenna=TRM29659.00  ← firmware bump
-  2025-04-15 → open                    receiver=TRIMBLE NETR5  antenna=TRM29659.00
+2018-01-21 → 2018-01-30  receiver=N/A  antenna=TRM29659.00/0220145519  radome=SCIS
 ```
 
-The legacy site log for AKUR was effectively unusable — five sessions
-where every single equipment slot is wrong by omission. The new chain
-produces six well-paired sessions plus correctly captures the
-2018-01-21 → 2018-01-30 receiver-swap gap window (antenna present, no
-receiver).
+Was the receiver swap on 2018-01-21 → 2018-01-30 indeed a real
+~9-day window with the antenna in place? If yes → approve (do
+nothing). If no → flag below.
 
-**Review checklist:**
+## AUST (the busiest case)
 
-1. Was AKUR's antenna `TRM29659.00 / 0220145519` indeed installed
-   from 2001-07-31 through today?
-2. Was the receiver swap on 2018-01-21 → 2018-01-30 indeed a
-   ~9-day window with the antenna in place?
-3. Was the 2023-09-07 boundary a firmware bump for receiver
-   serial 4806K53395? (Check session 4 vs session 5 in `AKUR_new.json`
-   — firmware versions differ.)
+Seven added sub-windows + corrections to inverted time ranges.
+Legacy had rows like `2001-03-26 → 2000-07-10` (end before start)
+— the new chain produces well-ordered ranges plus extra
+sub-windows for periods legacy collapsed.
+
+Pay attention to:
+
+1. The 2000-07-06 → 2000-07-10 region: legacy had one row spanning
+   the period; new splits it into three sub-windows. Were there
+   genuinely three distinct receiver / antenna / firmware
+   transitions in those four days?
+2. The 2011-06-13 → 2011-06-21 and 2014-06-01 → 2014-09-30 added
+   windows.
+3. The 2014-09-30 → 2014-10-17, 2014-10-17 → 2016-02-12, and
+   2019-01-20 → 2019-06-05 added windows.
 
 ## REYK
 
-| chain | sessions | inverted | orphaned slot |
-|---|---|---|---|
-| legacy | 16 | 1 known (REYK was original "REYK [13]: 2014-10-17 → 2013-05-02") | extensive — see diff |
-| new | 16 | 0 | 0 |
-
-Same orphan pattern as AKUR — legacy produces lots of "antenna only"
-or "receiver only" sessions for periods where both were installed.
-Session count happens to match because REYK's overlap pattern works
-out arithmetically; content is very different.
+Same session count but content shifted (legacy had one
+end-before-start row that the new chain replaces). Cross-check the
+2014-2018 region in particular.
 
 ## HOFN
 
-| chain | sessions | inverted | orphaned slot |
-|---|---|---|---|
-| legacy | 8 | — | 5 of 8 sessions have one empty slot |
-| new | 13 | 0 | 0 |
+Added rows around 1999-07-31, 2008-01-17, 2010-03-26 → 2010-03-30,
+2013-10-09 → 2014-02-18 — these are firmware transition boundaries
+that legacy collapsed into the surrounding rows. Also, the
+2014-02-18 → 2014-10-17 row gets the receiver serial `1830199`
+populated where legacy showed `N/A`.
 
-The boundary-merge captures additional firmware / version transitions
-(1999-07-31, 2008-01-17, 2010-03-26, 2010-03-30, 2013-10-09,
-2014-02-18) that legacy collapsed.
+## How to act on issues
 
-## How to review one station
+If a station's new output looks wrong:
 
-```bash
-cd data/sitelogs_archive/new_synthesis/
+1. Add an entry to "Review status" below — station, your initials,
+   date, and a sentence about what's off.
+2. Phase 5 will not flip the default for that station until the
+   issue is resolved (a fix to the composer / slicer / pivot, then
+   re-capture + re-review).
 
-# 1. Glance at the diff
-less AKUR_windows.diff
-
-# 2. Look at the full new JSON for detail
-jq '.device_sessions[0]' AKUR_new.json
-
-# 3. Cross-check one window's equipment against TOS web UI / field log
-#    Pick a window, find the device IDs, walk to the receiver / antenna
-#    entity, verify model + serial + dates.
-
-# 4. If the new chain is correct, the file is approved.
-#    If something's wrong, write a note here in this file and flag the
-#    specific window.
-```
-
-## What "approval" means for phase 5
-
-For each station, the reviewer signs off that:
-
-1. Window boundaries match real installation events (not synthetic
-   noise from the slicer).
-2. Equipment slots in each window reflect what was physically on
-   the antenna at that time.
-3. Receiver-swap gap windows (sessions with `gnss_receiver` slot
-   absent) reflect real swap operations, not data-entry errors.
-
-Once all four are approved, phase 5 can flip the
-`--use-new-synthesis` default in `tosGPS` and these `<MARKER>_new.json`
-files become the new reference golden files.
-
-If any station's review surfaces an issue with the *new* chain (not
-just a divergence from buggy legacy), that's a phase-3.5 follow-up:
-amend the composer / slicer / pivot, re-capture, re-review.
+If everything looks correct: leave the table as-is. Phase 5 will
+read the table's emptiness as approval and proceed.
 
 ## Review status
 
-| Station | Status | Reviewer | Date | Notes |
-|---|---|---|---|---|
-| AKUR | pending | — | — | — |
-| AUST | pending | — | — | — |
-| REYK | pending | — | — | — |
-| HOFN | pending | — | — | — |
+(Add a row only if you find an issue. Empty table = full approval.)
+
+| Station | Reviewer | Date | Issue |
+|---|---|---|---|
+
+## TOS data issues surfaced during review
+
+(Not synthesis bugs — TOS data-modeling corrections. These don't
+block phase 5 but are worth a future cleanup pass.)
+
+- **AUST**: `antenna_offset_east = -0.0033` and
+  `antenna_offset_north = -0.0056` are stored on the antenna entity
+  but physically describe a monument eccentricity — they should
+  live on the monument entity, not the antenna.

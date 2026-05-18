@@ -1,0 +1,45 @@
+       Station: Reykjavík - Hjarðarhagi        
+╭───────────────────┬─────────────────────────╮
+│ Property          │ Value                   │
+├───────────────────┼─────────────────────────┤
+│ Marker            │ REYK                    │
+│ Name              │ Reykjavík - Hjarðarhagi │
+│ IERS DOMES Number │ 10202M001               │
+│ Coordinates       │ 64.138786, -21.955488   │
+│ Altitude          │ 93.012961 m             │
+│ Geological        │ N/A                     │
+│ Bedrock Type      │ N/A                     │
+│ Bedrock Condition │ N/A                     │
+│ Near Fault        │ No                      │
+│ EPOS Network      │ No                      │
+│ Date Started      │ N/A                     │
+╰───────────────────┴─────────────────────────╯
+             Contacts              
+                                   
+  Role       Name                  
+ ───────────────────────────────── 
+  Owner      Landmælingar Íslands  
+  Operator   Landmælingar Íslands  
+                                   
+                                           Station History
+                      Receiver                           Antenna                                    Monument
+                                                                                                                                         
+ From       To         Type          SN               FW   SW Type         Radome SN          Height   East  North  Height   East  North 
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 
+ 1995-11-02 1998-09-13 ROGUE SNR-80… N/A             3.2 3.20 AOAD/M_T     NONE   N/A          0.000  0.000  0.000   0.068  0.000  0.000 
+ 1998-09-13 1999-03-11 ROGUE SNR-80… N/A        3.2.32.4 3.20 AOAD/M_T     NONE   N/A          0.000  0.000  0.000   0.069  0.000  0.000 
+ 1999-03-11 1999-07-21 ROGUE SNR-80… N/A        3.2.32.4 3.20 AOAD/M_T     NONE   N/A          0.000  0.000  0.000   0.068  0.000  0.000 
+ 1999-07-21 2000-07-11 ROGUE SNR-80… N/A        3.2.32.9 3.20 AOAD/M_T     NONE   N/A          0.000  0.000  0.000   0.068  0.000  0.000 
+ 2000-07-11 2003-06-13 AOA SNR-8000… N/A        3.3.32.3 3.30 AOAD/M_T     NONE   N/A          0.000  0.000  0.000   0.068  0.000  0.000 
+ 2003-06-13 2004-06-30 AOA SNR-8000… N/A        3.3.32.3 3.30 AOAD/M_T     NONE   N/A          0.000  0.000  0.000   0.056  0.000  0.000 
+ 2004-06-30 2006-07-17 AOA SNR-8000… N/A        3.3.32.4 3.30 AOAD/M_T     NONE   N/A          0.000  0.000  0.000   0.056  0.000  0.000 
+ 2006-07-17 2006-08-16 AOA SNR-8000… N/A        3.3.32.4 3.30 AOAD/M_T     NONE   N/A          0.000  0.000  0.000   0.056  0.000  0.000 
+ 2006-08-16 2007-09-19 AOA SNR-8000… N/A        3.3.32.4 3.30 AOAD/M_T     NONE   N/A          0.000  0.000  0.000   0.056  0.000  0.000 
+ 2007-09-19 2007-09-20 TPS E_GGD     N/A        2.6.0 AP 2.60 ASH701073.1  SNOW   N/A          0.000  0.000  0.000   0.063  0.000  0.000 
+ 2007-09-20 2008-01-14 TPS E_GGD     N/A        2.6.0 AP 2.60 ASH701073.1  NONE   N/A          0.000  0.000  0.000   0.063  0.000  0.000 
+ 2008-01-14 2008-03-13 TPS E_GGD     N/A        2.6.1 JA 2.61 ASH701073.1  NONE   N/A          0.000  0.000  0.000   0.063  0.000  0.000 
+ 2008-03-13 2010-03-26 TPS E_GGD     N/A        2.6.1 JA 2.61 TPSCR.G3     TPSH   N/A          0.000  0.000  0.000   0.057  0.000  0.000 
+ 2010-03-26 2013-05-02 TPS E_GGD     N/A        3.4 DEC, 3.40 TPSCR.G3     TPSH   N/A          0.000  0.000  0.000   0.057  0.000  0.000 
+ 2013-05-02 2014-10-17 LEICA GR25    N/A        3.00/6.1 3.00 LEIAR25.R4   LEIT   N/A          0.000  0.000  0.000   0.057  0.000  0.000 
+ 2014-10-17 Present    LEICA GR25    1830201    3.00/6.1 3.00 LEIAR25.R4   LEIT   725281       0.000  0.000  0.000   0.057  0.000  0.000 
+                                                                                                                                         
