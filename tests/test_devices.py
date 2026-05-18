@@ -825,8 +825,133 @@ def test_station_sessions_returns_empty_when_station_missing():
     assert station_sessions(client, 999) == []
 
 
+# ---------------------------------------------------------------------------
+# _coalesce_sessions — phantom boundary merge pass
+# ---------------------------------------------------------------------------
+
+
+def _session(time_from, time_to, **slots):
+    """Build a session record with the given time bounds + slot content."""
+    return {"time_from": time_from, "time_to": time_to, **slots}
+
+
+def test_coalesce_sessions_empty_returns_empty():
+    from tostools.devices import _coalesce_sessions
+
+    assert _coalesce_sessions([], ["gnss_receiver", "antenna"]) == []
+
+
+def test_coalesce_sessions_single_session_unchanged():
+    from tostools.devices import _coalesce_sessions
+
+    sessions = [_session("2020-01-01", "2020-06-01", gnss_receiver={"model": "X"})]
+    out = _coalesce_sessions(sessions, ["gnss_receiver", "antenna"])
+    assert out == sessions
+
+
+def test_coalesce_sessions_merges_two_identical_adjacent():
+    """Two consecutive sessions with same slot content collapse to one."""
+    from tostools.devices import _coalesce_sessions
+
+    sessions = [
+        _session("2020-01-01", "2020-03-15", gnss_receiver={"model": "X"}),
+        _session("2020-03-15", "2020-06-01", gnss_receiver={"model": "X"}),
+    ]
+    out = _coalesce_sessions(sessions, ["gnss_receiver", "antenna"])
+    assert len(out) == 1
+    assert out[0]["time_from"] == "2020-01-01"
+    assert out[0]["time_to"] == "2020-06-01"
+    assert out[0]["gnss_receiver"] == {"model": "X"}
+
+
+def test_coalesce_sessions_merges_three_in_a_row():
+    """Run of identical sessions collapses to one spanning the full range."""
+    from tostools.devices import _coalesce_sessions
+
+    sessions = [
+        _session("2020-01-01", "2020-03-15", gnss_receiver={"model": "X"}),
+        _session("2020-03-15", "2020-04-20", gnss_receiver={"model": "X"}),
+        _session("2020-04-20", "2020-06-01", gnss_receiver={"model": "X"}),
+    ]
+    out = _coalesce_sessions(sessions, ["gnss_receiver", "antenna"])
+    assert len(out) == 1
+    assert out[0]["time_from"] == "2020-01-01"
+    assert out[0]["time_to"] == "2020-06-01"
+
+
+def test_coalesce_sessions_keeps_boundary_when_slot_differs():
+    """If even one tracked slot differs, the boundary is preserved."""
+    from tostools.devices import _coalesce_sessions
+
+    sessions = [
+        _session("2020-01-01", "2020-03-15", gnss_receiver={"model": "X"}),
+        _session("2020-03-15", "2020-06-01", gnss_receiver={"model": "Y"}),
+    ]
+    out = _coalesce_sessions(sessions, ["gnss_receiver", "antenna"])
+    assert out == sessions
+
+
+def test_coalesce_sessions_mixed_run_partial_merge():
+    """Identical pair in the middle merges; non-identical ones are kept apart."""
+    from tostools.devices import _coalesce_sessions
+
+    sessions = [
+        _session("2020-01-01", "2020-02-01", gnss_receiver={"model": "X"}),
+        _session("2020-02-01", "2020-03-01", gnss_receiver={"model": "Y"}),
+        _session("2020-03-01", "2020-04-01", gnss_receiver={"model": "Y"}),
+        _session("2020-04-01", "2020-05-01", gnss_receiver={"model": "Z"}),
+    ]
+    out = _coalesce_sessions(sessions, ["gnss_receiver", "antenna"])
+    assert len(out) == 3
+    assert out[0]["gnss_receiver"] == {"model": "X"}
+    assert out[1]["time_from"] == "2020-02-01"
+    assert out[1]["time_to"] == "2020-04-01"
+    assert out[1]["gnss_receiver"] == {"model": "Y"}
+    assert out[2]["gnss_receiver"] == {"model": "Z"}
+
+
+def test_coalesce_sessions_treats_missing_and_none_as_equal():
+    """A slot absent on one side and None on the other compares equal."""
+    from tostools.devices import _coalesce_sessions
+
+    sessions = [
+        _session("2020-01-01", "2020-03-15", gnss_receiver={"model": "X"}),
+        # next one has antenna=None explicitly; previous doesn't carry an antenna key
+        {
+            "time_from": "2020-03-15",
+            "time_to": "2020-06-01",
+            "gnss_receiver": {"model": "X"},
+            "antenna": None,
+        },
+    ]
+    out = _coalesce_sessions(sessions, ["gnss_receiver", "antenna"])
+    assert len(out) == 1
+    assert out[0]["time_to"] == "2020-06-01"
+
+
+def test_coalesce_sessions_preserves_open_trailing_window():
+    """An open-trailing session merges with prior identical one but keeps None."""
+    from tostools.devices import _coalesce_sessions
+
+    sessions = [
+        _session("2020-01-01", "2020-03-15", gnss_receiver={"model": "X"}),
+        _session("2020-03-15", None, gnss_receiver={"model": "X"}),
+    ]
+    out = _coalesce_sessions(sessions, ["gnss_receiver", "antenna"])
+    assert len(out) == 1
+    assert out[0]["time_from"] == "2020-01-01"
+    assert out[0]["time_to"] is None
+
+
 def test_station_at_returns_session_covering_date():
-    """Pivots produce datetime objects; station_at matches by lexical ISO."""
+    """Pivots produce datetime objects; station_at matches by lexical ISO.
+
+    The fixture has two adjacent joins of the *same* device with
+    identical attribute history. The coalescing pass merges them into
+    a single open-ended session spanning 2020-01-01 → None — that's
+    the correct behavior, since nothing actually changed at the join
+    boundary 2021-01-01.
+    """
     client = MagicMock()
     client.get_entity_history.side_effect = [
         _station_history_with_children(
@@ -857,7 +982,7 @@ def test_station_at_returns_session_covering_date():
     result = station_at(client, 100, "2020-06-15")
     assert result is not None
     assert result["time_from"].year == 2020
-    assert result["time_to"].year == 2021
+    assert result["time_to"] is None
     assert result["gnss_receiver"]["serial_number"] == "G1"
 
 

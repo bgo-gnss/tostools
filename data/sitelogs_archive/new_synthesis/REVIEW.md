@@ -139,30 +139,44 @@ read the table's emptiness as approval and proceed.
 
 | Station | Reviewer | Date | Issue |
 |---|---|---|---|
-| AUST | BGO | 2026-05-18 | Over-splits. The 2000-07-06 → 2000-07-10 region should be **one** session — the new chain emits 3 sub-windows, the first two of which (`2000-07-06→07`, `2000-07-07→08`) have identical equipment in every slot. Phantom boundary at 2000-07-07. Similar over-split at 2003-06-18 → 2003-06-21 (should be one session). |
-| HOFN | BGO | 2026-05-18 | Over-splits. The 2013-10-09 → Present period should be **one** physical configuration; the new chain emits 3 sub-windows triggered by firmware-bump and late-arriving serial-number boundaries that don't reflect equipment changes. |
+| AUST | BGO | 2026-05-18 | Over-splits at 2000-07-06 → 2000-07-08 (phantom boundary at 2000-07-07) and 2003-06-18 → 2003-06-21 (should be one session). **First case fixed by coalescing pass** (`2000-07-06→07` + `2000-07-07→08` merged because identical equipment). The 2003-06-18→19 split remains — receiver SN and firmware genuinely differ in TOS records, needs upstream data cleanup. |
+| HOFN | BGO | 2026-05-18 | Over-splits in 2013-10-09 → Present period from firmware bumps + late-arriving SN boundaries. **Not fixed by coalescing pass** — TOS records different firmware versions and SN populations at those boundaries; synthesis can't merge across genuine attribute differences. Needs upstream TOS data cleanup. |
 
-### Proposed fix — slicer coalescing pass
+### Coalescing pass (`station_sessions(..., coalesce=True)`)
 
-A coalescing pass in `station_sessions` after the slicer emits
-atomic sub-windows: merge consecutive sub-windows whose four
-subtype slots (`gnss_receiver`, `antenna`, `radome`, `monument`)
-are identical. This catches the AUST 2000-07-06 → 2000-07-10 case
-cleanly (all four slots match across both phantom sub-windows).
+Implemented in `src/tostools/devices.py` after the pivot. Walks the
+emitted sessions and merges any consecutive pair whose four subtype
+slots (`gnss_receiver`, `antenna`, `radome`, `monument`) are
+identical. Default `coalesce=True`; pass `False` to see raw atomic
+sub-windows.
 
-Does **not** catch:
+**What it catches:**
 
-- AUST 2003-06-18 → 2003-06-21 — receiver SN and firmware
-  genuinely differ between the two sub-windows; from TOS's
-  perspective they are different sessions.
-- HOFN 2013-10-09 → 2014-10-17 — firmware changes
-  (`3.01/6.2 → 3.03/6.12`) and serial number populates late
-  (`N/A → 1830199`). TOS records these as boundary transitions.
+- AUST `2000-07-06 → 2000-07-07` + `2000-07-07 → 2000-07-08` →
+  merged (identical equipment + offsets in both sub-windows).
+- AUST `2011-06-21 → 2011-09-19` + `2011-09-19 → 2013-12-09` →
+  merged (a similar phantom boundary that wasn't called out by the
+  reviewer but coalesces correctly on the same rule).
 
-For those, the underlying TOS data needs cleanup — the boundary
-records exist because someone added/edited periods at those dates
-even though the physical equipment was unchanged. The synthesis
-chain can only render what TOS contains.
+Result: AUST snapshot drops from 31 → 29 sessions.
+
+**What it does NOT catch (by design):**
+
+- AUST `2003-06-18 → 2003-06-21` — receiver SN changes (25148 →
+  25992) and firmware changes (7.29 → 7.19) between the two
+  sub-windows. From TOS's perspective these are distinct sessions.
+- HOFN `2013-10-09 → 2014-10-17` — firmware bumps (`3.01/6.2 →
+  3.03/6.12`) and a serial-number population (`N/A → 1830199`).
+
+For these, the underlying TOS data needs cleanup: someone added or
+edited attribute periods at those dates even though the physical
+equipment was unchanged. The synthesis chain can only render what
+TOS records; merging across genuine attribute differences would
+mask legitimate state.
+
+**Recommended follow-up:** triage TOS data for AUST 2003-06 and
+HOFN 2013-10 → 2014-10 — likely candidates for the
+`tos audit apply` workflow once the patterns are identified.
 
 ## TOS data issues surfaced during review
 

@@ -929,11 +929,46 @@ def _device_structure(row: Dict[str, Any]) -> Dict[str, Any]:
     return {}
 
 
+def _coalesce_sessions(
+    sessions: List[Dict[str, Any]], slot_keys: Sequence[str]
+) -> List[Dict[str, Any]]:
+    """Merge consecutive sessions whose slot contents are identical.
+
+    The slicer + pivot can emit phantom boundaries when an attribute
+    period in TOS has a date_from / date_to that doesn't actually
+    coincide with a real equipment change (data-entry artifact,
+    metadata cleanup, late-arriving record). When two consecutive
+    atomic sub-windows have *identical* content in every tracked slot
+    (``gnss_receiver``, ``antenna``, ``radome``, ``monument``), they
+    describe the same physical configuration; the boundary between
+    them is noise. Merge them by extending the earlier window's
+    ``time_to`` to the later window's ``time_to``.
+
+    The slicer's atomic-window guarantee makes this safe: each
+    sub-window's end is the next sub-window's start, so the merged
+    window covers the same contiguous interval.
+
+    Slots considered missing on both sides compare equal (a slot
+    being absent or ``None`` are treated identically).
+    """
+    if not sessions:
+        return sessions
+    out: List[Dict[str, Any]] = [sessions[0]]
+    for current in sessions[1:]:
+        prev = out[-1]
+        if all(prev.get(k) == current.get(k) for k in slot_keys):
+            prev["time_to"] = current["time_to"]
+        else:
+            out.append(current)
+    return out
+
+
 def station_sessions(
     client: TOSClient,
     station_id: int,
     *,
     subtypes: Sequence[str] = DEFAULT_GPS_SUBTYPES,
+    coalesce: bool = True,
 ) -> List[Dict[str, Any]]:
     """Per-station-session rows for one station.
 
@@ -982,6 +1017,17 @@ def station_sessions(
     (the byte-equality oracle test on RHOF locks that invariant). For
     AUST and other overlap-heavy stations it eliminates the inverted
     sessions legacy produces.
+
+    4. **Coalescing pass** (``coalesce=True``, the default): walk the
+       emitted rows and merge consecutive ones whose four subtype
+       slots are identical. This collapses phantom boundaries
+       introduced by TOS data-entry artifacts (e.g. a redundant
+       attribute period transition where nothing actually changed).
+       Pass ``coalesce=False`` to inspect the raw atomic sub-windows
+       (useful for debugging slicer behavior). The coalescing pass
+       only merges sessions where *every* tracked slot matches; it
+       never merges across real equipment / firmware / serial
+       changes — those need TOS data cleanup, not synthesis logic.
     """
     station_history = client.get_entity_history(station_id)
     if station_history is None:
@@ -1042,6 +1088,8 @@ def station_sessions(
         if filled:
             pivoted.append(record)
 
+    if coalesce:
+        pivoted = _coalesce_sessions(pivoted, list(subtypes))
     return pivoted
 
 

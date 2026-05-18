@@ -108,6 +108,37 @@ had many. After this fix the AUST snapshot drops from 26 sessions
 with 4 inversions to 31 sessions with 0 inversions, and every
 session has `time_to > time_from` by construction.
 
+## Coalescing pass — phantom-boundary cleanup
+
+The atomic slicer + boundary-merge pivot guarantee correctness but
+react to *every* boundary in TOS, including data-entry artifacts (a
+redundant attribute-period transition, a metadata cleanup with the
+same value, a backfilled record). On stations with noisy attribute
+periods this produces phantom sub-windows where two consecutive
+sessions describe the same physical configuration.
+
+After the pivot, `station_sessions` runs a coalescing pass that
+merges consecutive sessions whose four subtype slots
+(`gnss_receiver`, `antenna`, `radome`, `monument`) are *identical*.
+The atomic-slicer guarantee makes this safe: each sub-window's end
+is the next sub-window's start, so the merged window covers a
+contiguous interval.
+
+The pass is conservative — it only merges when *every* tracked slot
+matches. Real equipment changes (different receiver SN, firmware
+bump, antenna swap, height adjustment) are never merged across. For
+those, the underlying TOS data needs cleanup; the synthesis chain
+can only render what TOS contains.
+
+After this pass on AUST, two phantom boundaries collapse
+(`2000-07-06 → 2000-07-08` was incorrectly split at 2000-07-07;
+`2011-06-21 → 2013-12-09` was incorrectly split at 2011-09-19),
+dropping the snapshot from 31 to 29 sessions. RHOF byte-equality is
+preserved (clean stations have no identical-adjacent sub-windows).
+
+Pass `coalesce=False` to inspect the raw atomic sub-windows (useful
+for slicer debugging).
+
 ## Enrichment — receiver-swap gap windows
 
 Beyond the two legacy bugs, the boundary-merge pivot exposes a third
