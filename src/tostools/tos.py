@@ -2497,6 +2497,28 @@ def _audit_main(argv):
         "etc.). Default is inherent-only.",
     )
     p_attr.add_argument(
+        "--include",
+        action="append",
+        default=[],
+        dest="include",
+        metavar="CODE[,CODE...]",
+        help="Audit these codes regardless of their catalog classification "
+        "(mutable, TODO, applies_to mismatch, gps_relevance=no all "
+        "bypassed). Surgical alternative to --include-mutable. Repeatable, "
+        "and each value may be a comma-separated list. Unknown codes "
+        "raise an error with did-you-mean suggestions.",
+    )
+    p_attr.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        dest="exclude",
+        metavar="CODE[,CODE...]",
+        help="Drop these codes entirely — not flagged, not even tracked as "
+        "suppressed. Station-wide silencer (coarser than the per-violation "
+        "SUPPRESS file). On conflict with --include, --exclude wins.",
+    )
+    p_attr.add_argument(
         "--catalog",
         type=Path,
         default=None,
@@ -2711,6 +2733,21 @@ def _audit_main(argv):
     if args.kind == "attribute-dates":
         from . import audit_attribute_dates as add_mod
 
+        # Flatten the repeatable + comma-separated --include / --exclude
+        # forms into plain lists. argparse handles `--include a --include b`
+        # via action='append'; we add comma-splitting on top so
+        # `--include a,b` is equivalent. Why post-process here instead of
+        # in argparse: type=callable would split a single value but lose
+        # the per-flag composition with append.
+        def _flatten_codes(values):
+            out = []
+            for v in values or []:
+                out.extend(c.strip() for c in v.split(",") if c.strip())
+            return out
+
+        include_codes = _flatten_codes(args.include)
+        exclude_codes = _flatten_codes(args.exclude)
+
         try:
             report = add_mod.audit_station_attribute_dates(
                 client,
@@ -2718,6 +2755,8 @@ def _audit_main(argv):
                 id_entity=args.id_entity,
                 subtypes=args.subtypes,
                 include_mutable=args.include_mutable,
+                include_codes=include_codes or None,
+                exclude_codes=exclude_codes or None,
                 catalog_path=args.catalog,
                 suppressions_path=args.suppressions,
                 use_suppressions=not args.no_suppressions,
@@ -2725,6 +2764,13 @@ def _audit_main(argv):
         except (LookupError, ValueError, FileNotFoundError) as e:
             print(str(e), file=sys.stderr)
             return 2
+        if report.included_codes_unmatched:
+            print(
+                "note: --include matched 0 attributes on this station for: "
+                f"{', '.join(report.included_codes_unmatched)} "
+                "(typo? wrong station? wrong subtype filter?)",
+                file=sys.stderr,
+            )
         if report.suppressions_errors:
             print(
                 f"warning: {len(report.suppressions_errors)} malformed line(s) "
@@ -3700,6 +3746,9 @@ def _attribute_date_report_to_dict(report):
             {"line_no": e.line_no, "message": e.message, "raw": e.raw}
             for e in report.suppressions_errors
         ],
+        "included_codes": list(report.included_codes),
+        "excluded_codes": list(report.excluded_codes),
+        "included_codes_unmatched": list(report.included_codes_unmatched),
     }
 
 
@@ -3730,6 +3779,10 @@ def _print_attribute_date_report(report, *, verbose: bool = False):
         )
     elif report.suppressions_disabled:
         print("  suppressions: disabled (--no-suppressions)")
+    if report.included_codes:
+        print(f"  --include codes: {', '.join(report.included_codes)}")
+    if report.excluded_codes:
+        print(f"  --exclude codes: {', '.join(report.excluded_codes)}")
 
     if report.violations:
         # Group by (device_id, subtype, serial) to render a compact block per device.

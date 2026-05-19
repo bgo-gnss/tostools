@@ -26,6 +26,7 @@ from tostools.audit_attribute_dates import (
     format_triage_file,
     load_catalog,
     load_suppressions,
+    validate_codes_against_catalog,
 )
 from tostools.tos import _parse_action_file
 
@@ -943,3 +944,299 @@ def test_triage_includes_suppress_hint_per_violation():
         _report_with([v]), generated_at="2026-05-19T00:00:00+00:00"
     )
     assert "SUPPRESS 4773 serial_number 2014-10-17" in out
+
+
+# ---------------------------------------------------------------------------
+# validate_codes_against_catalog (Layer 5)
+# ---------------------------------------------------------------------------
+
+
+def test_validate_codes_passes_on_known(catalog_path: Path):
+    catalog = load_catalog(catalog_path)
+    # Empty input and known codes both pass without raising.
+    validate_codes_against_catalog([], catalog)
+    validate_codes_against_catalog(["serial_number", "model"], catalog)
+
+
+def test_validate_codes_raises_with_did_you_mean(catalog_path: Path):
+    catalog = load_catalog(catalog_path)
+    # Close match present in the catalog should appear in the message.
+    with pytest.raises(ValueError, match="firmware_version"):
+        validate_codes_against_catalog(
+            ["fimrware_version"], catalog, flag_label="--include code"
+        )
+
+
+def test_validate_codes_raises_when_no_close_match(catalog_path: Path):
+    catalog = load_catalog(catalog_path)
+    # A wildly off code falls through to the catalog-pointer hint.
+    with pytest.raises(ValueError, match="attribute_codes.yaml"):
+        validate_codes_against_catalog(["wxyz123"], catalog)
+
+
+def test_validate_codes_uses_flag_label_in_message(catalog_path: Path):
+    catalog = load_catalog(catalog_path)
+    with pytest.raises(ValueError, match="Unknown --exclude code"):
+        validate_codes_against_catalog(
+            ["nope_nope"], catalog, flag_label="--exclude code"
+        )
+
+
+# ---------------------------------------------------------------------------
+# audit_station_attribute_dates — --include / --exclude semantics
+# ---------------------------------------------------------------------------
+
+
+def test_include_audits_mutable_code(catalog_path: Path):
+    """`firmware_version` is mutable — default audit skips it. With
+    --include firmware_version, the data-entry pattern is surfaced."""
+    device = _device(
+        9100,
+        "gnss_receiver",
+        [
+            _attr("serial_number", "SN", "2010-01-01"),
+            _attr("firmware_version", "1.0", "2010-01-01", "2012-01-01"),
+            _attr("firmware_version", "2.0", "2012-01-01"),
+        ],
+    )
+    station = _station(100, "TEST", [_conn(9100, "2010-01-01")])
+    client = _client_for({100: station, 9100: device})
+
+    report = audit_station_attribute_dates(
+        client,
+        id_entity=100,
+        catalog_path=catalog_path,
+        include_codes=["firmware_version"],
+    )
+    codes = sorted(v.code for v in report.violations)
+    assert "firmware_version" in codes
+
+
+def test_include_audits_todo_classified_code(catalog_path: Path):
+    """A code with classification=TODO is normally skipped (operator
+    hasn't reviewed). --include overrides — useful for spot-checking."""
+    device = _device(
+        9101,
+        "gnss_receiver",
+        [
+            _attr("serial_number", "SN", "2010-01-01"),
+            _attr("todo_code", "v", "2014-10-17"),
+        ],
+    )
+    station = _station(100, "TEST", [_conn(9101, "2010-01-01")])
+    client = _client_for({100: station, 9101: device})
+
+    report = audit_station_attribute_dates(
+        client,
+        id_entity=100,
+        catalog_path=catalog_path,
+        include_codes=["todo_code"],
+    )
+    codes = sorted(v.code for v in report.violations)
+    assert "todo_code" in codes
+
+
+def test_include_audits_gps_relevance_no_code(catalog_path: Path):
+    """`not_relevant_code` is gps_relevance=no — normally filtered out
+    even though it's classified inherent. --include bypasses that."""
+    device = _device(
+        9102,
+        "gnss_receiver",
+        [
+            _attr("serial_number", "SN", "2010-01-01"),
+            _attr("not_relevant_code", "v", "2014-10-17"),
+        ],
+    )
+    station = _station(100, "TEST", [_conn(9102, "2010-01-01")])
+    client = _client_for({100: station, 9102: device})
+
+    report = audit_station_attribute_dates(
+        client,
+        id_entity=100,
+        catalog_path=catalog_path,
+        include_codes=["not_relevant_code"],
+    )
+    assert "not_relevant_code" in [v.code for v in report.violations]
+
+
+def test_include_overrides_applies_to_exclusion(catalog_path: Path):
+    """`not_relevant_code` has applies_to=[seismometer], so on a
+    gnss_receiver it would normally be skipped. --include forces it."""
+    device = _device(
+        9103,
+        "gnss_receiver",
+        [
+            _attr("serial_number", "SN", "2010-01-01"),
+            _attr("not_relevant_code", "v", "2014-10-17"),
+        ],
+    )
+    station = _station(100, "TEST", [_conn(9103, "2010-01-01")])
+    client = _client_for({100: station, 9103: device})
+
+    report = audit_station_attribute_dates(
+        client,
+        id_entity=100,
+        catalog_path=catalog_path,
+        include_codes=["not_relevant_code"],
+    )
+    # Even though applies_to=[seismometer] excludes gnss_receiver, the
+    # include flag bypasses that gate.
+    assert any(v.code == "not_relevant_code" for v in report.violations)
+
+
+def test_exclude_drops_inherent_code(catalog_path: Path):
+    """An exclude on `serial_number` (normally flagged inherent) must
+    drop it entirely — not present in violations, not present in
+    suppressed (different code path)."""
+    device = _device(
+        9104,
+        "gnss_receiver",
+        [
+            _attr("serial_number", "SN", "2014-10-17"),
+            _attr("model", "M", "2002-01-01"),
+        ],
+    )
+    station = _station(100, "TEST", [_conn(9104, "2002-01-01")])
+    client = _client_for({100: station, 9104: device})
+
+    report = audit_station_attribute_dates(
+        client,
+        id_entity=100,
+        catalog_path=catalog_path,
+        exclude_codes=["serial_number"],
+    )
+    codes = [v.code for v in report.violations]
+    suppressed_codes = [s.violation.code for s in report.suppressed]
+    assert "serial_number" not in codes
+    assert "serial_number" not in suppressed_codes
+    assert "serial_number" in report.excluded_codes
+
+
+def test_exclude_wins_over_include_on_same_code(catalog_path: Path):
+    """The destination doc / advisor contract: exclude is the more
+    conservative side. A code in both sets is silenced (exclude wins)."""
+    device = _device(
+        9105,
+        "gnss_receiver",
+        [
+            _attr("serial_number", "SN", "2010-01-01"),
+            _attr("firmware_version", "1.0", "2010-01-01", "2012-01-01"),
+            _attr("firmware_version", "2.0", "2012-01-01"),
+        ],
+    )
+    station = _station(100, "TEST", [_conn(9105, "2010-01-01")])
+    client = _client_for({100: station, 9105: device})
+
+    report = audit_station_attribute_dates(
+        client,
+        id_entity=100,
+        catalog_path=catalog_path,
+        include_codes=["firmware_version"],
+        exclude_codes=["firmware_version"],
+    )
+    assert not any(v.code == "firmware_version" for v in report.violations)
+    # Audit honoured the exclude — the include is dropped from the
+    # report (so verbose output doesn't lie about what was audited).
+    assert "firmware_version" not in report.included_codes
+    assert "firmware_version" in report.excluded_codes
+
+
+def test_include_unmatched_recorded_for_silent_no_op_detection(
+    catalog_path: Path,
+):
+    """If --include names a valid catalog code but no device on the
+    station has that attribute, the code shows up in
+    `included_codes_unmatched` so the CLI can warn the operator."""
+    device = _device(
+        9106,
+        "gnss_receiver",
+        [
+            _attr("serial_number", "SN", "2014-10-17"),
+            _attr("model", "M", "2002-01-01"),
+            # No firmware_version on this device.
+        ],
+    )
+    station = _station(100, "TEST", [_conn(9106, "2002-01-01")])
+    client = _client_for({100: station, 9106: device})
+
+    report = audit_station_attribute_dates(
+        client,
+        id_entity=100,
+        catalog_path=catalog_path,
+        include_codes=["firmware_version"],
+    )
+    assert report.included_codes_unmatched == ["firmware_version"]
+
+
+def test_include_unmatched_empty_when_code_was_seen(catalog_path: Path):
+    """Matched codes shouldn't appear in the unmatched list — the
+    distinction is meaningful for the silent-no-op warning."""
+    device = _device(
+        9107,
+        "gnss_receiver",
+        [
+            _attr("serial_number", "SN", "2010-01-01"),
+            _attr("firmware_version", "1.0", "2010-01-01", "2012-01-01"),
+            _attr("firmware_version", "2.0", "2012-01-01"),
+        ],
+    )
+    station = _station(100, "TEST", [_conn(9107, "2010-01-01")])
+    client = _client_for({100: station, 9107: device})
+
+    report = audit_station_attribute_dates(
+        client,
+        id_entity=100,
+        catalog_path=catalog_path,
+        include_codes=["firmware_version"],
+    )
+    assert report.included_codes_unmatched == []
+
+
+def test_include_unknown_code_raises_with_did_you_mean(
+    catalog_path: Path,
+):
+    """Validation happens before any TOS reads — typos surface
+    immediately with a suggestion."""
+    client = _client_for({100: _station(100, "TEST", [])})
+    with pytest.raises(ValueError, match="serial_number"):
+        audit_station_attribute_dates(
+            client,
+            id_entity=100,
+            catalog_path=catalog_path,
+            include_codes=["serial_numberr"],  # extra 'r'
+        )
+
+
+def test_exclude_unknown_code_raises(catalog_path: Path):
+    """Same validation contract for --exclude."""
+    client = _client_for({100: _station(100, "TEST", [])})
+    with pytest.raises(ValueError, match="Unknown --exclude code"):
+        audit_station_attribute_dates(
+            client,
+            id_entity=100,
+            catalog_path=catalog_path,
+            exclude_codes=["totally_made_up_code"],
+        )
+
+
+def test_include_locations_scope_code_handled_gracefully(catalog_path: Path):
+    """The catalog's locations/stations scopes are flattened into the
+    same lookup. Including `address` (a locations-scope code) shouldn't
+    crash — it just lands in included_codes_unmatched because devices
+    don't carry location attributes."""
+    device = _device(
+        9108,
+        "gnss_receiver",
+        [_attr("serial_number", "SN", "2010-01-01")],
+    )
+    station = _station(100, "TEST", [_conn(9108, "2010-01-01")])
+    client = _client_for({100: station, 9108: device})
+
+    report = audit_station_attribute_dates(
+        client,
+        id_entity=100,
+        catalog_path=catalog_path,
+        include_codes=["address"],
+    )
+    assert "address" in report.included_codes
+    assert "address" in report.included_codes_unmatched

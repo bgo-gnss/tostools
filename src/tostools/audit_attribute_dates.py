@@ -156,6 +156,13 @@ class StationAttributeDateReport:
     suppressions_path: Optional[Path] = None
     suppressions_errors: List[SuppressionParseError] = field(default_factory=list)
     suppressions_disabled: bool = False
+    # Layer 5 — per-code filter overrides.
+    included_codes: List[str] = field(default_factory=list)
+    excluded_codes: List[str] = field(default_factory=list)
+    # Codes in ``included_codes`` that didn't match any attribute on any
+    # audited device. Surfaces typos / wrong-station mistakes that
+    # validation alone can't catch (the code is real, but no device has it).
+    included_codes_unmatched: List[str] = field(default_factory=list)
 
     @property
     def has_violations(self) -> bool:
@@ -198,6 +205,38 @@ def load_catalog(path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
             merged["_scope"] = scope
             flat[code] = merged
     return flat
+
+
+def validate_codes_against_catalog(
+    codes: Sequence[str],
+    catalog: Dict[str, Dict[str, Any]],
+    *,
+    flag_label: str = "code",
+) -> None:
+    """Raise ValueError on the first unknown code, with did-you-mean.
+
+    Used by ``--include`` and ``--exclude`` to fail fast on typos.
+    ``flag_label`` lets the caller customise the error message
+    (``"--include code"``, ``"--exclude code"``, ...).
+
+    Empty input is a no-op — caller validates against an empty sequence
+    when the flag wasn't passed.
+    """
+    import difflib
+
+    known = set(catalog.keys())
+    for code in codes:
+        if code in known:
+            continue
+        suggestions = difflib.get_close_matches(code, known, n=3, cutoff=0.6)
+        if suggestions:
+            hint = f" Did you mean: {', '.join(suggestions)}?"
+        else:
+            hint = (
+                " Run with no --include/--exclude or consult "
+                "data/attribute_codes.yaml for the catalog."
+            )
+        raise ValueError(f"Unknown {flag_label}: {code!r}.{hint}")
 
 
 def classification_for(entry: Dict[str, Any], subtype: str) -> Optional[str]:
@@ -416,6 +455,8 @@ def audit_station_attribute_dates(
     id_entity: Optional[int] = None,
     subtypes: Optional[Sequence[str]] = None,
     include_mutable: bool = False,
+    include_codes: Optional[Sequence[str]] = None,
+    exclude_codes: Optional[Sequence[str]] = None,
     catalog_path: Optional[Path] = None,
     suppressions_path: Optional[Path] = None,
     use_suppressions: bool = True,
@@ -441,6 +482,21 @@ def audit_station_attribute_dates(
         checked — firmware bumps and other mutable transitions are
         skipped. Set True to surface every mismatched date_from for
         debugging.
+    include_codes
+        Per-code override. Any code in this list is audited regardless
+        of its classification (mutable, TODO, applies_to mismatch,
+        gps_relevance=no). The surgical alternative to
+        ``include_mutable``: instead of "audit every mutable",
+        ``include_codes=["owner"]`` audits exactly the codes you name.
+        Validated against the catalog at call time — unknown codes
+        raise :class:`ValueError` with did-you-mean suggestions.
+    exclude_codes
+        Per-code skip. Any code in this list is dropped before any
+        other filter runs — not flagged, not even tracked as
+        suppressed. Useful as a station-wide silencer (coarser than
+        the per-violation suppression file). On conflict with
+        ``include_codes`` for the same code, exclude wins. Same
+        catalog validation as ``include_codes``.
     catalog_path
         Override the catalog file location. Defaults to
         :data:`DEFAULT_CATALOG_PATH` or the ``TOSTOOLS_ATTRIBUTE_CODES_PATH``
@@ -469,11 +525,33 @@ def audit_station_attribute_dates(
     LookupError
         Station not found.
     ValueError
-        Invalid subtype name, or neither ``name`` nor ``id_entity`` set.
+        Invalid subtype name, neither ``name`` nor ``id_entity`` set,
+        or an unknown code passed to ``include_codes`` / ``exclude_codes``.
     FileNotFoundError
         Catalog file missing (suppression file missing is not an error).
     """
     catalog = load_catalog(catalog_path)
+
+    # Layer 5 — validate before any TOS reads. Unknown codes fail fast
+    # with did-you-mean suggestions; catches typos at the boundary.
+    include_set = set(include_codes or [])
+    exclude_set = set(exclude_codes or [])
+    if include_set:
+        validate_codes_against_catalog(
+            sorted(include_set), catalog, flag_label="--include code"
+        )
+    if exclude_set:
+        validate_codes_against_catalog(
+            sorted(exclude_set), catalog, flag_label="--exclude code"
+        )
+    # Exclude wins on conflict — the more conservative choice. Document
+    # this contract by removing collisions from include_set up front;
+    # the inner loop then only needs to check exclude first.
+    include_set -= exclude_set
+    # Track which include codes actually matched something so we can
+    # warn about silent-no-ops (valid code, no device has it on this
+    # station — typo or wrong station, validation can't tell).
+    include_matched: set[str] = set()
 
     if use_suppressions:
         suppressions, supp_errors, supp_path = load_suppressions(suppressions_path)
@@ -499,6 +577,8 @@ def audit_station_attribute_dates(
         suppressions_path=supp_path,
         suppressions_errors=supp_errors,
         suppressions_disabled=not use_suppressions,
+        included_codes=sorted(include_set),
+        excluded_codes=sorted(exclude_set),
     )
     unknown_codes_seen: set[str] = set()
 
@@ -543,18 +623,33 @@ def audit_station_attribute_dates(
                 continue
             code = str(code_raw)
 
+            # Layer 5 filter order:
+            #   1. --exclude wins absolutely — drop before catalog lookup.
+            #   2. --include bypasses every catalog-based skip (mutable
+            #      gate, TODO, applies_to, gps_relevance) but still
+            #      requires the code to exist in the catalog (validation
+            #      enforced this above). Track matches so we can warn
+            #      about silent-no-ops at the end of the audit.
+            #   3. Default path: catalog lookup + classification filter
+            #      + gps_relevance filter, same as before Layer 5.
+            if code in exclude_set:
+                continue
+
             entry = catalog.get(code)
             if entry is None:
                 unknown_codes_seen.add(code)
                 continue
-            if entry.get("gps_relevance") != "yes":
-                continue
 
-            cls = classification_for(entry, str(dev_subtype))
-            if cls is None:
-                continue
-            if cls == "mutable" and not include_mutable:
-                continue
+            if code in include_set:
+                include_matched.add(code)
+            else:
+                if entry.get("gps_relevance") != "yes":
+                    continue
+                cls = classification_for(entry, str(dev_subtype))
+                if cls is None:
+                    continue
+                if cls == "mutable" and not include_mutable:
+                    continue
 
             df_raw = attr.get("date_from")
             if not df_raw:
@@ -589,6 +684,9 @@ def audit_station_attribute_dates(
                 report.violations.append(violation)
 
     report.unknown_codes = sorted(unknown_codes_seen)
+    # Layer 5 — any --include code that never touched a single device's
+    # attribute is a silent-no-op signal worth surfacing.
+    report.included_codes_unmatched = sorted(include_set - include_matched)
     # Stable sort by (device, code, date_from) for deterministic output.
     report.violations.sort(key=lambda v: (v.id_entity, v.code, v.date_from))
     report.suppressed.sort(
