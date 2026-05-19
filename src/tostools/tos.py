@@ -2500,6 +2500,20 @@ def _audit_main(argv):
         "data/attribute_codes.yaml or $TOSTOOLS_ATTRIBUTE_CODES_PATH.",
     )
     p_attr.add_argument(
+        "--suppressions",
+        type=Path,
+        default=None,
+        help="Override the suppression file path. Defaults to "
+        "data/audit_suppressions/attribute_dates.txt. File-not-found is "
+        "silent (the file is opt-in).",
+    )
+    p_attr.add_argument(
+        "--no-suppressions",
+        action="store_true",
+        help="Bypass the suppression file entirely; every rule-3 hit is "
+        "reported. Useful to verify what a stale SUPPRESS line is hiding.",
+    )
+    p_attr.add_argument(
         "--json", action="store_true", help="Emit JSON instead of plain text."
     )
     p_attr.add_argument(
@@ -2691,10 +2705,23 @@ def _audit_main(argv):
                 subtypes=args.subtypes,
                 include_mutable=args.include_mutable,
                 catalog_path=args.catalog,
+                suppressions_path=args.suppressions,
+                use_suppressions=not args.no_suppressions,
             )
         except (LookupError, ValueError, FileNotFoundError) as e:
             print(str(e), file=sys.stderr)
             return 2
+        if report.suppressions_errors:
+            print(
+                f"warning: {len(report.suppressions_errors)} malformed line(s) "
+                f"in {report.suppressions_path}:",
+                file=sys.stderr,
+            )
+            for err in report.suppressions_errors:
+                print(
+                    f"  line {err.line_no}: {err.message}",
+                    file=sys.stderr,
+                )
         if args.json:
             print(
                 _json.dumps(
@@ -3467,6 +3494,19 @@ def _device_report_to_dict(report):
 
 def _attribute_date_report_to_dict(report):
     """Convert a :class:`StationAttributeDateReport` to a JSON-serialisable dict."""
+
+    def _violation_dict(v):
+        return {
+            "id_entity": v.id_entity,
+            "subtype": v.subtype,
+            "serial": v.serial,
+            "code": v.code,
+            "date_from": v.date_from,
+            "value": v.value,
+            "earliest_known": v.earliest_known,
+            "anchor_source": v.anchor_source,
+        }
+
     return {
         "kind": "attribute-dates",
         "station_id": report.station_id,
@@ -3474,18 +3514,22 @@ def _attribute_date_report_to_dict(report):
         "audited_devices": report.audited_devices,
         "devices_skipped": report.devices_skipped,
         "unknown_codes": list(report.unknown_codes),
-        "violations": [
+        "violations": [_violation_dict(v) for v in report.violations],
+        "suppressed": [
             {
-                "id_entity": v.id_entity,
-                "subtype": v.subtype,
-                "serial": v.serial,
-                "code": v.code,
-                "date_from": v.date_from,
-                "value": v.value,
-                "earliest_known": v.earliest_known,
-                "anchor_source": v.anchor_source,
+                **_violation_dict(s.violation),
+                "suppressions_path": str(s.suppressions_path),
+                "line_no": s.line_no,
             }
-            for v in report.violations
+            for s in report.suppressed
+        ],
+        "suppressions_path": (
+            str(report.suppressions_path) if report.suppressions_path else None
+        ),
+        "suppressions_disabled": report.suppressions_disabled,
+        "suppressions_errors": [
+            {"line_no": e.line_no, "message": e.message, "raw": e.raw}
+            for e in report.suppressions_errors
         ],
     }
 
@@ -3494,8 +3538,13 @@ def _print_attribute_date_report(report, *, verbose: bool = False):
     """Render an attribute-dates audit report as plain text on stdout.
 
     Groups violations under each device for a compact, human-readable layout.
-    ``verbose=True`` shows the anchor source on each line and lists unknown
-    attribute codes that the catalog doesn't cover yet.
+    ``verbose=True`` shows:
+
+    * the anchor source on each line (which signal pinned earliest_known)
+    * a copy-pasteable ``SUPPRESS`` hint per violation
+    * unknown attribute codes that the catalog doesn't cover yet
+    * the suppressed entries that the file silenced, with file:lineno
+      references — the only audit trail of silenced violations
     """
     status = "CLEAN" if not report.has_violations else "VIOLATIONS"
     marker = "✓" if not report.has_violations else "✗"
@@ -3505,6 +3554,13 @@ def _print_attribute_date_report(report, *, verbose: bool = False):
         f"  audited devices: {report.audited_devices}  "
         f"(skipped {report.devices_skipped} outside requested subtypes)"
     )
+    if report.suppressed_count:
+        print(
+            f"  suppressed: {report.suppressed_count} entry(ies) via "
+            f"{report.suppressions_path}"
+        )
+    elif report.suppressions_disabled:
+        print("  suppressions: disabled (--no-suppressions)")
 
     if report.violations:
         # Group by (device_id, subtype, serial) to render a compact block per device.
@@ -3527,11 +3583,39 @@ def _print_attribute_date_report(report, *, verbose: bool = False):
                         f"(earliest_known={v.earliest_known}, "
                         f"anchor={v.anchor_source}){value_part}"
                     )
+                    # Copy-pasteable SUPPRESS line — closes the loop between
+                    # detection and committing a suppression.
+                    print(
+                        f"        suppress: SUPPRESS {v.id_entity} "
+                        f"{v.code} {v.date_from}"
+                    )
                 else:
                     print(
                         f"      · {v.code:24s} date_from={v.date_from}  "
                         f"earliest_known={v.earliest_known}{value_part}"
                     )
+
+    if verbose and report.suppressed:
+        print()
+        print(f"  suppressed ({len(report.suppressed)} silenced entry(ies)):")
+        by_device_s: Dict[int, List] = {}
+        device_meta_s: Dict[int, tuple] = {}
+        for s in report.suppressed:
+            v = s.violation
+            by_device_s.setdefault(v.id_entity, []).append(s)
+            device_meta_s[v.id_entity] = (v.subtype, v.serial)
+        for did in sorted(by_device_s):
+            subtype, serial = device_meta_s[did]
+            serial_label = f" SN {serial!r}" if serial else ""
+            print(f"    {subtype} id_entity={did}{serial_label}")
+            for s in by_device_s[did]:
+                v = s.violation
+                value_part = f" value={v.value!r}" if v.value is not None else ""
+                print(
+                    f"      · {v.code:24s} date_from={v.date_from}  "
+                    f"(suppressed at {s.suppressions_path}:{s.line_no})"
+                    f"{value_part}"
+                )
 
     if verbose and report.unknown_codes:
         print()

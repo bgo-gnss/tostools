@@ -22,9 +22,9 @@ The station-side join is the discriminator. When every attribute on a device
 is stamped at the data-entry date but the station's join to that device
 carries a much earlier ``time_from``, the contradiction surfaces the bug.
 
-Layer 2 of the 4-layer DoD — detection only. Suppression file (Layer 3) and
-``--triage`` emission (Layer 4) land in later commits; this module just
-returns structured violations.
+Layers 2+3 of the 4-layer DoD — detection plus a committed suppression
+file at ``data/audit_suppressions/attribute_dates.txt``. ``--triage``
+emission (Layer 4) lands in a later commit.
 
 Module surface
 --------------
@@ -33,6 +33,11 @@ Module surface
 attribute periods, returns a :class:`StationAttributeDateReport`.
 
 :func:`load_catalog` — read and flatten ``data/attribute_codes.yaml``.
+
+:func:`load_suppressions` — parse the ``SUPPRESS``-style file at
+``data/audit_suppressions/attribute_dates.txt`` (Layer 3). Collects
+malformed lines instead of raising so an operator can fix every typo
+in one cycle.
 
 :func:`classification_for` — resolve a code's classification for a given
 device subtype (handles the polymorphic scalar-or-per-subtype-dict shape).
@@ -43,7 +48,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import yaml
 
@@ -55,7 +60,7 @@ from .audit import (
 )
 
 # ---------------------------------------------------------------------------
-# Catalog location
+# Catalog + suppressions paths
 # ---------------------------------------------------------------------------
 
 # The repo-root data file is the canonical location. Editable installs
@@ -65,6 +70,18 @@ from .audit import (
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_CATALOG_PATH = _REPO_ROOT / "data" / "attribute_codes.yaml"
 CATALOG_ENV_VAR = "TOSTOOLS_ATTRIBUTE_CODES_PATH"
+
+# Layer 3 — committed-in-repo suppression file. Operator-edited; one
+# ``SUPPRESS <id_entity> <code> <date_from>`` per known-good entry.
+# ``date_from`` is normalised to ``YYYY-MM-DD`` on parse so a
+# copy-pasted ``2014-10-17 00:00:00`` matches the date-only form the
+# audit uses internally.
+DEFAULT_SUPPRESSIONS_PATH = (
+    _REPO_ROOT / "data" / "audit_suppressions" / "attribute_dates.txt"
+)
+
+# (id_entity, code, date_from) — date_from is always 10-char date-only.
+SuppressionKey = Tuple[int, str, str]
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +111,33 @@ class AttributeDateViolation:
 
 
 @dataclass
+class SuppressionParseError:
+    """One malformed line in the suppression file.
+
+    Mirrors :class:`tostools.tos.ParseError` in spirit — collected so the
+    operator can fix every typo in one cycle, rather than fix-rerun-fix.
+    """
+
+    line_no: int
+    message: str
+    raw: str
+
+
+@dataclass(frozen=True)
+class SuppressedEntry:
+    """A rule-3 hit that was filtered out by the suppression file.
+
+    Carried on the report so ``--verbose`` can show what's being silenced
+    — the suppression file is the only audit trail otherwise, and a typo
+    in a SUPPRESS line could mask a real violation for months.
+    """
+
+    violation: AttributeDateViolation
+    suppressions_path: Path
+    line_no: int
+
+
+@dataclass
 class StationAttributeDateReport:
     """Result of :func:`audit_station_attribute_dates`."""
 
@@ -103,10 +147,19 @@ class StationAttributeDateReport:
     devices_skipped: int = 0
     unknown_codes: List[str] = field(default_factory=list)
     violations: List[AttributeDateViolation] = field(default_factory=list)
+    suppressed: List[SuppressedEntry] = field(default_factory=list)
+    suppressions_path: Optional[Path] = None
+    suppressions_errors: List[SuppressionParseError] = field(default_factory=list)
+    suppressions_disabled: bool = False
 
     @property
     def has_violations(self) -> bool:
+        """True when at least one violation survived the suppression filter."""
         return bool(self.violations)
+
+    @property
+    def suppressed_count(self) -> int:
+        return len(self.suppressed)
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +294,112 @@ def _station_display_name(
 
 
 # ---------------------------------------------------------------------------
+# Suppression file parsing (Layer 3)
+# ---------------------------------------------------------------------------
+
+
+def load_suppressions(
+    path: Optional[Path] = None,
+) -> Tuple[Dict[SuppressionKey, int], List[SuppressionParseError], Path]:
+    """Parse an ACTION-style suppression file.
+
+    Format: one ``SUPPRESS <id_entity> <code> <date_from>`` per line.
+    Comments start with ``#`` and run to end-of-line; blank lines are
+    ignored. The date is normalised to ``YYYY-MM-DD`` on parse, so a
+    pasted ``2014-10-17 00:00:00`` lines up with the date-only form the
+    audit uses internally.
+
+    Returns ``(suppressions, errors, resolved_path)``:
+
+    * ``suppressions`` — ``{(id_entity, code, date_from): line_no}``
+      mapping. ``line_no`` is kept so verbose reporting can show which
+      file line silenced each entry.
+    * ``errors`` — collected malformed lines; the caller decides whether
+      to abort or continue with the parsed entries. Mirrors the
+      collect-and-report-all pattern from :func:`_parse_action_file`.
+    * ``resolved_path`` — the path actually tried (the default location
+      or the explicit override). Useful for error / verbose output.
+
+    File-not-found is NOT an error. Returns an empty mapping and empty
+    error list. The suppression file is opt-in.
+    """
+    if path is None:
+        path = DEFAULT_SUPPRESSIONS_PATH
+
+    suppressions: Dict[SuppressionKey, int] = {}
+    errors: List[SuppressionParseError] = []
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return suppressions, errors, path
+
+    for i, line in enumerate(text.splitlines(), 1):
+        raw = line
+        if "#" in line:
+            line = line.split("#", 1)[0]
+        line = line.strip()
+        if not line:
+            continue
+
+        tokens = line.split()
+        if tokens[0] != "SUPPRESS":
+            errors.append(
+                SuppressionParseError(
+                    line_no=i,
+                    message=(
+                        f"expected line to start with 'SUPPRESS' "
+                        f"(got {tokens[0]!r})"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        if len(tokens) < 4:
+            errors.append(
+                SuppressionParseError(
+                    line_no=i,
+                    message=(
+                        "SUPPRESS line requires 3 arguments: "
+                        f"<id_entity> <code> <date_from> (got {len(tokens) - 1})"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        try:
+            id_entity = int(tokens[1])
+        except ValueError:
+            errors.append(
+                SuppressionParseError(
+                    line_no=i,
+                    message=f"id_entity must be int, got {tokens[1]!r}",
+                    raw=raw,
+                )
+            )
+            continue
+        code = tokens[2]
+        # Reject pasted ISO datetimes that the operator split on whitespace
+        # by accident — ``SUPPRESS 4773 serial_number 2014-10-17 00:00:00``
+        # parses cleanly because tokens[3] = "2014-10-17"; that's
+        # intentional. But ``2014-10-17T00:00:00`` is one token; normalise
+        # to date-only.
+        date_from = _date_only(tokens[3])
+        if len(date_from) != 10 or date_from[4] != "-" or date_from[7] != "-":
+            errors.append(
+                SuppressionParseError(
+                    line_no=i,
+                    message=(f"date_from must be YYYY-MM-DD (got {tokens[3]!r})"),
+                    raw=raw,
+                )
+            )
+            continue
+        suppressions[(id_entity, code, date_from)] = i
+
+    return suppressions, errors, path
+
+
+# ---------------------------------------------------------------------------
 # Main audit entry point
 # ---------------------------------------------------------------------------
 
@@ -253,6 +412,8 @@ def audit_station_attribute_dates(
     subtypes: Optional[Sequence[str]] = None,
     include_mutable: bool = False,
     catalog_path: Optional[Path] = None,
+    suppressions_path: Optional[Path] = None,
+    use_suppressions: bool = True,
 ) -> StationAttributeDateReport:
     """Apply rule 3 to every device joined to a station.
 
@@ -279,14 +440,24 @@ def audit_station_attribute_dates(
         Override the catalog file location. Defaults to
         :data:`DEFAULT_CATALOG_PATH` or the ``TOSTOOLS_ATTRIBUTE_CODES_PATH``
         env var.
+    suppressions_path
+        Override the suppression file location. Defaults to
+        :data:`DEFAULT_SUPPRESSIONS_PATH`. File-not-found is silent
+        (the file is opt-in).
+    use_suppressions
+        When False, skip the suppression file entirely — every rule-3
+        hit lands in ``violations``. Equivalent to ``--no-suppressions``
+        on the CLI.
 
     Returns
     -------
     StationAttributeDateReport
-        ``has_violations`` is True when rule 3 fired on at least one
-        attribute period. Unknown attribute codes (TOS has them, catalog
-        doesn't) accumulate in ``unknown_codes`` for operator follow-up
-        — they don't trigger violations.
+        ``has_violations`` reflects the **filtered** violations list —
+        a suppression covering every rule-3 hit produces a clean report.
+        The suppressed entries are preserved on ``report.suppressed`` so
+        verbose output can show what was silenced (a stale or wrong
+        SUPPRESS line is otherwise easy to miss). Unknown attribute
+        codes accumulate in ``unknown_codes`` for operator follow-up.
 
     Raises
     ------
@@ -295,9 +466,18 @@ def audit_station_attribute_dates(
     ValueError
         Invalid subtype name, or neither ``name`` nor ``id_entity`` set.
     FileNotFoundError
-        Catalog file missing.
+        Catalog file missing (suppression file missing is not an error).
     """
     catalog = load_catalog(catalog_path)
+
+    if use_suppressions:
+        suppressions, supp_errors, supp_path = load_suppressions(suppressions_path)
+    else:
+        # Empty result; supp_path retains whatever was requested so verbose
+        # output can still report "suppressions disabled (would have read X)".
+        suppressions = {}
+        supp_errors = []
+        supp_path = suppressions_path or DEFAULT_SUPPRESSIONS_PATH
 
     if subtypes:
         wanted = tuple(canonical_subtype(s) for s in subtypes)
@@ -311,6 +491,9 @@ def audit_station_attribute_dates(
     report = StationAttributeDateReport(
         station_id=station_id,
         station_name=station_name,
+        suppressions_path=supp_path,
+        suppressions_errors=supp_errors,
+        suppressions_disabled=not use_suppressions,
     )
     unknown_codes_seen: set[str] = set()
 
@@ -378,20 +561,32 @@ def audit_station_attribute_dates(
             value_raw = attr.get("value")
             value = str(value_raw) if value_raw is not None else None
 
-            report.violations.append(
-                AttributeDateViolation(
-                    id_entity=device_id,
-                    subtype=str(dev_subtype),
-                    serial=open_serial,
-                    code=code,
-                    date_from=df,
-                    value=value,
-                    earliest_known=earliest_known,
-                    anchor_source=anchor_source,
-                )
+            violation = AttributeDateViolation(
+                id_entity=device_id,
+                subtype=str(dev_subtype),
+                serial=open_serial,
+                code=code,
+                date_from=df,
+                value=value,
+                earliest_known=earliest_known,
+                anchor_source=anchor_source,
             )
+            supp_line = suppressions.get((device_id, code, df))
+            if supp_line is not None:
+                report.suppressed.append(
+                    SuppressedEntry(
+                        violation=violation,
+                        suppressions_path=supp_path,
+                        line_no=supp_line,
+                    )
+                )
+            else:
+                report.violations.append(violation)
 
     report.unknown_codes = sorted(unknown_codes_seen)
     # Stable sort by (device, code, date_from) for deterministic output.
     report.violations.sort(key=lambda v: (v.id_entity, v.code, v.date_from))
+    report.suppressed.sort(
+        key=lambda s: (s.violation.id_entity, s.violation.code, s.violation.date_from)
+    )
     return report
