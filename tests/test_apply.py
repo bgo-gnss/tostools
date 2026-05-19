@@ -669,3 +669,250 @@ def test_dispatch_fill_gap_rejects_non_int_parent():
     assert result.status == "failed"
     assert "integer parent_id" in result.detail
     writer.create_entity_connection.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _parse_action_file — patch-attribute-date verb (Layer 4)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_action_file_patch_attribute_date_three_args():
+    text = "ACTION 4773 patch-attribute-date serial_number 2014-10-17 2002-01-01\n"
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert len(actions) == 1
+    assert actions[0].verb == "patch-attribute-date"
+    assert actions[0].args == ["serial_number", "2014-10-17", "2002-01-01"]
+
+
+def test_parse_action_file_patch_attribute_date_rejects_too_few_args():
+    text = "ACTION 4773 patch-attribute-date serial_number 2014-10-17\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert len(errors) == 1
+    assert "patch-attribute-date requires exactly three arguments" in (
+        errors[0].message
+    )
+
+
+def test_parse_action_file_patch_attribute_date_rejects_extra_args():
+    text = (
+        "ACTION 4773 patch-attribute-date serial_number "
+        "2014-10-17 2002-01-01 EXTRA\n"
+    )
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "patch-attribute-date requires exactly three arguments" in (
+        errors[0].message
+    )
+
+
+# ---------------------------------------------------------------------------
+# _dispatch_action — patch-attribute-date
+# ---------------------------------------------------------------------------
+
+
+def _attr_value(id_attribute_value, code: str, value, date_from: str, date_to=None):
+    """One row as returned by writer.get_attribute_values (TOS shape)."""
+    return {
+        "id_attribute_value": id_attribute_value,
+        "code": code,
+        "value": value,
+        "date_from": date_from,
+        "date_to": date_to,
+    }
+
+
+def test_dispatch_patch_attribute_date_happy_path():
+    """The dispatcher must (a) call get_attribute_values to find the
+    period, (b) match by date-only prefix, (c) PATCH the right id with
+    the right new date."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(
+            55001, "serial_number", "13831", "2014-10-17 00:00:00"
+        ),  # the violation period
+        _attr_value(
+            55002, "model", "ASHTECH UZ-12", "2002-01-01 00:00:00"
+        ),  # unrelated code
+    ]
+    writer.patch_attribute_value.return_value = {"ok": True}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-date",
+            "serial_number",
+            "2014-10-17",
+            "2002-01-01",
+        ),
+    )
+
+    assert result.status == "ok"
+    writer.get_attribute_values.assert_called_once_with(4773, "serial_number")
+    writer.patch_attribute_value.assert_called_once_with(55001, date_from="2002-01-01")
+    assert "PATCH /attribute_value/55001" in result.detail
+    assert "2014-10-17 → 2002-01-01" in result.detail
+
+
+def test_dispatch_patch_attribute_date_normalises_tos_datetime():
+    """TOS stores `2014-10-17 00:00:00` but the violation carries
+    `2014-10-17`. Without date-only normalisation the dispatcher would
+    silently no-op against live TOS — this test is the regression guard."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(55001, "serial_number", "13831", "2014-10-17 00:00:00"),
+    ]
+    writer.patch_attribute_value.return_value = {"ok": True}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-date",
+            "serial_number",
+            "2014-10-17",  # date-only — must match the full datetime above
+            "2002-01-01",
+        ),
+    )
+    assert result.status == "ok"
+    writer.patch_attribute_value.assert_called_once_with(55001, date_from="2002-01-01")
+
+
+def test_dispatch_patch_attribute_date_zero_matches_fails():
+    """No period with the given date_from → failed; never falls through
+    to PATCH some other arbitrary period."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(55001, "serial_number", "13831", "2010-01-01 00:00:00"),
+    ]
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-date",
+            "serial_number",
+            "2014-10-17",  # no period matches
+            "2002-01-01",
+        ),
+    )
+    assert result.status == "failed"
+    assert "no period found" in result.detail
+    writer.patch_attribute_value.assert_not_called()
+
+
+def test_dispatch_patch_attribute_date_ambiguous_match_fails():
+    """Two periods with the same date_only date_from → refuse to PATCH.
+    Silent corruption (picking 'first') is the failure mode we're
+    explicitly guarding against per the design discussion."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(55001, "serial_number", "OLD", "2014-10-17 00:00:00"),
+        _attr_value(
+            55002, "serial_number", "NEW", "2014-10-17 12:00:00"
+        ),  # different time, same date
+    ]
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-date",
+            "serial_number",
+            "2014-10-17",
+            "2002-01-01",
+        ),
+    )
+    assert result.status == "failed"
+    assert "2 periods match" in result.detail
+    assert "ambiguously" in result.detail
+    writer.patch_attribute_value.assert_not_called()
+
+
+def test_dispatch_patch_attribute_date_missing_id_attribute_value_fails():
+    """A matching period without ``id_attribute_value`` (partial TOS
+    payload) is unrecoverable in this run — the dispatcher must fail
+    rather than guess or POST."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        {
+            "code": "serial_number",
+            "value": "13831",
+            "date_from": "2014-10-17 00:00:00",
+            "date_to": None,
+            # No id_attribute_value
+        },
+    ]
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-date",
+            "serial_number",
+            "2014-10-17",
+            "2002-01-01",
+        ),
+    )
+    assert result.status == "failed"
+    assert "id_attribute_value" in result.detail
+    writer.patch_attribute_value.assert_not_called()
+
+
+def test_dispatch_patch_attribute_date_rejects_bad_new_date_format():
+    """``new_date_from`` must look like YYYY-MM-DD. Catch typos at
+    dispatch time rather than letting an obviously-malformed value
+    travel to TOS."""
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-date",
+            "serial_number",
+            "2014-10-17",
+            "not-a-date",
+        ),
+    )
+    assert result.status == "failed"
+    assert "YYYY-MM-DD" in result.detail
+    writer.get_attribute_values.assert_not_called()
+    writer.patch_attribute_value.assert_not_called()
+
+
+def test_dispatch_patch_attribute_date_captures_writer_exception():
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(55001, "serial_number", "13831", "2014-10-17 00:00:00"),
+    ]
+    writer.patch_attribute_value.side_effect = RuntimeError("simulated 500")
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-date",
+            "serial_number",
+            "2014-10-17",
+            "2002-01-01",
+        ),
+    )
+    assert result.status == "failed"
+    assert "patch_attribute_value raised" in result.detail
+    assert "simulated 500" in result.detail
+
+
+def test_dispatch_patch_attribute_date_captures_read_exception():
+    writer = MagicMock()
+    writer.get_attribute_values.side_effect = RuntimeError("simulated 503")
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-date",
+            "serial_number",
+            "2014-10-17",
+            "2002-01-01",
+        ),
+    )
+    assert result.status == "failed"
+    assert "get_attribute_values raised" in result.detail
+    writer.patch_attribute_value.assert_not_called()

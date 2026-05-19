@@ -22,9 +22,10 @@ The station-side join is the discriminator. When every attribute on a device
 is stamped at the data-entry date but the station's join to that device
 carries a much earlier ``time_from``, the contradiction surfaces the bug.
 
-Layers 2+3 of the 4-layer DoD — detection plus a committed suppression
-file at ``data/audit_suppressions/attribute_dates.txt``. ``--triage``
-emission (Layer 4) lands in a later commit.
+All four layers of the DoD now land: detection (2), suppression file (3),
+and ``--triage`` emission (4) producing draft ACTION files for the
+existing ``tos audit apply`` pipeline. The ``patch-attribute-date`` verb
+in :mod:`tostools.tos` consumes those files.
 
 Module surface
 --------------
@@ -38,6 +39,10 @@ attribute periods, returns a :class:`StationAttributeDateReport`.
 ``data/audit_suppressions/attribute_dates.txt`` (Layer 3). Collects
 malformed lines instead of raising so an operator can fix every typo
 in one cycle.
+
+:func:`format_triage_file` — render a :class:`StationAttributeDateReport`
+as an operator-editable action file. ACTION lines are emitted commented
+out by default; the operator uncomments the entries to apply.
 
 :func:`classification_for` — resolve a code's classification for a given
 device subtype (handles the polymorphic scalar-or-per-subtype-dict shape).
@@ -590,3 +595,123 @@ def audit_station_attribute_dates(
         key=lambda s: (s.violation.id_entity, s.violation.code, s.violation.date_from)
     )
     return report
+
+
+# ---------------------------------------------------------------------------
+# Triage file emission (Layer 4)
+# ---------------------------------------------------------------------------
+
+
+def format_triage_file(
+    report: StationAttributeDateReport,
+    *,
+    audit_command: Optional[str] = None,
+    generated_at: Optional[str] = None,
+) -> str:
+    """Render *report* as an operator-editable triage file.
+
+    The output is an ACTION-style file consumable by ``tos audit apply``.
+    Every violation produces one block:
+
+    * a header comment with the device / violation context
+    * a single ACTION line, **commented out by default**, that would
+      PATCH the period's ``date_from`` to ``earliest_known`` if applied
+
+    The operator reviews each block, uncomments the ACTION lines that
+    should fire, optionally edits the ``new_date_from`` argument, and
+    feeds the file back to ``tos audit apply --apply``.
+
+    Parameters
+    ----------
+    report
+        The audit report. Only ``report.violations`` is consulted —
+        suppressed entries are intentionally NOT emitted (they're
+        already silenced by the suppression file).
+    audit_command
+        Optional command-line string captured at audit time; rendered
+        in the file header so the file is self-documenting. Pass the
+        actual argv joined with spaces, or a paraphrase like
+        ``"tos audit attribute-dates ARHO"``.
+    generated_at
+        Optional ISO timestamp. Defaults to ``datetime.utcnow().isoformat()``
+        at call time. Pass an explicit value in tests to keep output
+        byte-deterministic.
+
+    Returns
+    -------
+    str
+        Newline-terminated file contents, safe to write directly with
+        :meth:`pathlib.Path.write_text`.
+
+    Notes
+    -----
+    Violations are emitted in the report's natural sort order
+    (``id_entity, code, date_from``) — re-running ``--triage`` on the
+    same station produces a byte-identical file unless TOS changed,
+    so operators can commit the triage file alongside the suppression
+    file and audit decisions over time.
+    """
+    from datetime import datetime, timezone
+
+    if generated_at is None:
+        generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+    lines: List[str] = []
+    station_label = report.station_name or "<unknown>"
+    lines.append("# === tos audit attribute-dates — triage action file ===")
+    lines.append(f"# Generated:  {generated_at}")
+    lines.append(f"# Station:    {station_label!r} (id_entity={report.station_id})")
+    if audit_command:
+        lines.append(f"# Audit cmd:  {audit_command}")
+    lines.append(f"# Violations: {len(report.violations)}")
+    lines.append("#")
+    lines.append("# Format: one ACTION per line, '#' for comments.")
+    lines.append("#")
+    lines.append("#   ACTION <id_entity> patch-attribute-date \\")
+    lines.append("#          <code> <old_date_from> <new_date_from>")
+    lines.append("#")
+    lines.append("# Workflow:")
+    lines.append("#   1. Review each block below — verify the suggested")
+    lines.append("#      new_date_from is correct. Edit if needed.")
+    lines.append("#   2. Uncomment the ACTION line(s) you want to fire.")
+    lines.append("#   3. tos audit apply <file>          # dry-run preview")
+    lines.append("#   4. tos audit apply <file> --apply  # commit writes")
+    lines.append("#")
+    lines.append("# Alternative for known-good entries: copy the SUPPRESS hint into")
+    lines.append("# data/audit_suppressions/attribute_dates.txt instead.")
+    lines.append("")
+
+    if not report.violations:
+        lines.append("# (no violations — nothing to triage)")
+        lines.append("")
+        return "\n".join(lines)
+
+    # Group by device — keeps each device's violations together while
+    # preserving the report's overall (id_entity, code, date_from) sort.
+    by_device: Dict[int, List[AttributeDateViolation]] = {}
+    device_meta: Dict[int, Any] = {}
+    for v in report.violations:
+        by_device.setdefault(v.id_entity, []).append(v)
+        device_meta[v.id_entity] = (v.subtype, v.serial)
+
+    for did in sorted(by_device):
+        subtype, serial = device_meta[did]
+        serial_label = f" SN {serial!r}" if serial else ""
+        lines.append(f"# --- {subtype} id_entity={did}{serial_label} ---")
+        for v in by_device[did]:
+            value_part = f"  value={v.value!r}" if v.value is not None else ""
+            lines.append(
+                f"# violation: {v.code} date_from={v.date_from}"
+                f"  (earliest_known={v.earliest_known},"
+                f" anchor={v.anchor_source}){value_part}"
+            )
+            lines.append(
+                f"#ACTION {v.id_entity} patch-attribute-date "
+                f"{v.code} {v.date_from} {v.earliest_known}"
+            )
+            lines.append(
+                f"# (or suppress: SUPPRESS {v.id_entity} " f"{v.code} {v.date_from})"
+            )
+            lines.append("")
+
+    return "\n".join(lines)

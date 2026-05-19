@@ -23,9 +23,11 @@ from tostools.audit_attribute_dates import (
     _station_joins_by_device,
     audit_station_attribute_dates,
     classification_for,
+    format_triage_file,
     load_catalog,
     load_suppressions,
 )
+from tostools.tos import _parse_action_file
 
 # ---------------------------------------------------------------------------
 # Fixtures + helpers
@@ -764,3 +766,180 @@ def test_audit_violation_dataclass_is_frozen():
     )
     with pytest.raises(Exception):  # dataclasses.FrozenInstanceError
         v.id_entity = 2  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# format_triage_file (Layer 4)
+# ---------------------------------------------------------------------------
+
+
+def _report_with(violations) -> StationAttributeDateReport:
+    return StationAttributeDateReport(
+        station_id=4233,
+        station_name="Árholt",
+        audited_devices=len({v.id_entity for v in violations}),
+        violations=list(violations),
+    )
+
+
+def _violation(
+    id_entity: int,
+    code: str,
+    date_from: str,
+    earliest_known: str,
+    *,
+    subtype: str = "gnss_receiver",
+    serial: str = "SN-X",
+    value: str = "VAL",
+    anchor_source: str = "attribute",
+) -> AttributeDateViolation:
+    return AttributeDateViolation(
+        id_entity=id_entity,
+        subtype=subtype,
+        serial=serial,
+        code=code,
+        date_from=date_from,
+        value=value,
+        earliest_known=earliest_known,
+        anchor_source=anchor_source,
+    )
+
+
+def test_triage_empty_report_emits_header_with_no_action_lines():
+    """A clean station should still produce a parseable file — header +
+    explicit `# (no violations)` line, zero ACTIONs."""
+    report = _report_with([])
+    out = format_triage_file(report, generated_at="2026-05-19T00:00:00+00:00")
+    assert "(no violations" in out
+    # No uncommented ACTION lines anywhere.
+    actions, errors = _parse_action_file(out)
+    assert actions == []
+    assert errors == []
+
+
+def test_triage_emits_one_block_per_violation():
+    """Each violation gets a comment block + one commented ACTION line."""
+    v1 = _violation(4773, "serial_number", "2014-10-17", "2002-01-01")
+    report = _report_with([v1])
+    out = format_triage_file(report, generated_at="2026-05-19T00:00:00+00:00")
+    assert "id_entity=4773" in out
+    assert "violation: serial_number date_from=2014-10-17" in out
+    # ACTION line is present but commented out.
+    assert (
+        "#ACTION 4773 patch-attribute-date serial_number 2014-10-17 2002-01-01" in out
+    )
+
+
+def test_triage_action_lines_are_commented_by_default():
+    """The DoD requires commented-out ACTIONs — operator uncomments to
+    apply. A parser round-trip should produce zero parsed actions."""
+    v1 = _violation(4773, "serial_number", "2014-10-17", "2002-01-01")
+    v2 = _violation(4501, "serial_number", "2014-10-17", "2012-08-28")
+    report = _report_with([v1, v2])
+    out = format_triage_file(report, generated_at="2026-05-19T00:00:00+00:00")
+    actions, errors = _parse_action_file(out)
+    assert errors == []
+    assert actions == []
+
+
+def test_triage_round_trip_after_uncommenting_one_action():
+    """The triage file is the apply pipeline's input. After the operator
+    strips a leading `#` from one ACTION line, _parse_action_file must
+    parse it cleanly — this is the contract between layers 4 and the
+    existing apply infrastructure."""
+    v = _violation(4773, "serial_number", "2014-10-17", "2002-01-01")
+    report = _report_with([v])
+    out = format_triage_file(report, generated_at="2026-05-19T00:00:00+00:00")
+
+    edited = out.replace(
+        "#ACTION 4773 patch-attribute-date",
+        "ACTION 4773 patch-attribute-date",
+        1,
+    )
+    actions, errors = _parse_action_file(edited)
+    assert errors == []
+    assert len(actions) == 1
+    a = actions[0]
+    assert a.id_entity == 4773
+    assert a.verb == "patch-attribute-date"
+    assert a.args == ["serial_number", "2014-10-17", "2002-01-01"]
+
+
+def test_triage_output_is_deterministic_for_same_inputs():
+    """Same report + same timestamp must produce byte-identical output —
+    diff-friendly so operators can commit triage files alongside
+    suppressions and audit decisions over time."""
+    violations = [
+        _violation(4773, "serial_number", "2014-10-17", "2002-01-01"),
+        _violation(4501, "serial_number", "2014-10-17", "2012-08-28"),
+    ]
+    report = _report_with(violations)
+    a = format_triage_file(report, generated_at="2026-05-19T00:00:00+00:00")
+    b = format_triage_file(report, generated_at="2026-05-19T00:00:00+00:00")
+    assert a == b
+
+
+def test_triage_groups_by_device_within_sort_order():
+    """Violations on the same device should appear together. Devices
+    appear in id_entity order."""
+    violations = [
+        _violation(
+            4773,
+            "serial_number",
+            "2014-10-17",
+            "2002-01-01",
+            subtype="gnss_receiver",
+            serial="13831",
+        ),
+        _violation(
+            4501,
+            "serial_number",
+            "2014-10-17",
+            "2012-08-28",
+            subtype="antenna",
+            serial="1441047035",
+        ),
+        _violation(
+            4501,
+            "model",
+            "2014-10-17",
+            "2012-08-28",
+            subtype="antenna",
+            serial="1441047035",
+        ),
+    ]
+    report = _report_with(violations)
+    out = format_triage_file(report, generated_at="2026-05-19T00:00:00+00:00")
+
+    # 4501 (antenna) comes before 4773 (gnss_receiver) by id order.
+    idx_4501 = out.index("id_entity=4501")
+    idx_4773 = out.index("id_entity=4773")
+    assert idx_4501 < idx_4773
+
+    # Within 4501, model + serial_number both appear under one device header.
+    block_4501 = out[idx_4501:idx_4773]
+    assert "model" in block_4501
+    assert "serial_number" in block_4501
+    # Two ACTION lines and one device header — confirms grouping.
+    assert block_4501.count("id_entity=4501") == 1
+    assert block_4501.count("#ACTION 4501 patch-attribute-date") == 2
+
+
+def test_triage_includes_audit_command_in_header():
+    report = _report_with([])
+    out = format_triage_file(
+        report,
+        audit_command="tos audit attribute-dates ARHO",
+        generated_at="2026-05-19T00:00:00+00:00",
+    )
+    assert "Audit cmd:  tos audit attribute-dates ARHO" in out
+
+
+def test_triage_includes_suppress_hint_per_violation():
+    """The triage block must also offer the SUPPRESS alternative — closes
+    the loop with Layer 3 for known-good entries."""
+    v = _violation(4773, "serial_number", "2014-10-17", "2002-01-01")
+    out = format_triage_file(
+        _report_with([v]), generated_at="2026-05-19T00:00:00+00:00"
+    )
+    assert "SUPPRESS 4773 serial_number 2014-10-17" in out

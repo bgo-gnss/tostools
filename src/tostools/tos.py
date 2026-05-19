@@ -2358,6 +2358,10 @@ def _audit_main(argv):
             "  fill-gap <parent_id> <date_from> <date_to>\n"
             "                            POST a closed join for a known "
             "historical window (cfg-fix backfill)\n"
+            "  patch-attribute-date <code> <old_date_from> <new_date_from>\n"
+            "                            PATCH /attribute_value/<id> "
+            "date_from — consumes triage files from\n"
+            "                            `tos audit attribute-dates --triage`\n"
             "  defer                      no-op placeholder (review next run)\n\n"
             "Validation: each ACTION line is parsed before any HTTP call. "
             "If any line is malformed, nothing is sent. Otherwise actions "
@@ -2512,6 +2516,16 @@ def _audit_main(argv):
         action="store_true",
         help="Bypass the suppression file entirely; every rule-3 hit is "
         "reported. Useful to verify what a stale SUPPRESS line is hiding.",
+    )
+    p_attr.add_argument(
+        "--triage",
+        dest="triage_path",
+        type=Path,
+        default=None,
+        help="Emit a draft ACTION file at this path. One commented "
+        "`ACTION ... patch-attribute-date ...` line per violation, with "
+        "earliest_known as the suggested new date_from. Feeds into "
+        "`tos audit apply <file>` (dry-run by default).",
     )
     p_attr.add_argument(
         "--json", action="store_true", help="Emit JSON instead of plain text."
@@ -2722,6 +2736,15 @@ def _audit_main(argv):
                     f"  line {err.line_no}: {err.message}",
                     file=sys.stderr,
                 )
+        if args.triage_path:
+            audit_cmd = "tos audit " + " ".join(argv)
+            content = add_mod.format_triage_file(report, audit_command=audit_cmd)
+            args.triage_path.write_text(content, encoding="utf-8")
+            print(
+                f"wrote triage file: {args.triage_path} "
+                f"({len(report.violations)} violation(s))",
+                file=sys.stderr,
+            )
         if args.json:
             print(
                 _json.dumps(
@@ -2769,6 +2792,7 @@ _SUPPORTED_VERBS = (
     "defer",
     "fill-gap",
     "move",
+    "patch-attribute-date",
 )
 
 
@@ -2892,6 +2916,18 @@ def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]
                     message=(
                         "fill-gap requires exactly three arguments: "
                         "<parent_id> <date_from> <date_to>"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        if verb == "patch-attribute-date" and len(tokens) != 6:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "patch-attribute-date requires exactly three "
+                        "arguments: <code> <old_date_from> <new_date_from>"
                     ),
                     raw=raw,
                 )
@@ -3130,6 +3166,137 @@ def _dispatch_fill_gap(writer, action: ParsedAction) -> ActionResult:
     )
 
 
+def _dispatch_patch_attribute_date(writer, action: ParsedAction) -> ActionResult:
+    """Re-date an existing TOS attribute period in-place.
+
+    Action shape: ``ACTION <id_entity> patch-attribute-date <code>
+    <old_date_from> <new_date_from>``. Looks up the attribute period
+    via fresh writer.get_attribute_values (so we never operate on a
+    stale id_attribute_value), then PATCHes ``date_from``.
+
+    Match rule
+    ----------
+    A period matches when its ``date_from`` *date-only* prefix
+    (``YYYY-MM-DD``) equals ``old_date_from``. The same normalisation
+    applied at audit / suppression time — without it, ``"2014-10-17"
+    != "2014-10-17 00:00:00"`` lexically and the dispatcher would
+    silently no-op against live TOS.
+
+    Failure modes
+    -------------
+    * **Zero matches** — the audit's old_date_from doesn't appear on
+      the device. Returns ``failed``; the operator should re-audit
+      and regenerate the triage file.
+    * **Multiple matches** — two or more periods for the same code
+      share the same date-only ``date_from``. Refuse to PATCH rather
+      than pick arbitrarily (silent corruption is the failure mode
+      we're guarding against). Operator must disambiguate manually.
+    * **Period has no ``id_attribute_value``** — partial TOS payload.
+      Returns ``failed``; rerun against a fresh history.
+    """
+    code = action.args[0]
+    old_date_raw = action.args[1]
+    new_date_raw = action.args[2]
+
+    # Normalise both date arguments to YYYY-MM-DD up front. Matches the
+    # audit-time _date_only() contract and keeps the comparison robust
+    # to operator-pasted datetimes.
+    old_date = old_date_raw[:10]
+    new_date = new_date_raw[:10]
+    if len(new_date) != 10 or new_date[4] != "-" or new_date[7] != "-":
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-date: new_date_from must be YYYY-MM-DD "
+                f"(got {new_date_raw!r})"
+            ),
+        )
+
+    try:
+        attrs = writer.get_attribute_values(action.id_entity, code)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"get_attribute_values raised: {exc}",
+        )
+
+    matches: List[Dict[str, Any]] = []
+    for a in attrs:
+        df = a.get("date_from")
+        if not df:
+            continue
+        if str(df)[:10] == old_date:
+            matches.append(a)
+
+    if not matches:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-date: no period found for "
+                f"id_entity={action.id_entity} code={code!r} "
+                f"date_from={old_date} (re-audit and regenerate triage)"
+            ),
+        )
+    if len(matches) > 1:
+        ids = ", ".join(str(a.get("id_attribute_value")) for a in matches)
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-date: {len(matches)} periods match "
+                f"id_entity={action.id_entity} code={code!r} "
+                f"date_from={old_date} (id_attribute_value: {ids}); "
+                "refusing to PATCH ambiguously — disambiguate manually"
+            ),
+        )
+
+    target = matches[0]
+    id_av_raw = target.get("id_attribute_value")
+    if id_av_raw is None:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "patch-attribute-date: matching period has no "
+                "id_attribute_value (partial payload); rerun later"
+            ),
+        )
+
+    try:
+        id_av = int(id_av_raw)
+    except (TypeError, ValueError):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-date: id_attribute_value={id_av_raw!r} "
+                "is not an integer (unexpected TOS payload shape)"
+            ),
+        )
+
+    try:
+        response = writer.patch_attribute_value(id_av, date_from=new_date)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch_attribute_value raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"PATCH /attribute_value/{id_av} "
+            f"date_from {old_date} → {new_date} "
+            f"(code={code!r}) — {response!r}"
+        ),
+    )
+
+
 def _dispatch_action(
     writer,
     action: ParsedAction,
@@ -3165,6 +3332,8 @@ def _dispatch_action(
         )
     if action.verb == "fill-gap":
         return _dispatch_fill_gap(writer, action)
+    if action.verb == "patch-attribute-date":
+        return _dispatch_patch_attribute_date(writer, action)
     if action.verb == "change-subtype":
         code = action.args[0]
         mapping = subtype_id_by_code or {}
