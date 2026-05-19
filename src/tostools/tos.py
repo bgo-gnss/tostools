@@ -1975,6 +1975,7 @@ def _audit_main(argv):
     do **not** affect the exit code.
     """
     import json as _json
+    from pathlib import Path
 
     from . import audit as audit_mod
     from .api.tos_client import TOSClient
@@ -2440,6 +2441,80 @@ def _audit_main(argv):
     )
     p_show.add_argument("--port", type=int, default=443)
 
+    p_attr = sub.add_parser(
+        "attribute-dates",
+        help="Flag TOS attribute periods misdated by data-entry stamp (rule 3).",
+        description=(
+            "Detect attribute periods whose `date_from` is later than the "
+            "device's earliest known signal. TOS auto-stamps a period's "
+            "date_from with the date the value was entered, not the date it "
+            "became applicable — so retroactive data entry produces phantom "
+            "transition dates that propagate into PrintTOS / sitelog / "
+            "GAMIT. The discriminator is the station-side join time_from: "
+            "when every attribute on a device is stamped at the entry date "
+            "but the station's join carries a much earlier time_from, that "
+            "contradiction surfaces the bug.\n\n"
+            "Rule 3 fires when ``period.date_from > min(earliest attribute "
+            "date_from, earliest station-side join time_from)``. By default "
+            "only inherent codes (per data/attribute_codes.yaml) are "
+            "checked — firmware bumps and other mutable transitions are "
+            "skipped. Pass --include-mutable to widen.\n\n"
+            "Exits 0 when no violations found, 1 when at least one is, "
+            "2 on lookup / usage error. The (id_entity, code, date_from) "
+            "triple in each violation is the natural suppression key for "
+            "Layer 3 (data/audit_suppressions/attribute_dates.txt) — not "
+            "implemented in this layer."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos audit attribute-dates ARHO\n"
+            "  tos audit attribute-dates ARHO --verbose\n"
+            "  tos audit attribute-dates RHOF --include-mutable --json\n"
+            "  tos audit attribute-dates --id 1234 --subtypes antenna monument\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_attr.add_argument(
+        "name", nargs="?", help="Station marker (e.g. ARHO) or display name."
+    )
+    p_attr.add_argument("--id", dest="id_entity", type=int, help="Station id_entity.")
+    p_attr.add_argument(
+        "--subtypes",
+        nargs="+",
+        help=(
+            "Device subtypes to audit (short or canonical). Default: "
+            "gnss_receiver, antenna, radome, monument."
+        ),
+    )
+    p_attr.add_argument(
+        "--include-mutable",
+        action="store_true",
+        help="Also check mutable codes (firmware bumps, status transitions, "
+        "etc.). Default is inherent-only.",
+    )
+    p_attr.add_argument(
+        "--catalog",
+        type=Path,
+        default=None,
+        help="Override the catalog YAML path. Defaults to repo "
+        "data/attribute_codes.yaml or $TOSTOOLS_ATTRIBUTE_CODES_PATH.",
+    )
+    p_attr.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of plain text."
+    )
+    p_attr.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show extra context: anchor source per violation and any "
+        "unknown attribute codes seen in TOS but missing from the catalog.",
+    )
+    p_attr.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_attr.add_argument("--port", type=int, default=443)
+
     args = p.parse_args(argv)
 
     scheme = "https" if args.port == 443 else "http"
@@ -2604,6 +2679,33 @@ def _audit_main(argv):
         else:
             _print_timelines_report(report)
         return 0
+
+    if args.kind == "attribute-dates":
+        from . import audit_attribute_dates as add_mod
+
+        try:
+            report = add_mod.audit_station_attribute_dates(
+                client,
+                name=args.name,
+                id_entity=args.id_entity,
+                subtypes=args.subtypes,
+                include_mutable=args.include_mutable,
+                catalog_path=args.catalog,
+            )
+        except (LookupError, ValueError, FileNotFoundError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if args.json:
+            print(
+                _json.dumps(
+                    _attribute_date_report_to_dict(report),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            _print_attribute_date_report(report, verbose=args.verbose)
+        return 1 if report.has_violations else 0
 
     p.error(f"unknown kind: {args.kind}")
     return 2
@@ -3361,6 +3463,90 @@ def _device_report_to_dict(report):
         "invariant_I1_ok": report.invariant_I1_ok,
         "invariant_violations": list(report.invariant_violations),
     }
+
+
+def _attribute_date_report_to_dict(report):
+    """Convert a :class:`StationAttributeDateReport` to a JSON-serialisable dict."""
+    return {
+        "kind": "attribute-dates",
+        "station_id": report.station_id,
+        "station_name": report.station_name,
+        "audited_devices": report.audited_devices,
+        "devices_skipped": report.devices_skipped,
+        "unknown_codes": list(report.unknown_codes),
+        "violations": [
+            {
+                "id_entity": v.id_entity,
+                "subtype": v.subtype,
+                "serial": v.serial,
+                "code": v.code,
+                "date_from": v.date_from,
+                "value": v.value,
+                "earliest_known": v.earliest_known,
+                "anchor_source": v.anchor_source,
+            }
+            for v in report.violations
+        ],
+    }
+
+
+def _print_attribute_date_report(report, *, verbose: bool = False):
+    """Render an attribute-dates audit report as plain text on stdout.
+
+    Groups violations under each device for a compact, human-readable layout.
+    ``verbose=True`` shows the anchor source on each line and lists unknown
+    attribute codes that the catalog doesn't cover yet.
+    """
+    status = "CLEAN" if not report.has_violations else "VIOLATIONS"
+    marker = "✓" if not report.has_violations else "✗"
+    name = report.station_name or "?"
+    print(f"{marker} Station {name!r} (id_entity={report.station_id}) — " f"{status}")
+    print(
+        f"  audited devices: {report.audited_devices}  "
+        f"(skipped {report.devices_skipped} outside requested subtypes)"
+    )
+
+    if report.violations:
+        # Group by (device_id, subtype, serial) to render a compact block per device.
+        by_device: Dict[int, List] = {}
+        device_meta: Dict[int, tuple] = {}
+        for v in report.violations:
+            by_device.setdefault(v.id_entity, []).append(v)
+            device_meta[v.id_entity] = (v.subtype, v.serial)
+        print()
+        print(f"  flagged ({len(report.violations)} period(s)):")
+        for did in sorted(by_device):
+            subtype, serial = device_meta[did]
+            serial_label = f" SN {serial!r}" if serial else ""
+            print(f"    {subtype} id_entity={did}{serial_label}")
+            for v in by_device[did]:
+                value_part = f" value={v.value!r}" if v.value is not None else ""
+                if verbose:
+                    print(
+                        f"      · {v.code:24s} date_from={v.date_from}  "
+                        f"(earliest_known={v.earliest_known}, "
+                        f"anchor={v.anchor_source}){value_part}"
+                    )
+                else:
+                    print(
+                        f"      · {v.code:24s} date_from={v.date_from}  "
+                        f"earliest_known={v.earliest_known}{value_part}"
+                    )
+
+    if verbose and report.unknown_codes:
+        print()
+        print(
+            f"  unknown attribute codes (seen in TOS, missing from catalog): "
+            f"{len(report.unknown_codes)}"
+        )
+        for code in report.unknown_codes:
+            print(f"    - {code}")
+    elif report.unknown_codes and not verbose:
+        print()
+        print(
+            f"  ({len(report.unknown_codes)} unknown attribute code(s); "
+            f"re-run with --verbose to list them)"
+        )
 
 
 def _station_report_to_dict(report):
