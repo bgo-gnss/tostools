@@ -14,8 +14,10 @@ from pathlib import Path
 from tostools.rinex.reader import (
     MONTHS,
     _parse_daily_rinex_date,
+    _parse_hourly_raw_date,
     _scan_dir_dates,
     find_most_recent_rinex,
+    find_station_archive_range,
 )
 
 # ---------------------------------------------------------------------------
@@ -178,3 +180,119 @@ def test_months_constant_is_lowercase_calendar_order():
     assert MONTHS[0] == "jan"
     assert MONTHS[-1] == "dec"
     assert len(MONTHS) == 12
+
+
+# ---------------------------------------------------------------------------
+# _parse_hourly_raw_date — PR #10
+# ---------------------------------------------------------------------------
+
+
+def test_parse_hourly_raw_date_extracts_timestamp():
+    """``STA<YYYY><MM><DD><HHMM>...`` → full datetime including HH:MM."""
+    assert _parse_hourly_raw_date("HAUC202604211530.T02", "HAUC") == datetime(
+        2026, 4, 21, 15, 30
+    )
+
+
+def test_parse_hourly_raw_date_accepts_any_suffix():
+    """The hourly parser only anchors on the prefix — any extension /
+    suffix after the 12-digit timestamp is ignored."""
+    assert _parse_hourly_raw_date("HAUC202604211530.tar.gz", "HAUC") == datetime(
+        2026, 4, 21, 15, 30
+    )
+
+
+def test_parse_hourly_raw_date_rejects_wrong_station():
+    assert _parse_hourly_raw_date("RHOF202604211530.T02", "HAUC") is None
+
+
+def test_parse_hourly_raw_date_rejects_invalid_calendar():
+    """Month 13 → ValueError inside the datetime constructor → return None
+    instead of raising."""
+    assert _parse_hourly_raw_date("HAUC202613211530.T02", "HAUC") is None
+
+
+def test_parse_hourly_raw_date_rejects_non_timestamp_prefix():
+    assert _parse_hourly_raw_date("HAUCnotastamp.T02", "HAUC") is None
+
+
+# ---------------------------------------------------------------------------
+# find_station_archive_range — PR #10
+# ---------------------------------------------------------------------------
+
+
+def _make_daily_layout(
+    base: Path, station: str, year: int, month_name: str, files: list[str]
+) -> Path:
+    d = base / str(year) / month_name / station / "15s_24hr" / "rinex"
+    d.mkdir(parents=True, exist_ok=True)
+    for f in files:
+        (d / f).touch()
+    return d
+
+
+def _make_hourly_layout(
+    base: Path, station: str, year: int, month_name: str, files: list[str]
+) -> Path:
+    d = base / str(year) / month_name / station / "1Hz_1hr" / "raw"
+    d.mkdir(parents=True, exist_ok=True)
+    for f in files:
+        (d / f).touch()
+    return d
+
+
+def test_find_station_archive_range_daily_only(tmp_path: Path):
+    """Daily files in two years — first is earliest in earliest year,
+    last is latest in latest year."""
+    _make_daily_layout(tmp_path, "HAUC", 2024, "mar", ["HAUC0750.24D"])
+    _make_daily_layout(tmp_path, "HAUC", 2026, "sep", ["HAUC2660.26D"])
+    r = find_station_archive_range("HAUC", base_dir=tmp_path)
+    assert r["first"] == datetime(2024, 3, 15)
+    assert r["last"] == datetime(2026, 9, 23)
+    assert r["15s_24hr"]["first"] == datetime(2024, 3, 15)
+    assert r["15s_24hr"]["last"] == datetime(2026, 9, 23)
+    assert r["1Hz_1hr"]["first"] is None
+    assert r["1Hz_1hr"]["last"] is None
+
+
+def test_find_station_archive_range_hourly_only(tmp_path: Path):
+    _make_hourly_layout(tmp_path, "HAUC", 2025, "feb", ["HAUC202502010800.T02"])
+    _make_hourly_layout(tmp_path, "HAUC", 2025, "dec", ["HAUC202512311959.T02"])
+    r = find_station_archive_range("HAUC", base_dir=tmp_path)
+    assert r["first"] == datetime(2025, 2, 1, 8, 0)
+    assert r["last"] == datetime(2025, 12, 31, 19, 59)
+
+
+def test_find_station_archive_range_combines_kinds(tmp_path: Path):
+    """When both kinds exist, the overall first/last spans both
+    layouts. Hildur's worked example pattern: 1 Hz raw often captures
+    the true first/last minute of service."""
+    _make_daily_layout(tmp_path, "HAUC", 2007, "sep", ["HAUC2450.07D"])
+    _make_daily_layout(tmp_path, "HAUC", 2026, "apr", ["HAUC1110.26D"])
+    _make_hourly_layout(tmp_path, "HAUC", 2009, "jan", ["HAUC200901010001.T02"])
+    _make_hourly_layout(tmp_path, "HAUC", 2018, "feb", ["HAUC201802231230.T02"])
+
+    r = find_station_archive_range("HAUC", base_dir=tmp_path)
+    # Overall first = earliest of (2007-09-02 daily, 2009-01-01 hourly)
+    assert r["first"] == datetime(2007, 9, 2)
+    # Overall last = latest of (2026-04-21 daily, 2018-02-23 hourly)
+    assert r["last"] == datetime(2026, 4, 21)
+    # Per-kind details preserved.
+    assert r["15s_24hr"]["last"] == datetime(2026, 4, 21)
+    assert r["1Hz_1hr"]["last"] == datetime(2018, 2, 23, 12, 30)
+
+
+def test_find_station_archive_range_missing_base_returns_empty(tmp_path: Path):
+    r = find_station_archive_range("HAUC", base_dir=tmp_path / "missing")
+    assert r["first"] is None
+    assert r["last"] is None
+    assert r["15s_24hr"] == {}
+    assert r["1Hz_1hr"] == {}
+
+
+def test_find_station_archive_range_empty_layout_returns_nones(tmp_path: Path):
+    """Layout dirs exist but no recognised files → all None."""
+    _make_daily_layout(tmp_path, "HAUC", 2026, "sep", [])
+    r = find_station_archive_range("HAUC", base_dir=tmp_path)
+    assert r["first"] is None
+    assert r["last"] is None

@@ -24,6 +24,7 @@ from .rinex.editor import update_rinex_files
 from .rinex.reader import (
     extract_header_info,
     find_most_recent_rinex,
+    find_station_archive_range,
     read_rinex_header,
 )
 from .rinex.validator import compare_rinex_to_tos
@@ -641,6 +642,39 @@ Examples:
         help="Save human-readable data quality report to file (e.g., tos_quality_report.txt)",
     )
 
+    # Station timespan subcommand: TOS start/end vs archive first/last file dates
+    timespan_parser = subparsers.add_parser(
+        "timespan",
+        help="Compare TOS station start/end dates with first/last files in the archive",
+        epilog="""
+Examples:
+  tosGPS timespan HAUC
+  tosGPS timespan HAUC REYK HOFN
+  tosGPS timespan HAUC --rinex-base-dir /mnt_data/rawgpsdata
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    timespan_parser.add_argument("stations", nargs="+", help="List of stations")
+    timespan_parser.add_argument(
+        "--rinex-base-dir",
+        type=str,
+        default="/mnt_data/rawgpsdata",
+        help="Archive root (default: /mnt_data/rawgpsdata)",
+    )
+    timespan_parser.add_argument(
+        "--start-tolerance-days",
+        type=int,
+        default=1,
+        help="Max |TOS start - archive first| in days before flagging " "(default: 1)",
+    )
+    timespan_parser.add_argument(
+        "--end-tolerance-days",
+        type=int,
+        default=7,
+        help="Max |TOS end - archive last| in days before flagging when "
+        "station is closed in TOS (default: 7)",
+    )
+
     # Site log generation subcommand
     sitelog_parser = subparsers.add_parser(
         "sitelog",
@@ -928,6 +962,9 @@ Examples:
         )
 
     # Handle different subcommands
+    if args.subcommand == "timespan":
+        _handle_timespan_subcommand(args, stations, url, log_level)
+        return
     if args.subcommand == "rinex":
         _handle_rinex_subcommand(args, stations, url, log_level)
     elif args.subcommand == "sitelog":
@@ -1288,6 +1325,111 @@ def _handle_rinex_subcommand(args, stations, url, log_level):
             print(f"\n✓ QC report saved to {args.report}", file=sys.stderr)
         except Exception as e:
             print(f"Error writing report: {e}", file=sys.stderr)
+
+
+def _fmt_date(dt):
+    """Format a ``datetime`` as ``YYYY-MM-DD``, or ``"—"`` when ``None``."""
+    return dt.strftime("%Y-%m-%d") if dt else "—"
+
+
+def _delta_days(a, b):
+    """Return ``|a - b|`` in whole days, or ``None`` if either date is missing."""
+    if a is None or b is None:
+        return None
+    return abs((a.date() - b.date()).days)
+
+
+def _coerce_to_datetime(value):
+    """Best-effort coercion of a TOS date field to a ``datetime``.
+
+    Accepts ``datetime`` instances, ISO-8601 strings, and bare ``YYYY-MM-DD``
+    strings. Returns ``None`` for missing or unparseable values.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        try:
+            return datetime.strptime(str(value)[:10], "%Y-%m-%d")
+        except ValueError:
+            return None
+
+
+def _handle_timespan_subcommand(args, stations, url, log_level):
+    """Compare TOS station start/end dates with first/last files in the archive."""
+    for station in stations:
+        print(f"\n=== {station} ===")
+
+        try:
+            station_data = gpsqc.gps_metadata(station, url, loglevel=log_level.value)
+        except Exception as e:
+            print(f"  TOS error: {e}", file=sys.stderr)
+            continue
+        if not station_data:
+            print(f"  No TOS metadata for {station}", file=sys.stderr)
+            continue
+
+        sessions = station_data.get("device_history", []) or []
+        tos_end_raw = sessions[-1].get("time_to") if sessions else None
+        tos_active = tos_end_raw is None and bool(sessions)
+
+        tos_start = _coerce_to_datetime(station_data.get("date_start"))
+        tos_end = _coerce_to_datetime(tos_end_raw)
+
+        archive = find_station_archive_range(station, base_dir=args.rinex_base_dir)
+        arch_first = archive.get("first")
+        arch_last = archive.get("last")
+
+        # Start comparison
+        start_delta = _delta_days(tos_start, arch_first)
+        if tos_start is None:
+            start_flag = "✗ no TOS start"
+        elif arch_first is None:
+            start_flag = "✗ no archive files"
+        elif start_delta <= args.start_tolerance_days:
+            start_flag = f"✓ (Δ {start_delta} d)"
+        else:
+            start_flag = f"⚠ (Δ {start_delta} d)"
+        print(
+            f"  TOS start:  {_fmt_date(tos_start):<12} "
+            f"Archive first: {_fmt_date(arch_first):<12} {start_flag}"
+        )
+
+        # End comparison
+        if tos_active:
+            print(
+                f"  TOS end:    {'active':<12} "
+                f"Archive last:  {_fmt_date(arch_last):<12} "
+                "active in TOS; latest file reported"
+            )
+        else:
+            end_delta = _delta_days(tos_end, arch_last)
+            if tos_end is None:
+                end_flag = "✗ no TOS end"
+            elif arch_last is None:
+                end_flag = "✗ no archive files"
+            elif end_delta <= args.end_tolerance_days:
+                end_flag = f"✓ (Δ {end_delta} d)"
+            else:
+                end_flag = f"⚠ (Δ {end_delta} d)"
+            print(
+                f"  TOS end:    {_fmt_date(tos_end):<12} "
+                f"Archive last:  {_fmt_date(arch_last):<12} {end_flag}"
+            )
+
+        # Per-kind breakdown
+        for kind in ("15s_24hr", "1Hz_1hr"):
+            k = archive.get(kind, {})
+            if k.get("first") or k.get("last"):
+                print(
+                    f"    {kind:<9} {_fmt_date(k.get('first'))} "
+                    f"→ {_fmt_date(k.get('last'))}"
+                )
+            else:
+                print(f"    {kind:<9} (no files)")
 
 
 def _handle_sitelog_subcommand(args, stations, url, log_level):
