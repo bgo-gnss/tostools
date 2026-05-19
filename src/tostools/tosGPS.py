@@ -596,6 +596,13 @@ Examples:
     )
     rinex_parser.add_argument("rinex_files", nargs="+", help="RINEX files to validate")
     rinex_parser.add_argument(
+        "--coord-tolerance",
+        type=float,
+        default=10.0,
+        help="Max allowed distance (m) between RINEX APPROX POSITION XYZ "
+        "and TOS coordinates (default: 10.0)",
+    )
+    rinex_parser.add_argument(
         "--fix", action="store_true", help="Apply corrections to RINEX headers"
     )
     rinex_parser.add_argument(
@@ -1177,10 +1184,30 @@ def _handle_rinex_subcommand(args, stations, url, log_level):
             rinex_info = extract_header_info(header_data, log_level.value)
 
             # Compare with TOS metadata
-            comparison = compare_rinex_to_tos(rinex_info, station_data, log_level.value)
+            comparison = compare_rinex_to_tos(
+                rinex_info,
+                station_data,
+                log_level.value,
+                coord_tolerance=args.coord_tolerance,
+            )
             all_comparisons.append(
                 {"station": station, "file": rinex_file, "comparison": comparison}
             )
+
+            # Always report the coordinate check if available
+            coord_check = comparison.get("coord_check")
+            if coord_check:
+                dx, dy, dz = coord_check["diff_xyz"]
+                print(
+                    "Coordinates: ΔX={:+.3f} ΔY={:+.3f} ΔZ={:+.3f} → "
+                    "distance={:.3f} m (tolerance {:.1f} m)".format(
+                        dx,
+                        dy,
+                        dz,
+                        coord_check["distance_m"],
+                        coord_check["tolerance_m"],
+                    )
+                )
 
             # Report discrepancies
             if comparison.get("discrepancies"):

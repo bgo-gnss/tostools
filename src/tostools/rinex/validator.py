@@ -6,9 +6,11 @@ information and performing quality control checks.
 """
 
 import logging
+import math
 from datetime import datetime
 from typing import Any, Dict, List
 
+from .. import gps_metadata_qc as gpsqc
 from ..utils.logging import get_logger
 
 
@@ -16,6 +18,7 @@ def compare_rinex_to_tos(
     rinex_info: Dict[str, str],
     tos_session: Dict[str, Any],
     loglevel: int = logging.WARNING,
+    coord_tolerance: float = 10.0,
 ) -> Dict[str, Any]:
     """
     Compare RINEX header information with TOS database session.
@@ -24,6 +27,9 @@ def compare_rinex_to_tos(
         rinex_info: Extracted RINEX header information
         tos_session: TOS session data with device information
         loglevel: Logging level
+        coord_tolerance: Maximum distance in meters between the RINEX
+            APPROX POSITION XYZ and the TOS coordinates (transformed to
+            ECEF) before the coordinate check is flagged as a discrepancy
 
     Returns:
         Dictionary containing comparison results and corrections
@@ -120,6 +126,47 @@ def compare_rinex_to_tos(
                         comparison_result["matches"]["antenna_height"] = rinex_h
                 except (ValueError, IndexError) as e:
                     logger.warning(f"Error parsing antenna height: {e}")
+
+    # Compare approximate position (XYZ) against TOS coordinates
+    rinex_xyz_str = rinex_info.get("APPROX POSITION XYZ", "").strip()
+    tos_lat = tos_session.get("lat")
+    tos_lon = tos_session.get("lon")
+    tos_alt = tos_session.get("altitude")
+
+    have_tos_coords = (
+        tos_lat is not None and tos_lon is not None and tos_alt is not None
+    )
+    if rinex_xyz_str and have_tos_coords:
+        try:
+            rinex_xyz = [float(v) for v in rinex_xyz_str.split()[:3]]
+            tos_xyz = list(
+                gpsqc.wgs84toitrf08.transform(
+                    float(tos_lat), float(tos_lon), float(tos_alt)
+                )
+            )
+            diff = [r - t for r, t in zip(rinex_xyz, tos_xyz)]
+            distance = math.sqrt(sum(d * d for d in diff))
+
+            comparison_result["coord_check"] = {
+                "rinex_xyz": rinex_xyz,
+                "tos_xyz": tos_xyz,
+                "diff_xyz": diff,
+                "distance_m": distance,
+                "tolerance_m": coord_tolerance,
+                "exceeds_tolerance": distance > coord_tolerance,
+            }
+
+            if distance > coord_tolerance:
+                comparison_result["discrepancies"]["coordinates"] = {
+                    "rinex": rinex_xyz,
+                    "tos": tos_xyz,
+                    "distance_m": distance,
+                    "tolerance_m": coord_tolerance,
+                }
+            else:
+                comparison_result["matches"]["coordinates"] = distance
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Error comparing coordinates: {e}")
 
     # Compare observer/agency
     observer_info = tos_session.get("contact", {})
