@@ -554,11 +554,25 @@ def get_contacts(id_entity_parent, url_rest, loglevel=logging.WARNING):
 
 
 def gps_metadata(station_identifier, url_rest, loglevel=logging.WARNING):
-    """
-    input:
-        Accessing TOS for GPS metadata
-        station: station 4 letter marker
-        url_res: rest service endpoint to access TOS
+    """**Deprecated.** Use :func:`gps_metadata_via_devices` instead.
+
+    Legacy synthesis chain — kept available for the
+    ``tosGPS --use-legacy-synthesis`` opt-out and for byte-equality
+    oracle tests on clean stations. The two known bugs are:
+
+    1. ``device_attribute_history`` slicer drops sub-windows when
+       attribute periods misalign (pair-based dedup).
+    2. ``get_device_history`` pivot zips sorted starts and ends
+       position-wise, producing inverted sessions on overlap-heavy
+       stations.
+
+    See ``docs/architecture/synthesis-legacy-divergence.md`` for the
+    full write-up. Slated for removal once the new chain has run in
+    production long enough to retire the ops fallback.
+
+    Args:
+        station_identifier: station 4 letter marker
+        url_rest: REST service endpoint to access TOS
     """
 
     # logging settings
@@ -596,6 +610,51 @@ def gps_metadata(station_identifier, url_rest, loglevel=logging.WARNING):
     station["device_history"] = get_device_history(device_sessions, loglevel=loglevel)
     module_logger.debug("station: %s", gpsf.json_print(station))
 
+    return station
+
+
+def gps_metadata_via_devices(station_identifier, url_rest, loglevel=logging.WARNING):
+    """Drop-in replacement for :func:`gps_metadata` using the new synthesis chain.
+
+    Bridges the legacy ``station`` dict shape (consumed by
+    ``tosGPS PrintTOS`` / ``tosGPS sitelog``) onto the
+    :func:`tostools.devices.station_sessions` composer. The
+    top-level station metadata (``marker``, ``name``, ``lat``,
+    ``lon``, ``altitude``, ``contact``, ...) is still pulled from
+    :func:`get_station_metadata` — only ``device_history`` is
+    replaced.
+
+    Behaviour against the legacy chain:
+
+    * For stations with clean attribute periods + non-overlapping
+      device installations (RHOF, AKUR, VMEY, SKRO): byte-equal
+      output. Locked by
+      ``test_rhof_gps_metadata_via_devices_matches_legacy_snapshot``.
+    * For stations exhibiting either of the two legacy bugs or the
+      "receiver-swap gap" enrichment pattern: divergent output.
+      See ``docs/architecture/synthesis-legacy-divergence.md``.
+
+    Gated behind the ``tosGPS --use-new-synthesis`` flag — once the
+    sitelog golden files have been re-captured + domain-expert
+    reviewed for the divergent stations, this becomes the default
+    (phase 5).
+    """
+    from . import devices
+    from .api.tos_client import TOSClient
+
+    module_logger = get_logger(__name__, loglevel)
+    station, devices_history = get_station_metadata(
+        station_identifier, url_rest, loglevel=loglevel
+    )
+    if not station:
+        module_logger.warning(
+            "dictionary for station %s is empty returning", station_identifier
+        )
+        return {}
+
+    client = TOSClient(base_url=url_rest)
+    station_id = int(devices_history["id_entity"])
+    station["device_history"] = devices.station_sessions(client, station_id)
     return station
 
 

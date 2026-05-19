@@ -861,7 +861,7 @@ def change_rinex_files(
 
 
 def change_rfile_header(
-    rheader, dir_structure="", savedir=Path.cwd(), loglevel=logging.WARNING
+    rheader, dir_structure="", savedir=None, loglevel=logging.WARNING
 ):
     """
     change the contend of a rinex file header to rheader["header"]
@@ -870,6 +870,9 @@ def change_rfile_header(
     # logging settings
     module_logger = gpsf.get_logger(name=__name__)
     module_logger.setLevel(loglevel)
+
+    if savedir is None:
+        savedir = Path.cwd()
 
     rfile = Path(*rheader["rinex file"])
 

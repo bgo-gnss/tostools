@@ -1,0 +1,1211 @@
+interactions:
+- request:
+    body: '{"code": "marker", "value": "rhof"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '35'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - python-requests/2.32.5
+    method: POST
+    uri: https://vi-api.vedur.is/tos/v1/entity/search/station/geophysical/
+  response:
+    body:
+      string: "[\n  {\n    \"attributes\": [\n      {\n        \"attribute_datatype_code\":
+        \"text\",\n        \"code\": \"marker\",\n        \"date_from\": \"2001-07-19T00:00:00\",\n
+        \       \"date_to\": null,\n        \"description_en\": \"Station marker\",\n
+        \       \"description_is\": \"Au\\u00f0kenni st\\u00f6\\u00f0var, venjulega
+        fimm stafa skammst\\u00f6fun me\\u00f0 enskum l\\u00e1gst\\u00f6fum\",\n        \"id_attribute_value\":
+        31110,\n        \"id_entity\": 4390,\n        \"name_en\": \"Marker\",\n        \"name_is\":
+        \"Au\\u00f0kenni\",\n        \"python_constraint\": \"^[a-z0-9]{3,6}|^[A-Z]\\\\d{1,6}\",\n
+        \       \"sort_order\": 10,\n        \"value\": \"rhof\"\n      },\n      {\n
+        \       \"attribute_datatype_code\": \"text\",\n        \"code\": \"name\",\n
+        \       \"date_from\": \"2001-07-19T00:00:00\",\n        \"date_to\": null,\n
+        \       \"description_en\": \"Station name\",\n        \"description_is\":
+        \"Nafn st\\u00f6\\u00f0var\",\n        \"id_attribute_value\": 31111,\n        \"id_entity\":
+        4390,\n        \"name_en\": \"Name\",\n        \"name_is\": \"Nafn\",\n        \"python_constraint\":
+        \".*\",\n        \"sort_order\": 20,\n        \"value\": \"Raufarh\\u00f6fn\"\n
+        \     },\n      {\n        \"attribute_datatype_code\": \"numeric\",\n        \"code\":
+        \"lat\",\n        \"date_from\": \"2001-07-19T00:00:00\",\n        \"date_to\":
+        null,\n        \"description_en\": \"Station latitude in decimal degrees\",\n
+        \       \"description_is\": \"Breiddargr\\u00e1\\u00f0a st\\u00f6\\u00f0var
+        \\u00ed tugabrotsgr\\u00e1\\u00f0um\",\n        \"id_attribute_value\": 31112,\n
+        \       \"id_entity\": 4390,\n        \"name_en\": \"Latitude\",\n        \"name_is\":
+        \"Breiddargr\\u00e1\\u00f0a\",\n        \"python_constraint\": \"^\\\\d{1,2}\\\\.\\\\d{1,5}\",\n
+        \       \"sort_order\": 50,\n        \"value\": \"66.461122\"\n      },\n
+        \     {\n        \"attribute_datatype_code\": \"numeric\",\n        \"code\":
+        \"lon\",\n        \"date_from\": \"2001-07-19T00:00:00\",\n        \"date_to\":
+        null,\n        \"description_en\": \"Station longitude in decimal degrees\",\n
+        \       \"description_is\": \"Lengdargr\\u00e1\\u00f0a st\\u00f6\\u00f0var
+        \\u00ed tugabrotsgr\\u00e1\\u00f0um\",\n        \"id_attribute_value\": 31113,\n
+        \       \"id_entity\": 4390,\n        \"name_en\": \"Longitude\",\n        \"name_is\":
+        \"Lengdargr\\u00e1\\u00f0a\",\n        \"python_constraint\": \"^-\\\\d{1,2}\\\\.\\\\d{1,5}\",\n
+        \       \"sort_order\": 60,\n        \"value\": \"-15.946708\"\n      },\n
+        \     {\n        \"attribute_datatype_code\": \"numeric\",\n        \"code\":
+        \"altitude\",\n        \"date_from\": \"2001-07-19T00:00:00\",\n        \"date_to\":
+        null,\n        \"description_en\": \"Station altitude in meters\",\n        \"description_is\":
+        \"H\\u00e6\\u00f0 st\\u00f6\\u00f0var yfir sj\\u00e1varm\\u00e1li \\u00ed
+        metrum\",\n        \"id_attribute_value\": 31114,\n        \"id_entity\":
+        4390,\n        \"name_en\": \"Altitude\",\n        \"name_is\": \"H\\u00e6\\u00f0\",\n
+        \       \"python_constraint\": \".*\",\n        \"sort_order\": 70,\n        \"value\":
+        \"78.764\"\n      },\n      {\n        \"attribute_datatype_code\": \"text\",\n
+        \       \"code\": \"subtype\",\n        \"date_from\": \"2001-07-19T00:00:00\",\n
+        \       \"date_to\": null,\n        \"description_en\": \"Station subtype,
+        indicates composition or subject of the measurements\",\n        \"description_is\":
+        \"Undirtegund st\\u00f6\\u00f0var, l\\u00fdsir samsetningu e\\u00f0a vi\\u00f0fangsefni
+        m\\u00e6linga\",\n        \"id_attribute_value\": 31115,\n        \"id_entity\":
+        4390,\n        \"name_en\": \"Subtype\",\n        \"name_is\": \"Undirtegund\",\n
+        \       \"python_constraint\": \".*\",\n        \"sort_order\": 30,\n        \"value\":
+        \"GPS st\\u00f6\\u00f0\"\n      },\n      {\n        \"attribute_datatype_code\":
+        \"timestamp\",\n        \"code\": \"date_start\",\n        \"date_from\":
+        \"2001-07-19T00:00:00\",\n        \"date_to\": null,\n        \"description_en\":
+        \"Station start date\",\n        \"description_is\": \"Upphafsdagsetning\",\n
+        \       \"id_attribute_value\": 113103,\n        \"id_entity\": 4390,\n        \"name_en\":
+        \"Start date\",\n        \"name_is\": \"Upphafsdagsetning\",\n        \"python_constraint\":
+        \".*\",\n        \"sort_order\": 80,\n        \"value\": \"2001-07-19 00:00\"\n
+        \     },\n      {\n        \"attribute_datatype_code\": \"text\",\n        \"code\":
+        \"note\",\n        \"date_from\": \"2019-02-20T14:56:25\",\n        \"date_to\":
+        null,\n        \"description_en\": \"Note\",\n        \"description_is\":
+        \"Gl\\u00f3sur\",\n        \"id_attribute_value\": 113106,\n        \"id_entity\":
+        4390,\n        \"name_en\": \"Note\",\n        \"name_is\": \"Gl\\u00f3sur\",\n
+        \       \"python_constraint\": \".*\",\n        \"sort_order\": 9999,\n        \"value\":
+        \"Antenna height confirmed by measurements in 2012  still -7 mm offset in
+        timeseries corrected here\"\n      },\n      {\n        \"attribute_datatype_code\":
+        \"boolean\",\n        \"code\": \"in_network_epos\",\n        \"date_from\":
+        \"2019-01-01T00:00:00\",\n        \"date_to\": null,\n        \"description_en\":
+        \"Member of EPOS network\",\n        \"description_is\": \"Me\\u00f0limur
+        \\u00ed EPOS neti\",\n        \"id_attribute_value\": 113107,\n        \"id_entity\":
+        4390,\n        \"name_en\": \"In EPOS network\",\n        \"name_is\": \"\\u00cd
+        EPOS neti\",\n        \"python_constraint\": \"^(true$|false$)\",\n        \"sort_order\":
+        9999,\n        \"value\": \"true\"\n      },\n      {\n        \"attribute_datatype_code\":
+        \"text\",\n        \"code\": \"note\",\n        \"date_from\": \"2019-02-20T15:06:21\",\n
+        \       \"date_to\": \"2021-06-01T20:41:59\",\n        \"description_en\":
+        \"Note\",\n        \"description_is\": \"Gl\\u00f3sur\",\n        \"id_attribute_value\":
+        113108,\n        \"id_entity\": 4390,\n        \"name_en\": \"Note\",\n        \"name_is\":
+        \"Gl\\u00f3sur\",\n        \"python_constraint\": \".*\",\n        \"sort_order\":
+        9999,\n        \"value\": \"Yfirfarin \\u00ed TOS. Tryggvi.\"\n      },\n
+        \     {\n        \"attribute_datatype_code\": \"boolean\",\n        \"code\":
+        \"is_near_fault_zones\",\n        \"date_from\": \"2001-07-19T00:00:00\",\n
+        \       \"date_to\": null,\n        \"description_en\": \"Is near fault zones\",\n
+        \       \"description_is\": \"Er n\\u00e1l\\u00e6gt sprungusv\\u00e6\\u00f0i\",\n
+        \       \"id_attribute_value\": 113221,\n        \"id_entity\": 4390,\n        \"name_en\":
+        \"Is near fault zones\",\n        \"name_is\": \"Er n\\u00e1l\\u00e6gt sprungusv\\u00e6\\u00f0i\",\n
+        \       \"python_constraint\": \"^(true$|false$)\",\n        \"sort_order\":
+        9999,\n        \"value\": \"nei\"\n      },\n      {\n        \"attribute_datatype_code\":
+        \"text\",\n        \"code\": \"bedrock_type\",\n        \"date_from\": \"2001-07-19T00:00:00\",\n
+        \       \"date_to\": null,\n        \"description_en\": \"igneous, metamorphic,
+        sedimentary\",\n        \"description_is\": \"\\u00c1 ENSKU, igneous, metamorphic,
+        sedimentary\",\n        \"id_attribute_value\": 113222,\n        \"id_entity\":
+        4390,\n        \"name_en\": \"Bedrock type\",\n        \"name_is\": \"Bergtegund\",\n
+        \       \"python_constraint\": \".*\",\n        \"sort_order\": 9999,\n        \"value\":
+        \"igneous\"\n      },\n      {\n        \"attribute_datatype_code\": \"text\",\n
+        \       \"code\": \"bedrock_condition\",\n        \"date_from\": \"2001-07-19T00:00:00\",\n
+        \       \"date_to\": null,\n        \"description_en\": \"fresh, jointed,
+        weathered\",\n        \"description_is\": \"\\u00c1 ENSKU, fresh, jointed,
+        weathered\",\n        \"id_attribute_value\": 113223,\n        \"id_entity\":
+        4390,\n        \"name_en\": \"Bedrock condition\",\n        \"name_is\": \"\\u00c1stand
+        berggrunns\",\n        \"python_constraint\": \".*\",\n        \"sort_order\":
+        9999,\n        \"value\": \"weathered\"\n      },\n      {\n        \"attribute_datatype_code\":
+        \"text\",\n        \"code\": \"geological_characteristic\",\n        \"date_from\":
+        \"2001-07-19T00:00:00\",\n        \"date_to\": null,\n        \"description_en\":
+        \"e.g. bedrock, clay, conglomerate, gravel, sand etc.\",\n        \"description_is\":
+        \"\\u00c1 ENSKU, t.d. bedrock, clay, conglomerate, gravel, sand\",\n        \"id_attribute_value\":
+        113224,\n        \"id_entity\": 4390,\n        \"name_en\": \"Geological characteristic\",\n
+        \       \"name_is\": \"Jar\\u00f0fr\\u00e6\\u00f0ilegt einkenni\",\n        \"python_constraint\":
+        \".*\",\n        \"sort_order\": 9999,\n        \"value\": \"bedrock\"\n      },\n
+        \     {\n        \"attribute_datatype_code\": \"text\",\n        \"code\":
+        \"note\",\n        \"date_from\": \"2021-06-01T20:41:59\",\n        \"date_to\":
+        null,\n        \"description_en\": \"Note\",\n        \"description_is\":
+        \"Gl\\u00f3sur\",\n        \"id_attribute_value\": 128798,\n        \"id_entity\":
+        4390,\n        \"name_en\": \"Note\",\n        \"name_is\": \"Gl\\u00f3sur\",\n
+        \       \"python_constraint\": \".*\",\n        \"sort_order\": 9999,\n        \"value\":
+        \"Checked the data with strokkur from HI. All is good. Siqi\"\n      },\n
+        \     {\n        \"attribute_datatype_code\": \"text\",\n        \"code\":
+        \"iers_domes_number\",\n        \"date_from\": \"2001-07-19T00:00:00\",\n
+        \       \"date_to\": null,\n        \"description_en\": \"IERS domes number\",\n
+        \       \"description_is\": \"IERS domes number\",\n        \"id_attribute_value\":
+        132587,\n        \"id_entity\": 4390,\n        \"name_en\": \"IERS domes number\",\n
+        \       \"name_is\": \"IERS domes number\",\n        \"python_constraint\":
+        \".*\",\n        \"sort_order\": 9999,\n        \"value\": \"10216M001\"\n
+        \     }\n    ],\n    \"code_entity_subtype\": \"geophysical\",\n    \"entity_subtype_description_en\":
+        \"SIL, GPS, gas, infrasound and other geophysical measurement stations\",\n
+        \   \"entity_subtype_description_is\": \"SIL, GPS, gas, infrasound og a\\u00f0rar
+        jar\\u00f0e\\u00f0lism\\u00e6list\\u00f6\\u00f0var\",\n    \"entity_subtype_name_en\":
+        \"Geophysical station\",\n    \"entity_subtype_name_is\": \"Jar\\u00f0e\\u00f0lisst\\u00f6\\u00f0\",\n
+        \   \"entity_type_name_en\": \"station\",\n    \"entity_type_name_is\": \"st\\u00f6\\u00f0\",\n
+        \   \"id_entity\": 4390,\n    \"id_entity_children\": [\n      4704,\n      4981,\n
+        \     5228,\n      18662,\n      18659\n    ],\n    \"id_entity_parent\":
+        4389,\n    \"id_entity_subtype\": 111\n  }\n]\n"
+    headers:
+      Access-Control-Allow-Origin:
+      - '*'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 18 May 2026 09:24:38 GMT
+      Server:
+      - gunicorn
+      Vary:
+      - Accept-Encoding
+      content-length:
+      - '9272'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"code": "marker", "value": "RHOF"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '35'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - python-requests/2.32.5
+    method: POST
+    uri: https://vi-api.vedur.is/tos/v1/entity/search/station/geophysical/
+  response:
+    body:
+      string: '[]
+
+        '
+    headers:
+      Access-Control-Allow-Origin:
+      - '*'
+      Content-Length:
+      - '3'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 18 May 2026 09:24:39 GMT
+      Server:
+      - gunicorn
+      Vary:
+      - Accept-Encoding
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.32.5
+    method: GET
+    uri: https://vi-api.vedur.is/tos/v1/history/entity/4390/
+  response:
+    body:
+      string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"note\",\n      \"date_from\": \"2019-02-20T15:06:21\",\n
+        \     \"date_to\": \"2021-06-01T20:41:59\",\n      \"description_en\": \"Note\",\n
+        \     \"description_is\": \"Gl\\u00f3sur\",\n      \"id_attribute_value\":
+        113108,\n      \"id_entity\": 4390,\n      \"name_en\": \"Note\",\n      \"name_is\":
+        \"Gl\\u00f3sur\",\n      \"python_constraint\": \".*\",\n      \"sort_order\":
+        9999,\n      \"value\": \"Yfirfarin \\u00ed TOS. Tryggvi.\"\n    },\n    {\n
+        \     \"attribute_datatype_code\": \"text\",\n      \"code\": \"geological_characteristic\",\n
+        \     \"date_from\": \"2001-07-19T00:00:00\",\n      \"date_to\": null,\n
+        \     \"description_en\": \"e.g. bedrock, clay, conglomerate, gravel, sand
+        etc.\",\n      \"description_is\": \"\\u00c1 ENSKU, t.d. bedrock, clay, conglomerate,
+        gravel, sand\",\n      \"id_attribute_value\": 113224,\n      \"id_entity\":
+        4390,\n      \"name_en\": \"Geological characteristic\",\n      \"name_is\":
+        \"Jar\\u00f0fr\\u00e6\\u00f0ilegt einkenni\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 9999,\n      \"value\": \"bedrock\"\n    },\n
+        \   {\n      \"attribute_datatype_code\": \"timestamp\",\n      \"code\":
+        \"date_start\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Station start date\",\n      \"description_is\":
+        \"Upphafsdagsetning\",\n      \"id_attribute_value\": 113103,\n      \"id_entity\":
+        4390,\n      \"name_en\": \"Start date\",\n      \"name_is\": \"Upphafsdagsetning\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 80,\n      \"value\":
+        \"2001-07-19 00:00\"\n    },\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"note\",\n      \"date_from\": \"2021-06-01T20:41:59\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Note\",\n      \"description_is\":
+        \"Gl\\u00f3sur\",\n      \"id_attribute_value\": 128798,\n      \"id_entity\":
+        4390,\n      \"name_en\": \"Note\",\n      \"name_is\": \"Gl\\u00f3sur\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 9999,\n      \"value\":
+        \"Checked the data with strokkur from HI. All is good. Siqi\"\n    },\n    {\n
+        \     \"attribute_datatype_code\": \"numeric\",\n      \"code\": \"lon\",\n
+        \     \"date_from\": \"2001-07-19T00:00:00\",\n      \"date_to\": null,\n
+        \     \"description_en\": \"Station longitude in decimal degrees\",\n      \"description_is\":
+        \"Lengdargr\\u00e1\\u00f0a st\\u00f6\\u00f0var \\u00ed tugabrotsgr\\u00e1\\u00f0um\",\n
+        \     \"id_attribute_value\": 31113,\n      \"id_entity\": 4390,\n      \"name_en\":
+        \"Longitude\",\n      \"name_is\": \"Lengdargr\\u00e1\\u00f0a\",\n      \"python_constraint\":
+        \"^-\\\\d{1,2}\\\\.\\\\d{1,5}\",\n      \"sort_order\": 60,\n      \"value\":
+        \"-15.946708\"\n    },\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"subtype\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Station subtype, indicates
+        composition or subject of the measurements\",\n      \"description_is\": \"Undirtegund
+        st\\u00f6\\u00f0var, l\\u00fdsir samsetningu e\\u00f0a vi\\u00f0fangsefni
+        m\\u00e6linga\",\n      \"id_attribute_value\": 31115,\n      \"id_entity\":
+        4390,\n      \"name_en\": \"Subtype\",\n      \"name_is\": \"Undirtegund\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 30,\n      \"value\":
+        \"GPS st\\u00f6\\u00f0\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"numeric\",\n      \"code\": \"altitude\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Station altitude in
+        meters\",\n      \"description_is\": \"H\\u00e6\\u00f0 st\\u00f6\\u00f0var
+        yfir sj\\u00e1varm\\u00e1li \\u00ed metrum\",\n      \"id_attribute_value\":
+        31114,\n      \"id_entity\": 4390,\n      \"name_en\": \"Altitude\",\n      \"name_is\":
+        \"H\\u00e6\\u00f0\",\n      \"python_constraint\": \".*\",\n      \"sort_order\":
+        70,\n      \"value\": \"78.764\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"bedrock_condition\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"fresh, jointed, weathered\",\n
+        \     \"description_is\": \"\\u00c1 ENSKU, fresh, jointed, weathered\",\n
+        \     \"id_attribute_value\": 113223,\n      \"id_entity\": 4390,\n      \"name_en\":
+        \"Bedrock condition\",\n      \"name_is\": \"\\u00c1stand berggrunns\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 9999,\n      \"value\":
+        \"weathered\"\n    },\n    {\n      \"attribute_datatype_code\": \"boolean\",\n
+        \     \"code\": \"in_network_epos\",\n      \"date_from\": \"2019-01-01T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Member of EPOS network\",\n
+        \     \"description_is\": \"Me\\u00f0limur \\u00ed EPOS neti\",\n      \"id_attribute_value\":
+        113107,\n      \"id_entity\": 4390,\n      \"name_en\": \"In EPOS network\",\n
+        \     \"name_is\": \"\\u00cd EPOS neti\",\n      \"python_constraint\": \"^(true$|false$)\",\n
+        \     \"sort_order\": 9999,\n      \"value\": \"true\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"name\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Station name\",\n      \"description_is\":
+        \"Nafn st\\u00f6\\u00f0var\",\n      \"id_attribute_value\": 31111,\n      \"id_entity\":
+        4390,\n      \"name_en\": \"Name\",\n      \"name_is\": \"Nafn\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 20,\n      \"value\": \"Raufarh\\u00f6fn\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"numeric\",\n      \"code\":
+        \"lat\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Station latitude in decimal degrees\",\n
+        \     \"description_is\": \"Breiddargr\\u00e1\\u00f0a st\\u00f6\\u00f0var
+        \\u00ed tugabrotsgr\\u00e1\\u00f0um\",\n      \"id_attribute_value\": 31112,\n
+        \     \"id_entity\": 4390,\n      \"name_en\": \"Latitude\",\n      \"name_is\":
+        \"Breiddargr\\u00e1\\u00f0a\",\n      \"python_constraint\": \"^\\\\d{1,2}\\\\.\\\\d{1,5}\",\n
+        \     \"sort_order\": 50,\n      \"value\": \"66.461122\"\n    },\n    {\n
+        \     \"attribute_datatype_code\": \"text\",\n      \"code\": \"bedrock_type\",\n
+        \     \"date_from\": \"2001-07-19T00:00:00\",\n      \"date_to\": null,\n
+        \     \"description_en\": \"igneous, metamorphic, sedimentary\",\n      \"description_is\":
+        \"\\u00c1 ENSKU, igneous, metamorphic, sedimentary\",\n      \"id_attribute_value\":
+        113222,\n      \"id_entity\": 4390,\n      \"name_en\": \"Bedrock type\",\n
+        \     \"name_is\": \"Bergtegund\",\n      \"python_constraint\": \".*\",\n
+        \     \"sort_order\": 9999,\n      \"value\": \"igneous\"\n    },\n    {\n
+        \     \"attribute_datatype_code\": \"boolean\",\n      \"code\": \"is_near_fault_zones\",\n
+        \     \"date_from\": \"2001-07-19T00:00:00\",\n      \"date_to\": null,\n
+        \     \"description_en\": \"Is near fault zones\",\n      \"description_is\":
+        \"Er n\\u00e1l\\u00e6gt sprungusv\\u00e6\\u00f0i\",\n      \"id_attribute_value\":
+        113221,\n      \"id_entity\": 4390,\n      \"name_en\": \"Is near fault zones\",\n
+        \     \"name_is\": \"Er n\\u00e1l\\u00e6gt sprungusv\\u00e6\\u00f0i\",\n      \"python_constraint\":
+        \"^(true$|false$)\",\n      \"sort_order\": 9999,\n      \"value\": \"nei\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"text\",\n      \"code\":
+        \"note\",\n      \"date_from\": \"2019-02-20T14:56:25\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Note\",\n      \"description_is\": \"Gl\\u00f3sur\",\n
+        \     \"id_attribute_value\": 113106,\n      \"id_entity\": 4390,\n      \"name_en\":
+        \"Note\",\n      \"name_is\": \"Gl\\u00f3sur\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 9999,\n      \"value\": \"Antenna height confirmed
+        by measurements in 2012  still -7 mm offset in timeseries corrected here\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"text\",\n      \"code\":
+        \"marker\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Station marker\",\n      \"description_is\":
+        \"Au\\u00f0kenni st\\u00f6\\u00f0var, venjulega fimm stafa skammst\\u00f6fun
+        me\\u00f0 enskum l\\u00e1gst\\u00f6fum\",\n      \"id_attribute_value\": 31110,\n
+        \     \"id_entity\": 4390,\n      \"name_en\": \"Marker\",\n      \"name_is\":
+        \"Au\\u00f0kenni\",\n      \"python_constraint\": \"^[a-z0-9]{3,6}|^[A-Z]\\\\d{1,6}\",\n
+        \     \"sort_order\": 10,\n      \"value\": \"rhof\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"iers_domes_number\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"IERS domes number\",\n
+        \     \"description_is\": \"IERS domes number\",\n      \"id_attribute_value\":
+        132587,\n      \"id_entity\": 4390,\n      \"name_en\": \"IERS domes number\",\n
+        \     \"name_is\": \"IERS domes number\",\n      \"python_constraint\": \".*\",\n
+        \     \"sort_order\": 9999,\n      \"value\": \"10216M001\"\n    }\n  ],\n
+        \ \"children_connections\": [\n    {\n      \"id_entity_child\": 4521,\n      \"id_entity_connection\":
+        5463,\n      \"id_entity_parent\": 4390,\n      \"time_from\": \"2001-07-19T00:00:00\",\n
+        \     \"time_to\": \"2012-08-28T00:00:00\"\n    },\n    {\n      \"id_entity_child\":
+        4704,\n      \"id_entity_connection\": 5680,\n      \"id_entity_parent\":
+        4390,\n      \"time_from\": \"2012-08-28T00:00:00\",\n      \"time_to\": null\n
+        \   },\n    {\n      \"id_entity_child\": 4804,\n      \"id_entity_connection\":
+        5828,\n      \"id_entity_parent\": 4390,\n      \"time_from\": \"2002-03-29T00:00:00\",\n
+        \     \"time_to\": \"2012-08-28T00:00:00\"\n    },\n    {\n      \"id_entity_child\":
+        4945,\n      \"id_entity_connection\": 6084,\n      \"id_entity_parent\":
+        4390,\n      \"time_from\": \"2001-07-19T00:00:00\",\n      \"time_to\": \"2002-03-29T00:00:00\"\n
+        \   },\n    {\n      \"id_entity_child\": 4981,\n      \"id_entity_connection\":
+        6122,\n      \"id_entity_parent\": 4390,\n      \"time_from\": \"2012-08-28T00:00:00\",\n
+        \     \"time_to\": null\n    },\n    {\n      \"id_entity_child\": 5318,\n
+        \     \"id_entity_connection\": 6517,\n      \"id_entity_parent\": 4390,\n
+        \     \"time_from\": \"2001-07-19T00:00:00\",\n      \"time_to\": \"2012-08-28T00:00:00\"\n
+        \   },\n    {\n      \"id_entity_child\": 5228,\n      \"id_entity_connection\":
+        6403,\n      \"id_entity_parent\": 4390,\n      \"time_from\": \"2001-07-19T00:00:00\",\n
+        \     \"time_to\": null\n    },\n    {\n      \"id_entity_child\": 18662,\n
+        \     \"id_entity_connection\": 24055,\n      \"id_entity_parent\": 4390,\n
+        \     \"time_from\": \"2023-08-16T13:20:00\",\n      \"time_to\": null\n    },\n
+        \   {\n      \"id_entity_child\": 5823,\n      \"id_entity_connection\": 6943,\n
+        \     \"id_entity_parent\": 4390,\n      \"time_from\": \"2001-07-19T00:00:00\",\n
+        \     \"time_to\": \"2023-08-16T16:30:00\"\n    },\n    {\n      \"id_entity_child\":
+        18659,\n      \"id_entity_connection\": 24057,\n      \"id_entity_parent\":
+        4390,\n      \"time_from\": \"2023-08-16T15:30:00\",\n      \"time_to\": null\n
+        \   }\n  ],\n  \"code_entity_subtype\": \"geophysical\",\n  \"entity_subtype_description_en\":
+        \"SIL, GPS, gas, infrasound and other geophysical measurement stations\",\n
+        \ \"entity_subtype_description_is\": \"SIL, GPS, gas, infrasound og a\\u00f0rar
+        jar\\u00f0e\\u00f0lism\\u00e6list\\u00f6\\u00f0var\",\n  \"entity_subtype_name_en\":
+        \"Geophysical station\",\n  \"entity_subtype_name_is\": \"Jar\\u00f0e\\u00f0lisst\\u00f6\\u00f0\",\n
+        \ \"entity_type_name_en\": \"station\",\n  \"entity_type_name_is\": \"st\\u00f6\\u00f0\",\n
+        \ \"id_entity\": 4390,\n  \"id_entity_parent\": 4389,\n  \"id_entity_subtype\":
+        111\n}\n"
+    headers:
+      Access-Control-Allow-Origin:
+      - '*'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 18 May 2026 09:24:39 GMT
+      Server:
+      - gunicorn
+      Vary:
+      - Accept-Encoding
+      content-length:
+      - '10545'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.32.5
+    method: GET
+    uri: https://vi-api.vedur.is/tos/v1/history/entity/4521/
+  response:
+    body:
+      string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"antenna_reference_point\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"GPS antenna reference
+        point\",\n      \"description_is\": \"Loftnetsvi\\u00f0mi\\u00f0 (HARP)\",\n
+        \     \"id_attribute_value\": 31769,\n      \"id_entity\": 4521,\n      \"name_en\":
+        \"Antenna reference point (HARP)\",\n      \"name_is\": \"Loftnetsvi\\u00f0mi\\u00f0\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 70,\n      \"value\":
+        \"DHARP\"\n    },\n    {\n      \"attribute_datatype_code\": \"text\",\n      \"code\":
+        \"owner\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Owner of device\",\n      \"description_is\":
+        \"Eigandi t\\u00e6kis: Ve\\u00f0urm\\u00e6lih\\u00f3pur, Vatnam\\u00e6lih\\u00f3pur,
+        Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur, Fjark\\u00f6nnunarh\\u00f3pur
+        \",\n      \"id_attribute_value\": 31768,\n      \"id_entity\": 4521,\n      \"name_en\":
+        \"Owner\",\n      \"name_is\": \"Eigandi\",\n      \"python_constraint\":
+        \"^(Ve\\u00f0urm\\u00e6lih\\u00f3pur$|Vatnam\\u00e6lih\\u00f3pur$|Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur$|Fjark\\u00f6nnunarh\\u00f3pur$)\",\n
+        \     \"sort_order\": 50,\n      \"value\": \"Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"text\",\n      \"code\":
+        \"model\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Device model\",\n      \"description_is\":
+        \"Tegund t\\u00e6kis\",\n      \"id_attribute_value\": 31770,\n      \"id_entity\":
+        4521,\n      \"name_en\": \"Model\",\n      \"name_is\": \"Tegund t\\u00e6kis\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 20,\n      \"value\":
+        \"ASH701945C_M\"\n    },\n    {\n      \"attribute_datatype_code\": \"numeric\",\n
+        \     \"code\": \"antenna_height\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"GPS antenna height in
+        meters\",\n      \"description_is\": \"H\\u00e6\\u00f0 GPS loftnets \\u00ed
+        metrum\",\n      \"id_attribute_value\": 35827,\n      \"id_entity\": 4521,\n
+        \     \"name_en\": \"Antenna height\",\n      \"name_is\": \"H\\u00e6\\u00f0
+        loftnets\",\n      \"python_constraint\": \".*\",\n      \"sort_order\": 60,\n
+        \     \"value\": \"0.0\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"timestamp\",\n      \"code\": \"date_start\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device start date\",\n
+        \     \"description_is\": \"Dagsetning \\u00feegar t\\u00e6ki er fyrst sett
+        \\u00ed rekstur\",\n      \"id_attribute_value\": 31766,\n      \"id_entity\":
+        4521,\n      \"name_en\": \"Date start\",\n      \"name_is\": \"Upphafsdagsetning\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 30,\n      \"value\":
+        \"2001-07-19 00:00:00\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"serial_number\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device serial number\",\n
+        \     \"description_is\": \"Ra\\u00f0n\\u00famer\",\n      \"id_attribute_value\":
+        31767,\n      \"id_entity\": 4521,\n      \"name_en\": \"Serial number\",\n
+        \     \"name_is\": \"Ra\\u00f0n\\u00famer\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 10,\n      \"value\": \"1999040150\"\n    }\n
+        \ ],\n  \"children_connections\": null,\n  \"code_entity_subtype\": \"antenna\",\n
+        \ \"entity_subtype_description_en\": \"Antenna\",\n  \"entity_subtype_description_is\":
+        \"Loftnet\",\n  \"entity_subtype_name_en\": \"Antenna\",\n  \"entity_subtype_name_is\":
+        \"Loftnet\",\n  \"entity_type_name_en\": \"device\",\n  \"entity_type_name_is\":
+        \"t\\u00e6ki\",\n  \"id_entity\": 4521,\n  \"id_entity_parent\": 4390,\n  \"id_entity_subtype\":
+        10\n}\n"
+    headers:
+      Access-Control-Allow-Origin:
+      - '*'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 18 May 2026 09:24:38 GMT
+      Server:
+      - gunicorn
+      Vary:
+      - Accept-Encoding
+      content-length:
+      - '3535'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.32.5
+    method: GET
+    uri: https://vi-api.vedur.is/tos/v1/history/entity/4704/
+  response:
+    body:
+      string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"timestamp\",\n
+        \     \"code\": \"date_start\",\n      \"date_from\": \"2012-08-28T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device start date\",\n
+        \     \"description_is\": \"Dagsetning \\u00feegar t\\u00e6ki er fyrst sett
+        \\u00ed rekstur\",\n      \"id_attribute_value\": 32754,\n      \"id_entity\":
+        4704,\n      \"name_en\": \"Date start\",\n      \"name_is\": \"Upphafsdagsetning\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 30,\n      \"value\":
+        \"2012-08-28 00:00:00\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"numeric\",\n      \"code\": \"azimuth\",\n      \"date_from\": \"2012-08-28T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Antenna orientation
+        relative to true north\",\n      \"description_is\": \"Stefna loftnets mi\\u00f0a\\u00f0
+        vi\\u00f0 r\\u00e9tt nor\\u00f0ur\",\n      \"id_attribute_value\": 148183,\n
+        \     \"id_entity\": 4704,\n      \"name_en\": \"Azimuth\",\n      \"name_is\":
+        \"\\u00c1ttarhorn\",\n      \"python_constraint\": \".*\",\n      \"sort_order\":
+        9999,\n      \"value\": \"0.0\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"owner\",\n      \"date_from\": \"2012-08-28T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Owner of device\",\n
+        \     \"description_is\": \"Eigandi t\\u00e6kis: Ve\\u00f0urm\\u00e6lih\\u00f3pur,
+        Vatnam\\u00e6lih\\u00f3pur, Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur, Fjark\\u00f6nnunarh\\u00f3pur
+        \",\n      \"id_attribute_value\": 32756,\n      \"id_entity\": 4704,\n      \"name_en\":
+        \"Owner\",\n      \"name_is\": \"Eigandi\",\n      \"python_constraint\":
+        \"^(Ve\\u00f0urm\\u00e6lih\\u00f3pur$|Vatnam\\u00e6lih\\u00f3pur$|Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur$|Fjark\\u00f6nnunarh\\u00f3pur$)\",\n
+        \     \"sort_order\": 50,\n      \"value\": \"Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"numeric\",\n      \"code\":
+        \"antenna_height\",\n      \"date_from\": \"2012-08-28T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"GPS antenna height in meters\",\n      \"description_is\":
+        \"H\\u00e6\\u00f0 GPS loftnets \\u00ed metrum\",\n      \"id_attribute_value\":
+        113105,\n      \"id_entity\": 4704,\n      \"name_en\": \"Antenna height\",\n
+        \     \"name_is\": \"H\\u00e6\\u00f0 loftnets\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 60,\n      \"value\": \"-0.007\"\n    },\n
+        \   {\n      \"attribute_datatype_code\": \"text\",\n      \"code\": \"antenna_reference_point\",\n
+        \     \"date_from\": \"2012-08-28T00:00:00\",\n      \"date_to\": null,\n
+        \     \"description_en\": \"GPS antenna reference point\",\n      \"description_is\":
+        \"Loftnetsvi\\u00f0mi\\u00f0 (HARP)\",\n      \"id_attribute_value\": 32757,\n
+        \     \"id_entity\": 4704,\n      \"name_en\": \"Antenna reference point (HARP)\",\n
+        \     \"name_is\": \"Loftnetsvi\\u00f0mi\\u00f0\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 70,\n      \"value\": \"DHARP\"\n    },\n    {\n
+        \     \"attribute_datatype_code\": \"text\",\n      \"code\": \"comment\",\n
+        \     \"date_from\": \"2012-08-28T00:00:00\",\n      \"date_to\": null,\n
+        \     \"description_en\": \"Device comment\",\n      \"description_is\": \"Athugasemd
+        vi\\u00f0 t\\u00e6ki\",\n      \"id_attribute_value\": 143978,\n      \"id_entity\":
+        4704,\n      \"name_en\": \"Comment\",\n      \"name_is\": \"Athugasemd\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 9999,\n      \"value\":
+        \"antenna height confirmed by measurements in 2012  still -7 mm offset in
+        timeseries corrected here\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"serial_number\",\n      \"date_from\": \"2012-08-28T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device serial number\",\n
+        \     \"description_is\": \"Ra\\u00f0n\\u00famer\",\n      \"id_attribute_value\":
+        32755,\n      \"id_entity\": 4704,\n      \"name_en\": \"Serial number\",\n
+        \     \"name_is\": \"Ra\\u00f0n\\u00famer\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 10,\n      \"value\": \"1441045161\"\n    },\n
+        \   {\n      \"attribute_datatype_code\": \"text\",\n      \"code\": \"model\",\n
+        \     \"date_from\": \"2012-08-28T00:00:00\",\n      \"date_to\": null,\n
+        \     \"description_en\": \"Device model\",\n      \"description_is\": \"Tegund
+        t\\u00e6kis\",\n      \"id_attribute_value\": 32758,\n      \"id_entity\":
+        4704,\n      \"name_en\": \"Model\",\n      \"name_is\": \"Tegund t\\u00e6kis\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 20,\n      \"value\":
+        \"TRM57971.00\"\n    }\n  ],\n  \"children_connections\": null,\n  \"code_entity_subtype\":
+        \"antenna\",\n  \"entity_subtype_description_en\": \"Antenna\",\n  \"entity_subtype_description_is\":
+        \"Loftnet\",\n  \"entity_subtype_name_en\": \"Antenna\",\n  \"entity_subtype_name_is\":
+        \"Loftnet\",\n  \"entity_type_name_en\": \"device\",\n  \"entity_type_name_is\":
+        \"t\\u00e6ki\",\n  \"id_entity\": 4704,\n  \"id_entity_parent\": 4390,\n  \"id_entity_subtype\":
+        10\n}\n"
+    headers:
+      Access-Control-Allow-Origin:
+      - '*'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 18 May 2026 09:24:39 GMT
+      Server:
+      - gunicorn
+      Vary:
+      - Accept-Encoding
+      content-length:
+      - '4586'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.32.5
+    method: GET
+    uri: https://vi-api.vedur.is/tos/v1/history/entity/4804/
+  response:
+    body:
+      string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"firmware_version\",\n      \"date_from\": \"2002-03-29T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device firmware version\",\n
+        \     \"description_is\": \"\\u00datg\\u00e1fun\\u00famer fastb\\u00fana\\u00f0ar
+        (firmware)\",\n      \"id_attribute_value\": 33390,\n      \"id_entity\":
+        4804,\n      \"name_en\": \"Firmware version\",\n      \"name_is\": \"\\u00datg\\u00e1fa
+        fastb\\u00fana\\u00f0ar\",\n      \"python_constraint\": \".*\",\n      \"sort_order\":
+        20,\n      \"value\": \"CJ00\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"model\",\n      \"date_from\": \"2002-03-29T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device model\",\n      \"description_is\":
+        \"Tegund t\\u00e6kis\",\n      \"id_attribute_value\": 33389,\n      \"id_entity\":
+        4804,\n      \"name_en\": \"Model\",\n      \"name_is\": \"Tegund t\\u00e6kis\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 40,\n      \"value\":
+        \"ASHTECH UZ-12\"\n    },\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"serial_number\",\n      \"date_from\": \"2002-03-29T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device serial number\",\n
+        \     \"description_is\": \"Ra\\u00f0n\\u00famer\",\n      \"id_attribute_value\":
+        33387,\n      \"id_entity\": 4804,\n      \"name_en\": \"Serial number\",\n
+        \     \"name_is\": \"Ra\\u00f0n\\u00famer\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 10,\n      \"value\": \"220013831\"\n    },\n
+        \   {\n      \"attribute_datatype_code\": \"boolean\",\n      \"code\": \"GPS\",\n
+        \     \"date_from\": \"2002-03-29T00:00:00\",\n      \"date_to\": null,\n
+        \     \"description_en\": \"Global Positioning System\",\n      \"description_is\":
+        \"GPS kerfi\",\n      \"id_attribute_value\": 148234,\n      \"id_entity\":
+        4804,\n      \"name_en\": \"GPS\",\n      \"name_is\": \"GPS\",\n      \"python_constraint\":
+        \"^(true$|false$)\",\n      \"sort_order\": 9999,\n      \"value\": \"true\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"text\",\n      \"code\":
+        \"software_version\",\n      \"date_from\": \"2002-03-29T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Device software version\",\n      \"description_is\":
+        \"\\u00datg\\u00e1fun\\u00famer hugb\\u00fana\\u00f0ar\",\n      \"id_attribute_value\":
+        33391,\n      \"id_entity\": 4804,\n      \"name_en\": \"Software version\",\n
+        \     \"name_is\": \"\\u00datg\\u00e1fa hugb\\u00fana\\u00f0ar\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 30,\n      \"value\": \"9.93\"\n    },\n    {\n
+        \     \"attribute_datatype_code\": \"timestamp\",\n      \"code\": \"date_start\",\n
+        \     \"date_from\": \"2002-03-29T00:00:00\",\n      \"date_to\": null,\n
+        \     \"description_en\": \"Device start date\",\n      \"description_is\":
+        \"Dagsetning \\u00feegar t\\u00e6ki er fyrst sett \\u00ed rekstur\",\n      \"id_attribute_value\":
+        33386,\n      \"id_entity\": 4804,\n      \"name_en\": \"Date start\",\n      \"name_is\":
+        \"Upphafsdagsetning\",\n      \"python_constraint\": \".*\",\n      \"sort_order\":
+        50,\n      \"value\": \"2002-03-29 00:00:00\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"owner\",\n      \"date_from\": \"2002-03-29T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Owner of device\",\n
+        \     \"description_is\": \"Eigandi t\\u00e6kis: Ve\\u00f0urm\\u00e6lih\\u00f3pur,
+        Vatnam\\u00e6lih\\u00f3pur, Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur, Fjark\\u00f6nnunarh\\u00f3pur
+        \",\n      \"id_attribute_value\": 33388,\n      \"id_entity\": 4804,\n      \"name_en\":
+        \"Owner\",\n      \"name_is\": \"Eigandi\",\n      \"python_constraint\":
+        \"^(Ve\\u00f0urm\\u00e6lih\\u00f3pur$|Vatnam\\u00e6lih\\u00f3pur$|Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur$|Fjark\\u00f6nnunarh\\u00f3pur$)\",\n
+        \     \"sort_order\": 70,\n      \"value\": \"Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur\"\n
+        \   }\n  ],\n  \"children_connections\": null,\n  \"code_entity_subtype\":
+        \"gnss_receiver\",\n  \"entity_subtype_description_en\": \"GNSS receiver for
+        ISGPS network measurements\",\n  \"entity_subtype_description_is\": \"GNSS
+        m\\u00f3ttakari fyrir ISGPS m\\u00e6lakerfi\",\n  \"entity_subtype_name_en\":
+        \"GNSS-receiver\",\n  \"entity_subtype_name_is\": \"GNSS m\\u00f3ttakari\",\n
+        \ \"entity_type_name_en\": \"device\",\n  \"entity_type_name_is\": \"t\\u00e6ki\",\n
+        \ \"id_entity\": 4804,\n  \"id_entity_parent\": 4390,\n  \"id_entity_subtype\":
+        49\n}\n"
+    headers:
+      Access-Control-Allow-Origin:
+      - '*'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 18 May 2026 09:24:38 GMT
+      Server:
+      - gunicorn
+      Vary:
+      - Accept-Encoding
+      content-length:
+      - '4106'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.32.5
+    method: GET
+    uri: https://vi-api.vedur.is/tos/v1/history/entity/4945/
+  response:
+    body:
+      string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"owner\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Owner of device\",\n
+        \     \"description_is\": \"Eigandi t\\u00e6kis: Ve\\u00f0urm\\u00e6lih\\u00f3pur,
+        Vatnam\\u00e6lih\\u00f3pur, Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur, Fjark\\u00f6nnunarh\\u00f3pur
+        \",\n      \"id_attribute_value\": 34323,\n      \"id_entity\": 4945,\n      \"name_en\":
+        \"Owner\",\n      \"name_is\": \"Eigandi\",\n      \"python_constraint\":
+        \"^(Ve\\u00f0urm\\u00e6lih\\u00f3pur$|Vatnam\\u00e6lih\\u00f3pur$|Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur$|Fjark\\u00f6nnunarh\\u00f3pur$)\",\n
+        \     \"sort_order\": 70,\n      \"value\": \"Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"timestamp\",\n      \"code\":
+        \"date_start\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Device start date\",\n      \"description_is\":
+        \"Dagsetning \\u00feegar t\\u00e6ki er fyrst sett \\u00ed rekstur\",\n      \"id_attribute_value\":
+        34321,\n      \"id_entity\": 4945,\n      \"name_en\": \"Date start\",\n      \"name_is\":
+        \"Upphafsdagsetning\",\n      \"python_constraint\": \".*\",\n      \"sort_order\":
+        50,\n      \"value\": \"2001-07-19 00:00:00\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"firmware_version\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device firmware version\",\n
+        \     \"description_is\": \"\\u00datg\\u00e1fun\\u00famer fastb\\u00fana\\u00f0ar
+        (firmware)\",\n      \"id_attribute_value\": 34325,\n      \"id_entity\":
+        4945,\n      \"name_en\": \"Firmware version\",\n      \"name_is\": \"\\u00datg\\u00e1fa
+        fastb\\u00fana\\u00f0ar\",\n      \"python_constraint\": \".*\",\n      \"sort_order\":
+        20,\n      \"value\": \"UFB1\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"serial_number\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device serial number\",\n
+        \     \"description_is\": \"Ra\\u00f0n\\u00famer\",\n      \"id_attribute_value\":
+        34322,\n      \"id_entity\": 4945,\n      \"name_en\": \"Serial number\",\n
+        \     \"name_is\": \"Ra\\u00f0n\\u00famer\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 10,\n      \"value\": \"633Z024\"\n    },\n
+        \   {\n      \"attribute_datatype_code\": \"text\",\n      \"code\": \"model\",\n
+        \     \"date_from\": \"2001-07-19T00:00:00\",\n      \"date_to\": null,\n
+        \     \"description_en\": \"Device model\",\n      \"description_is\": \"Tegund
+        t\\u00e6kis\",\n      \"id_attribute_value\": 34324,\n      \"id_entity\":
+        4945,\n      \"name_en\": \"Model\",\n      \"name_is\": \"Tegund t\\u00e6kis\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 40,\n      \"value\":
+        \"ASHTECH UZ-12\"\n    }\n  ],\n  \"children_connections\": null,\n  \"code_entity_subtype\":
+        \"gnss_receiver\",\n  \"entity_subtype_description_en\": \"GNSS receiver for
+        ISGPS network measurements\",\n  \"entity_subtype_description_is\": \"GNSS
+        m\\u00f3ttakari fyrir ISGPS m\\u00e6lakerfi\",\n  \"entity_subtype_name_en\":
+        \"GNSS-receiver\",\n  \"entity_subtype_name_is\": \"GNSS m\\u00f3ttakari\",\n
+        \ \"entity_type_name_en\": \"device\",\n  \"entity_type_name_is\": \"t\\u00e6ki\",\n
+        \ \"id_entity\": 4945,\n  \"id_entity_parent\": 4390,\n  \"id_entity_subtype\":
+        49\n}\n"
+    headers:
+      Access-Control-Allow-Origin:
+      - '*'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 18 May 2026 09:24:39 GMT
+      Server:
+      - gunicorn
+      Vary:
+      - Accept-Encoding
+      content-length:
+      - '3155'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.32.5
+    method: GET
+    uri: https://vi-api.vedur.is/tos/v1/history/entity/4981/
+  response:
+    body:
+      string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"boolean\",\n
+        \     \"code\": \"GPS\",\n      \"date_from\": \"2012-08-28T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Global Positioning System\",\n
+        \     \"description_is\": \"GPS kerfi\",\n      \"id_attribute_value\": 148146,\n
+        \     \"id_entity\": 4981,\n      \"name_en\": \"GPS\",\n      \"name_is\":
+        \"GPS\",\n      \"python_constraint\": \"^(true$|false$)\",\n      \"sort_order\":
+        9999,\n      \"value\": \"true\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"timestamp\",\n      \"code\": \"date_start\",\n      \"date_from\": \"2012-08-28T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device start date\",\n
+        \     \"description_is\": \"Dagsetning \\u00feegar t\\u00e6ki er fyrst sett
+        \\u00ed rekstur\",\n      \"id_attribute_value\": 34566,\n      \"id_entity\":
+        4981,\n      \"name_en\": \"Date start\",\n      \"name_is\": \"Upphafsdagsetning\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 50,\n      \"value\":
+        \"2012-08-28 00:00:00\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"comment\",\n      \"date_from\": \"2012-08-28T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device comment\",\n
+        \     \"description_is\": \"Athugasemd vi\\u00f0 t\\u00e6ki\",\n      \"id_attribute_value\":
+        34572,\n      \"id_entity\": 4981,\n      \"name_en\": \"Comment\",\n      \"name_is\":
+        \"Athugasemd\",\n      \"python_constraint\": \".*\",\n      \"sort_order\":
+        9999,\n      \"value\": \"Ra\\u00f0n\\u00fameri\\u00f0 er b\\u00fai\\u00f0
+        til \\u00far skammst\\u00f6fun st\\u00f6\\u00f0var og dagsetningu SOPAC-lotu,
+        \\u00fev\\u00ed \\u00f3gilt ra\\u00f0n\\u00famer 0000000000 var skr\\u00e1\\u00f0\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"text\",\n      \"code\":
+        \"model\",\n      \"date_from\": \"2012-08-28T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Device model\",\n      \"description_is\":
+        \"Tegund t\\u00e6kis\",\n      \"id_attribute_value\": 34569,\n      \"id_entity\":
+        4981,\n      \"name_en\": \"Model\",\n      \"name_is\": \"Tegund t\\u00e6kis\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 40,\n      \"value\":
+        \"TRIMBLE NETR9\"\n    },\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"serial_number\",\n      \"date_from\": \"2012-08-28T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device serial number\",\n
+        \     \"description_is\": \"Ra\\u00f0n\\u00famer\",\n      \"id_attribute_value\":
+        34567,\n      \"id_entity\": 4981,\n      \"name_en\": \"Serial number\",\n
+        \     \"name_is\": \"Ra\\u00f0n\\u00famer\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 10,\n      \"value\": \"5038K70713\"\n    },\n
+        \   {\n      \"attribute_datatype_code\": \"text\",\n      \"code\": \"owner\",\n
+        \     \"date_from\": \"2012-08-28T00:00:00\",\n      \"date_to\": null,\n
+        \     \"description_en\": \"Owner of device\",\n      \"description_is\":
+        \"Eigandi t\\u00e6kis: Ve\\u00f0urm\\u00e6lih\\u00f3pur, Vatnam\\u00e6lih\\u00f3pur,
+        Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur, Fjark\\u00f6nnunarh\\u00f3pur
+        \",\n      \"id_attribute_value\": 34568,\n      \"id_entity\": 4981,\n      \"name_en\":
+        \"Owner\",\n      \"name_is\": \"Eigandi\",\n      \"python_constraint\":
+        \"^(Ve\\u00f0urm\\u00e6lih\\u00f3pur$|Vatnam\\u00e6lih\\u00f3pur$|Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur$|Fjark\\u00f6nnunarh\\u00f3pur$)\",\n
+        \     \"sort_order\": 70,\n      \"value\": \"Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"text\",\n      \"code\":
+        \"firmware_version\",\n      \"date_from\": \"2012-08-28T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Device firmware version\",\n      \"description_is\":
+        \"\\u00datg\\u00e1fun\\u00famer fastb\\u00fana\\u00f0ar (firmware)\",\n      \"id_attribute_value\":
+        34570,\n      \"id_entity\": 4981,\n      \"name_en\": \"Firmware version\",\n
+        \     \"name_is\": \"\\u00datg\\u00e1fa fastb\\u00fana\\u00f0ar\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 20,\n      \"value\": \"NP 4.60 / SP 4.60\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"text\",\n      \"code\":
+        \"software_version\",\n      \"date_from\": \"2012-08-28T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Device software version\",\n      \"description_is\":
+        \"\\u00datg\\u00e1fun\\u00famer hugb\\u00fana\\u00f0ar\",\n      \"id_attribute_value\":
+        34571,\n      \"id_entity\": 4981,\n      \"name_en\": \"Software version\",\n
+        \     \"name_is\": \"\\u00datg\\u00e1fa hugb\\u00fana\\u00f0ar\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 30,\n      \"value\": \"4.60\"\n    },\n    {\n
+        \     \"attribute_datatype_code\": \"boolean\",\n      \"code\": \"GLO\",\n
+        \     \"date_from\": \"2012-08-28T00:00:00\",\n      \"date_to\": null,\n
+        \     \"description_en\": \"Global Navigation Satellite System\",\n      \"description_is\":
+        \"GLO kerfi\",\n      \"id_attribute_value\": 148151,\n      \"id_entity\":
+        4981,\n      \"name_en\": \"GLONASS\",\n      \"name_is\": \"GLO\",\n      \"python_constraint\":
+        \"^(true$|false$)\",\n      \"sort_order\": 9999,\n      \"value\": \"true\"\n
+        \   }\n  ],\n  \"children_connections\": null,\n  \"code_entity_subtype\":
+        \"gnss_receiver\",\n  \"entity_subtype_description_en\": \"GNSS receiver for
+        ISGPS network measurements\",\n  \"entity_subtype_description_is\": \"GNSS
+        m\\u00f3ttakari fyrir ISGPS m\\u00e6lakerfi\",\n  \"entity_subtype_name_en\":
+        \"GNSS-receiver\",\n  \"entity_subtype_name_is\": \"GNSS m\\u00f3ttakari\",\n
+        \ \"entity_type_name_en\": \"device\",\n  \"entity_type_name_is\": \"t\\u00e6ki\",\n
+        \ \"id_entity\": 4981,\n  \"id_entity_parent\": 4390,\n  \"id_entity_subtype\":
+        49\n}\n"
+    headers:
+      Access-Control-Allow-Origin:
+      - '*'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 18 May 2026 09:24:39 GMT
+      Server:
+      - gunicorn
+      Vary:
+      - Accept-Encoding
+      content-length:
+      - '5200'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.32.5
+    method: GET
+    uri: https://vi-api.vedur.is/tos/v1/history/entity/5318/
+  response:
+    body:
+      string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"owner\",\n      \"date_from\": \"2014-10-17T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Owner of device\",\n
+        \     \"description_is\": \"Eigandi t\\u00e6kis: Ve\\u00f0urm\\u00e6lih\\u00f3pur,
+        Vatnam\\u00e6lih\\u00f3pur, Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur, Fjark\\u00f6nnunarh\\u00f3pur
+        \",\n      \"id_attribute_value\": 36281,\n      \"id_entity\": 5318,\n      \"name_en\":
+        \"Owner\",\n      \"name_is\": \"Eigandi\",\n      \"python_constraint\":
+        \"^(Ve\\u00f0urm\\u00e6lih\\u00f3pur$|Vatnam\\u00e6lih\\u00f3pur$|Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur$|Fjark\\u00f6nnunarh\\u00f3pur$)\",\n
+        \     \"sort_order\": 60,\n      \"value\": \"Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"text\",\n      \"code\":
+        \"comment\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Device comment\",\n      \"description_is\":
+        \"Athugasemd vi\\u00f0 t\\u00e6ki\",\n      \"id_attribute_value\": 36283,\n
+        \     \"id_entity\": 5318,\n      \"name_en\": \"Comment\",\n      \"name_is\":
+        \"Athugasemd\",\n      \"python_constraint\": \".*\",\n      \"sort_order\":
+        9999,\n      \"value\": \"Ra\\u00f0n\\u00fameri\\u00f0 er b\\u00fai\\u00f0
+        til \\u00far skammst\\u00f6fun st\\u00f6\\u00f0var og dagsetningu SOPAC-lotu
+        \\u00feegar tegund k\\u00fapuls breyttist\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"timestamp\",\n      \"code\": \"date_start\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device start date\",\n
+        \     \"description_is\": \"Dagsetning \\u00feegar t\\u00e6ki er fyrst sett
+        \\u00ed rekstur\",\n      \"id_attribute_value\": 36279,\n      \"id_entity\":
+        5318,\n      \"name_en\": \"Date start\",\n      \"name_is\": \"Upphafsdagsetning\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 30,\n      \"value\":
+        \"2001-07-19 00:00:00\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"serial_number\",\n      \"date_from\": \"2014-10-17T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device serial number\",\n
+        \     \"description_is\": \"Ra\\u00f0n\\u00famer\",\n      \"id_attribute_value\":
+        36280,\n      \"id_entity\": 5318,\n      \"name_en\": \"Serial number\",\n
+        \     \"name_is\": \"Ra\\u00f0n\\u00famer\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 10,\n      \"value\": \"radome-RHOF-20010719\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"text\",\n      \"code\":
+        \"model\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Device model\",\n      \"description_is\":
+        \"Tegund t\\u00e6kis\",\n      \"id_attribute_value\": 36282,\n      \"id_entity\":
+        5318,\n      \"name_en\": \"Model\",\n      \"name_is\": \"Tegund t\\u00e6kis\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 20,\n      \"value\":
+        \"SCIS\"\n    }\n  ],\n  \"children_connections\": null,\n  \"code_entity_subtype\":
+        \"radome\",\n  \"entity_subtype_description_en\": \"Radome\",\n  \"entity_subtype_description_is\":
+        \"VANTAR L\\u00ddSINGU\",\n  \"entity_subtype_name_en\": \"Radome\",\n  \"entity_subtype_name_is\":
+        \"Radome\",\n  \"entity_type_name_en\": \"device\",\n  \"entity_type_name_is\":
+        \"t\\u00e6ki\",\n  \"id_entity\": 5318,\n  \"id_entity_parent\": 4390,\n  \"id_entity_subtype\":
+        48\n}\n"
+    headers:
+      Access-Control-Allow-Origin:
+      - '*'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 18 May 2026 09:24:39 GMT
+      Server:
+      - gunicorn
+      Vary:
+      - Accept-Encoding
+      content-length:
+      - '3136'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.32.5
+    method: GET
+    uri: https://vi-api.vedur.is/tos/v1/history/entity/5228/
+  response:
+    body:
+      string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"owner\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Owner of infrastructure\",\n
+        \     \"description_is\": \"Eigandi innvi\\u00f0a: Ve\\u00f0urm\\u00e6lih\\u00f3pur,
+        Vatnam\\u00e6lih\\u00f3pur, Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur, Fjark\\u00f6nnunarh\\u00f3pur
+        \",\n      \"id_attribute_value\": 35831,\n      \"id_entity\": 5228,\n      \"name_en\":
+        \"Owner\",\n      \"name_is\": \"Eigandi\",\n      \"python_constraint\":
+        \"^(Ve\\u00f0urm\\u00e6lih\\u00f3pur$|Vatnam\\u00e6lih\\u00f3pur$|Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur$|Fjark\\u00f6nnunarh\\u00f3pur$)\",\n
+        \     \"sort_order\": 60,\n      \"value\": \"Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"numeric\",\n      \"code\":
+        \"monument_height\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Height of monument above reference point\",\n
+        \     \"description_is\": \"H\\u00e6\\u00f0 undirst\\u00f6\\u00f0u yfir vi\\u00f0mi\\u00f0unarpunkt\",\n
+        \     \"id_attribute_value\": 143977,\n      \"id_entity\": 5228,\n      \"name_en\":
+        \"Monument height\",\n      \"name_is\": \"H\\u00e6\\u00f0 undirst\\u00f6\\u00f0u\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 9999,\n      \"value\":
+        \"1.014\"\n    },\n    {\n      \"attribute_datatype_code\": \"timestamp\",\n
+        \     \"code\": \"date_start\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Infrastructure start
+        date\",\n      \"description_is\": \"Dagsetning \\u00feegar innvi\\u00f0ir
+        eru fyrst settir \\u00ed rekstur\",\n      \"id_attribute_value\": 35829,\n
+        \     \"id_entity\": 5228,\n      \"name_en\": \"Date start\",\n      \"name_is\":
+        \"Upphafsdagsetning\",\n      \"python_constraint\": \".*\",\n      \"sort_order\":
+        30,\n      \"value\": \"2001-07-19 00:00\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"comment\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Infrastructure comment\",\n
+        \     \"description_is\": \"Athugasemd vi\\u00f0 innvi\\u00f0i\",\n      \"id_attribute_value\":
+        35833,\n      \"id_entity\": 5228,\n      \"name_en\": \"Comment\",\n      \"name_is\":
+        \"Athugasemd\",\n      \"python_constraint\": \".*\",\n      \"sort_order\":
+        9999,\n      \"value\": \"Ra\\u00f0n\\u00fameri\\u00f0 er b\\u00fai\\u00f0
+        til \\u00far skammst\\u00f6fun st\\u00f6\\u00f0var og dagsetningu SOPAC-lotu
+        \\u00feegar h\\u00e6\\u00f0 loftnets breyttist\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"serial_number\",\n      \"date_from\": \"2001-07-19T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Infrastructure serial
+        number\",\n      \"description_is\": \"Ra\\u00f0n\\u00famer\",\n      \"id_attribute_value\":
+        35830,\n      \"id_entity\": 5228,\n      \"name_en\": \"Serial number\",\n
+        \     \"name_is\": \"Ra\\u00f0n\\u00famer\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 10,\n      \"value\": \"monument-RHOF-20010719\"\n
+        \   }\n  ],\n  \"children_connections\": null,\n  \"code_entity_subtype\":
+        \"monument\",\n  \"entity_subtype_description_en\": \"Monument\",\n  \"entity_subtype_description_is\":
+        \"VANTAR L\\u00ddSINGU\",\n  \"entity_subtype_name_en\": \"Monument\",\n  \"entity_subtype_name_is\":
+        \"Monument\",\n  \"entity_type_name_en\": \"infrastructure\",\n  \"entity_type_name_is\":
+        \"innvi\\u00f0ir\",\n  \"id_entity\": 5228,\n  \"id_entity_parent\": 4390,\n
+        \ \"id_entity_subtype\": 94\n}\n"
+    headers:
+      Access-Control-Allow-Origin:
+      - '*'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 18 May 2026 09:24:39 GMT
+      Server:
+      - gunicorn
+      Vary:
+      - Accept-Encoding
+      content-length:
+      - '3323'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.32.5
+    method: GET
+    uri: https://vi-api.vedur.is/tos/v1/history/entity/18662/
+  response:
+    body:
+      string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"serial_number\",\n      \"date_from\": \"2021-06-29T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device serial number\",\n
+        \     \"description_is\": \"Ra\\u00f0n\\u00famer\",\n      \"id_attribute_value\":
+        129788,\n      \"id_entity\": 18662,\n      \"name_en\": \"Serial number\",\n
+        \     \"name_is\": \"Ra\\u00f0n\\u00famer\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 10,\n      \"value\": \"1108843859\"\n    },\n
+        \   {\n      \"attribute_datatype_code\": \"timestamp\",\n      \"code\":
+        \"date_start\",\n      \"date_from\": \"2021-06-29T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Device start date\",\n      \"description_is\":
+        \"Dagsetning \\u00feegar t\\u00e6ki er fyrst sett \\u00ed rekstur\",\n      \"id_attribute_value\":
+        129790,\n      \"id_entity\": 18662,\n      \"name_en\": \"Date start\",\n
+        \     \"name_is\": \"Upphafsdagsetning\",\n      \"python_constraint\": \".*\",\n
+        \     \"sort_order\": 30,\n      \"value\": \"2021-06-29T00:00:00\"\n    },\n
+        \   {\n      \"attribute_datatype_code\": \"text\",\n      \"code\": \"model\",\n
+        \     \"date_from\": \"2021-06-29T00:00:00\",\n      \"date_to\": null,\n
+        \     \"description_en\": \"Device model\",\n      \"description_is\": \"Tegund
+        t\\u00e6kis\",\n      \"id_attribute_value\": 129789,\n      \"id_entity\":
+        18662,\n      \"name_en\": \"Model\",\n      \"name_is\": \"Tegund t\\u00e6kis\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 20,\n      \"value\":
+        \"Teltonika RUT240\"\n    },\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"owner\",\n      \"date_from\": \"2021-06-29T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Owner of device\",\n
+        \     \"description_is\": \"Eigandi t\\u00e6kis: Ve\\u00f0urm\\u00e6lih\\u00f3pur,
+        Vatnam\\u00e6lih\\u00f3pur, Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur, Fjark\\u00f6nnunarh\\u00f3pur
+        \",\n      \"id_attribute_value\": 129792,\n      \"id_entity\": 18662,\n
+        \     \"name_en\": \"Owner\",\n      \"name_is\": \"Eigandi\",\n      \"python_constraint\":
+        \"^(Ve\\u00f0urm\\u00e6lih\\u00f3pur$|Vatnam\\u00e6lih\\u00f3pur$|Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur$|Fjark\\u00f6nnunarh\\u00f3pur$)\",\n
+        \     \"sort_order\": 60,\n      \"value\": \"Fjark\\u00f6nnunarh\\u00f3pur\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"text\",\n      \"code\":
+        \"status\",\n      \"date_from\": \"2021-06-29T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Device status, active, broken, under repair\",\n
+        \     \"description_is\": \"Sta\\u00f0a t\\u00e6kis: virkt, bila\\u00f0, \\u00ed
+        vi\\u00f0ger\\u00f0, \\u00f3kvar\\u00f0a\\u00f0, grunsamlegt\",\n      \"id_attribute_value\":
+        129791,\n      \"id_entity\": 18662,\n      \"name_en\": \"Status\",\n      \"name_is\":
+        \"Sta\\u00f0a\",\n      \"python_constraint\": \"^(virkt$|\\u00f3virkt$|bila\\u00f0$|\\u00ed
+        vi\\u00f0ger\\u00f0$|\\u00f3kvar\\u00f0a\\u00f0$|grunsamlegt$)\",\n      \"sort_order\":
+        50,\n      \"value\": \"virkt\"\n    }\n  ],\n  \"children_connections\":
+        null,\n  \"code_entity_subtype\": \"modem_gsm\",\n  \"entity_subtype_description_en\":
+        \"Modem GSM\",\n  \"entity_subtype_description_is\": \"GSM m\\u00f3tald\",\n
+        \ \"entity_subtype_name_en\": \"Modem GSM\",\n  \"entity_subtype_name_is\":
+        \"GSM m\\u00f3tald\",\n  \"entity_type_name_en\": \"device\",\n  \"entity_type_name_is\":
+        \"t\\u00e6ki\",\n  \"id_entity\": 18662,\n  \"id_entity_parent\": 18656,\n
+        \ \"id_entity_subtype\": 36\n}\n"
+    headers:
+      Access-Control-Allow-Origin:
+      - '*'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 18 May 2026 09:24:39 GMT
+      Server:
+      - gunicorn
+      Vary:
+      - Accept-Encoding
+      content-length:
+      - '3198'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.32.5
+    method: GET
+    uri: https://vi-api.vedur.is/tos/v1/history/entity/5823/
+  response:
+    body:
+      string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"ip_address\",\n      \"date_from\": \"2019-03-29T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device IP-address\",\n
+        \     \"description_is\": \"IP-tala t\\u00e6kis\",\n      \"id_attribute_value\":
+        113530,\n      \"id_entity\": 5823,\n      \"name_en\": \"IP-address\",\n
+        \     \"name_is\": \"IP-tala t\\u00e6kis\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 40,\n      \"value\": \"10.4.1.252\"\n    },\n
+        \   {\n      \"attribute_datatype_code\": \"text\",\n      \"code\": \"serial_number\",\n
+        \     \"date_from\": \"2019-03-29T00:00:00\",\n      \"date_to\": null,\n
+        \     \"description_en\": \"Device serial number\",\n      \"description_is\":
+        \"Ra\\u00f0n\\u00famer\",\n      \"id_attribute_value\": 146571,\n      \"id_entity\":
+        5823,\n      \"name_en\": \"Serial number\",\n      \"name_is\": \"Ra\\u00f0n\\u00famer\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 10,\n      \"value\":
+        \"89354010120501083470\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"model\",\n      \"date_from\": \"2019-03-29T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device model\",\n      \"description_is\":
+        \"Tegund t\\u00e6kis\",\n      \"id_attribute_value\": 146572,\n      \"id_entity\":
+        5823,\n      \"name_en\": \"Model\",\n      \"name_is\": \"Tegund t\\u00e6kis\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 20,\n      \"value\":
+        \"SIM kort\"\n    },\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"ip_address\",\n      \"date_from\": \"1000-01-01T00:00:00\",\n
+        \     \"date_to\": \"2019-03-29T15:13:00\",\n      \"description_en\": \"Device
+        IP-address\",\n      \"description_is\": \"IP-tala t\\u00e6kis\",\n      \"id_attribute_value\":
+        38075,\n      \"id_entity\": 5823,\n      \"name_en\": \"IP-address\",\n      \"name_is\":
+        \"IP-tala t\\u00e6kis\",\n      \"python_constraint\": \".*\",\n      \"sort_order\":
+        40,\n      \"value\": \"157.157.112.201\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"status\",\n      \"date_from\": \"2019-03-29T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device status, active,
+        broken, under repair\",\n      \"description_is\": \"Sta\\u00f0a t\\u00e6kis:
+        virkt, bila\\u00f0, \\u00ed vi\\u00f0ger\\u00f0, \\u00f3kvar\\u00f0a\\u00f0,
+        grunsamlegt\",\n      \"id_attribute_value\": 146573,\n      \"id_entity\":
+        5823,\n      \"name_en\": \"Status\",\n      \"name_is\": \"Sta\\u00f0a\",\n
+        \     \"python_constraint\": \"^(virkt$|\\u00f3virkt$|bila\\u00f0$|\\u00ed
+        vi\\u00f0ger\\u00f0$|\\u00f3kvar\\u00f0a\\u00f0$|grunsamlegt$)\",\n      \"sort_order\":
+        80,\n      \"value\": \"virkt\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"phone_number\",\n      \"date_from\": \"1000-01-01T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device phone number\",\n
+        \     \"description_is\": \"S\\u00edman\\u00famer t\\u00e6kis\",\n      \"id_attribute_value\":
+        38074,\n      \"id_entity\": 5823,\n      \"name_en\": \"Phone number\",\n
+        \     \"name_is\": \"S\\u00edman\\u00famer t\\u00e6kis\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 30,\n      \"value\": \"8957786\"\n    }\n
+        \ ],\n  \"children_connections\": null,\n  \"code_entity_subtype\": \"sim_card\",\n
+        \ \"entity_subtype_description_en\": \"MISSING DESCRIPTION\",\n  \"entity_subtype_description_is\":
+        \"VANTAR L\\u00ddSINGU\",\n  \"entity_subtype_name_en\": \"SIM-card\",\n  \"entity_subtype_name_is\":
+        \"SIM-kort\",\n  \"entity_type_name_en\": \"device\",\n  \"entity_type_name_is\":
+        \"t\\u00e6ki\",\n  \"id_entity\": 5823,\n  \"id_entity_parent\": 19919,\n
+        \ \"id_entity_subtype\": 55\n}\n"
+    headers:
+      Access-Control-Allow-Origin:
+      - '*'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 18 May 2026 09:24:39 GMT
+      Server:
+      - gunicorn
+      Vary:
+      - Accept-Encoding
+      content-length:
+      - '3398'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.32.5
+    method: GET
+    uri: https://vi-api.vedur.is/tos/v1/history/entity/18659/
+  response:
+    body:
+      string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"provider\",\n      \"date_from\": \"2021-06-28T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Service provider, e.g.
+        S\\u00edminn, Vodafone\",\n      \"description_is\": \"\\u00dej\\u00f3nustufyrirt\\u00e6ki,
+        t.d. S\\u00edminn, Vodafone\",\n      \"id_attribute_value\": 129772,\n      \"id_entity\":
+        18659,\n      \"name_en\": \"Provider\",\n      \"name_is\": \"\\u00dej\\u00f3nustufyrirt\\u00e6ki\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 50,\n      \"value\":
+        \"S\\u00edminn\"\n    },\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"phone_number\",\n      \"date_from\": \"2021-06-28T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device phone number\",\n
+        \     \"description_is\": \"S\\u00edman\\u00famer t\\u00e6kis\",\n      \"id_attribute_value\":
+        129771,\n      \"id_entity\": 18659,\n      \"name_en\": \"Phone number\",\n
+        \     \"name_is\": \"S\\u00edman\\u00famer t\\u00e6kis\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 30,\n      \"value\": \"8329211\"\n    },\n
+        \   {\n      \"attribute_datatype_code\": \"text\",\n      \"code\": \"model\",\n
+        \     \"date_from\": \"2021-06-28T00:00:00\",\n      \"date_to\": null,\n
+        \     \"description_en\": \"Device model\",\n      \"description_is\": \"Tegund
+        t\\u00e6kis\",\n      \"id_attribute_value\": 129770,\n      \"id_entity\":
+        18659,\n      \"name_en\": \"Model\",\n      \"name_is\": \"Tegund t\\u00e6kis\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 20,\n      \"value\":
+        \"SIM kort\"\n    },\n    {\n      \"attribute_datatype_code\": \"text\",\n
+        \     \"code\": \"status\",\n      \"date_from\": \"2021-06-28T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device status, active,
+        broken, under repair\",\n      \"description_is\": \"Sta\\u00f0a t\\u00e6kis:
+        virkt, bila\\u00f0, \\u00ed vi\\u00f0ger\\u00f0, \\u00f3kvar\\u00f0a\\u00f0,
+        grunsamlegt\",\n      \"id_attribute_value\": 129774,\n      \"id_entity\":
+        18659,\n      \"name_en\": \"Status\",\n      \"name_is\": \"Sta\\u00f0a\",\n
+        \     \"python_constraint\": \"^(virkt$|\\u00f3virkt$|bila\\u00f0$|\\u00ed
+        vi\\u00f0ger\\u00f0$|\\u00f3kvar\\u00f0a\\u00f0$|grunsamlegt$)\",\n      \"sort_order\":
+        80,\n      \"value\": \"virkt\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"timestamp\",\n      \"code\": \"date_start\",\n      \"date_from\": \"2021-06-28T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device start date\",\n
+        \     \"description_is\": \"Dagsetning \\u00feegar t\\u00e6ki er fyrst sett
+        \\u00ed rekstur\",\n      \"id_attribute_value\": 129773,\n      \"id_entity\":
+        18659,\n      \"name_en\": \"Date start\",\n      \"name_is\": \"Upphafsdagsetning\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 60,\n      \"value\":
+        \"2021-06-28T00:00:00\"\n    },\n    {\n      \"attribute_datatype_code\":
+        \"text\",\n      \"code\": \"serial_number\",\n      \"date_from\": \"2021-06-28T00:00:00\",\n
+        \     \"date_to\": null,\n      \"description_en\": \"Device serial number\",\n
+        \     \"description_is\": \"Ra\\u00f0n\\u00famer\",\n      \"id_attribute_value\":
+        129769,\n      \"id_entity\": 18659,\n      \"name_en\": \"Serial number\",\n
+        \     \"name_is\": \"Ra\\u00f0n\\u00famer\",\n      \"python_constraint\":
+        \".*\",\n      \"sort_order\": 10,\n      \"value\": \"89354010200901022615\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"text\",\n      \"code\":
+        \"owner\",\n      \"date_from\": \"2021-06-28T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Owner of device\",\n      \"description_is\":
+        \"Eigandi t\\u00e6kis: Ve\\u00f0urm\\u00e6lih\\u00f3pur, Vatnam\\u00e6lih\\u00f3pur,
+        Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur, Fjark\\u00f6nnunarh\\u00f3pur
+        \",\n      \"id_attribute_value\": 129775,\n      \"id_entity\": 18659,\n
+        \     \"name_en\": \"Owner\",\n      \"name_is\": \"Eigandi\",\n      \"python_constraint\":
+        \"^(Ve\\u00f0urm\\u00e6lih\\u00f3pur$|Vatnam\\u00e6lih\\u00f3pur$|Jar\\u00f0e\\u00f0lism\\u00e6lih\\u00f3pur$|Fjark\\u00f6nnunarh\\u00f3pur$)\",\n
+        \     \"sort_order\": 90,\n      \"value\": \"Fjark\\u00f6nnunarh\\u00f3pur\"\n
+        \   },\n    {\n      \"attribute_datatype_code\": \"text\",\n      \"code\":
+        \"ip_address\",\n      \"date_from\": \"2021-06-28T00:00:00\",\n      \"date_to\":
+        null,\n      \"description_en\": \"Device IP-address\",\n      \"description_is\":
+        \"IP-tala t\\u00e6kis\",\n      \"id_attribute_value\": 146448,\n      \"id_entity\":
+        18659,\n      \"name_en\": \"IP-address\",\n      \"name_is\": \"IP-tala t\\u00e6kis\",\n
+        \     \"python_constraint\": \".*\",\n      \"sort_order\": 40,\n      \"value\":
+        \"10.4.2.241\"\n    }\n  ],\n  \"children_connections\": null,\n  \"code_entity_subtype\":
+        \"sim_card\",\n  \"entity_subtype_description_en\": \"MISSING DESCRIPTION\",\n
+        \ \"entity_subtype_description_is\": \"VANTAR L\\u00ddSINGU\",\n  \"entity_subtype_name_en\":
+        \"SIM-card\",\n  \"entity_subtype_name_is\": \"SIM-kort\",\n  \"entity_type_name_en\":
+        \"device\",\n  \"entity_type_name_is\": \"t\\u00e6ki\",\n  \"id_entity\":
+        18659,\n  \"id_entity_parent\": 18656,\n  \"id_entity_subtype\": 55\n}\n"
+    headers:
+      Access-Control-Allow-Origin:
+      - '*'
+      Content-Type:
+      - application/json
+      Date:
+      - Mon, 18 May 2026 09:24:39 GMT
+      Server:
+      - gunicorn
+      Vary:
+      - Accept-Encoding
+      content-length:
+      - '4677'
+    status:
+      code: 200
+      message: OK
+version: 1

@@ -1,0 +1,12 @@
+[1mdiff --git a/data/sitelogs_archive/new_synthesis/AKUR_legacy_table.txt b/data/sitelogs_archive/new_synthesis/AKUR_new_table.txt[m
+[1mindex dbf14f3..0e12a36 100644[m
+[1m--- a/data/sitelogs_archive/new_synthesis/AKUR_legacy_table.txt[m
+[1m+++ b/data/sitelogs_archive/new_synthesis/AKUR_new_table.txt[m
+[36m@@ -28,6 +28,7 @@[m
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ [m
+ 2001-07-31 2015-12-21 TRIMBLE 4700  20221607   Nav 1.30 1.30 TRM29659.00  SCIS   0220145519   0.055  0.000  0.000   0.000  0.000  0.000 [m
+ 2015-12-21 2018-01-21 NOV OEM638    BMAW14440…     6.51 6.51 TRM29659.00  SCIS   0220145519   0.055  0.000  0.000   0.000  0.000  0.000 [m
+ [32m2018-01-21 2018-01-30 N/A           N/A             N/A  N/A TRM29659.00  SCIS   0220145519   0.055  0.000  0.000   0.000  0.000  0.000[m 
+ 2018-01-30 2023-09-07 TRIMBLE NETR5 4806K53395     4.03 4.03 TRM29659.00  SCIS   0220145519   0.055  0.000  0.000   0.000  0.000  0.000 [m
+ 2023-09-07 2025-04-15 TRIMBLE NETR5 4806K53395     4.45 4.45 TRM29659.00  SCIS   0220145519   0.055  0.000  0.000   0.000  0.000  0.000 [m
+ 2025-04-15 Present    TRIMBLE NETR5 4825K56777     4.41 4.41 TRM29659.00  SCIS   0220145519   0.055  0.000  0.000   0.000  0.000  0.000 [m

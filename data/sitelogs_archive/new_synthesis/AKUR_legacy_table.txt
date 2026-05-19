@@ -1,0 +1,34 @@
+              Station: Akureyri              
+╭───────────────────┬───────────────────────╮
+│ Property          │ Value                 │
+├───────────────────┼───────────────────────┤
+│ Marker            │ AKUR                  │
+│ Name              │ Akureyri              │
+│ IERS DOMES Number │ 10206M001             │
+│ Coordinates       │ 65.685427, -18.122483 │
+│ Altitude          │ 134.20651 m           │
+│ Geological        │ bedrock               │
+│ Bedrock Type      │ igneous               │
+│ Bedrock Condition │ weathered             │
+│ Near Fault        │ No                    │
+│ EPOS Network      │ Yes                   │
+│ Date Started      │ 2001-07-31 00:00      │
+╰───────────────────┴───────────────────────╯
+             Contacts              
+                                   
+  Role       Name                  
+ ───────────────────────────────── 
+  Owner      Landmælingar Íslands  
+  Operator   Landmælingar Íslands  
+                                   
+                                           Station History
+                      Receiver                           Antenna                                    Monument
+                                                                                                                                         
+ From       To         Type          SN               FW   SW Type         Radome SN          Height   East  North  Height   East  North 
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 
+ 2001-07-31 2015-12-21 TRIMBLE 4700  20221607   Nav 1.30 1.30 TRM29659.00  SCIS   0220145519   0.055  0.000  0.000   0.000  0.000  0.000 
+ 2015-12-21 2018-01-21 NOV OEM638    BMAW14440…     6.51 6.51 TRM29659.00  SCIS   0220145519   0.055  0.000  0.000   0.000  0.000  0.000 
+ 2018-01-30 2023-09-07 TRIMBLE NETR5 4806K53395     4.03 4.03 TRM29659.00  SCIS   0220145519   0.055  0.000  0.000   0.000  0.000  0.000 
+ 2023-09-07 2025-04-15 TRIMBLE NETR5 4806K53395     4.45 4.45 TRM29659.00  SCIS   0220145519   0.055  0.000  0.000   0.000  0.000  0.000 
+ 2025-04-15 Present    TRIMBLE NETR5 4825K56777     4.41 4.41 TRM29659.00  SCIS   0220145519   0.055  0.000  0.000   0.000  0.000  0.000 
+                                                                                                                                         

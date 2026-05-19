@@ -1,0 +1,2156 @@
+# === TOS Attribute Codes Catalog ===
+#
+# Three top-level entity scopes (matching TOS hierarchy):
+#   devices:    Tæki — gnss_receiver, antenna, radome (also Innviði: monument)
+#   locations:  Staðsetning — physical sites that contain stations
+#   stations:   Stöð — Jarðeðlisstöð (geophysical station)
+#
+# Per-code schema:
+#   icelandic_label   — TOS UI display name (Icelandic)
+#   description       — Short English summary
+#   classification    — inherent | mutable | TODO   <-- USER FILLS IN
+#                       inherent = property of the physical device, never legitimately changes
+#                       mutable  = can legitimately transition mid-life (e.g. firmware bumps)
+#
+#                       Polymorphic — accepts EITHER a scalar OR a per-subtype dict:
+#
+#                         classification: inherent              # scalar — applies to every
+#                                                               # subtype in applies_to
+#
+#                         classification:                       # dict — when classification
+#                           antenna: mutable                    # varies by subtype (e.g.
+#                           monument: inherent                  # antenna_offset_* codes are
+#                                                               # mutable on antenna,
+#                                                               # inherent on monument)
+#   tos_required_for  — [subtype, ...] subtypes where TOS form marks this required (informational)
+#   gps_required_for  — [subtype, ...] subtypes where WE require this for ops    <-- USER FILLS IN
+#                       (drives a future `tos audit missing-attributes` verb;
+#                        usually equal to or a strict superset of tos_required_for)
+#   applies_to        — [subtype, ...] subtypes where the attribute can be set
+#   default_value     — value the audit expects when nothing is recorded         <-- USER OPTIONAL
+#                       (use ~ for null / unknown; quote strings)
+#   gps_relevance     — yes | maybe | no       <-- USER REVIEWS / REMOVES NO ENTRIES
+#                       yes   = used by GPS tooling (site log, GAMIT, audit)
+#                       maybe = could be relevant in some flow, not sure
+#                       no    = clearly seismic/meteorological/hydrological/camera
+#   subtypes_observed — [...] from script harvest (143 GPS devices across 10 stations)
+#   sample_values     — [...] from harvest (max 3)
+#   n_devices         — count in harvest sample
+#   walked            — true if seen in the harvest; false if added from screenshot only
+#   why               — "" — reasoning/notes (user fills in for edge cases)
+#
+# To complete: replace each `classification: TODO` with inherent or mutable;
+# review and remove any `gps_relevance: no` entries you confirm are out of scope.
+
+# =============================================================================
+# DEVICES (Tæki + Innviði/monument)
+# =============================================================================
+devices:
+  # --- Core "Bæta við" form fields (required on most device subtypes) ---
+
+  serial_number:
+    icelandic_label: Raðnúmer
+    description: Physical device identity
+    classification: inherent
+    tos_required_for: [gnss_receiver, antenna, radome]
+    gps_required_for: [gnss_receiver, antenna, radome, monument] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "yes"
+    subtypes_observed: [antenna, gnss_receiver, monument, radome]
+    sample_values: ["1441047035", "4806", "13831"]
+    n_devices: 126
+    walked: true
+    why: ""
+
+  model:
+    icelandic_label: Tegund tækis
+    description: Manufacturer / model designation (e.g. "TRIMBLE NETR9", "TRM57971.00")
+    classification: inherent
+    tos_required_for: [gnss_receiver, antenna, radome]
+    gps_required_for: [gnss_receiver, antenna, radome, monument] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "yes"
+    subtypes_observed: [antenna, gnss_receiver, monument, radome]
+    sample_values: ["TRM57971.00", "ASH701945C_M", "ASHTECH UZ-12"]
+    n_devices: 98
+    walked: true
+    why: ""
+
+  date_start:
+    icelandic_label: Upphafsdagsetning
+    description: Date the device was first put into operation
+    classification: inherent
+    tos_required_for: [gnss_receiver, antenna, radome, monument]
+    gps_required_for: [gnss_receiver, antenna, radome, monument] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "yes"
+    subtypes_observed: [antenna, gnss_receiver, monument, radome]
+    sample_values:
+      ["2012-08-28 00:00:00", "2002-01-01 00:00:00", "2011-09-12 20:22:00"]
+    n_devices: 126
+    walked: true
+    why: ""
+
+  status:
+    icelandic_label: Staða
+    description: Device status — virkt | bilað | í viðgerð | ókvarðað | grunsamlegt
+    classification: mutable
+    tos_required_for: [gnss_receiver, antenna, radome, monument]
+    gps_required_for: [gnss_receiver, antenna, radome, monument] # USER FILLS IN — strict superset of tos
+    default_value: "virk" # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "yes"
+    subtypes_observed: [antenna, gnss_receiver, monument, radome]
+    sample_values: ["virkt", "óvirkt"]
+    n_devices: 25
+    walked: true
+    why: ""
+
+  owner:
+    icelandic_label: Eigandi
+    description: Owning group — Veðurmælihópur | Vatnamælihópur | Jarðeðlismælihópur | Fjarkönnunarhópur
+    classification: mutable
+    tos_required_for: [gnss_receiver, antenna, radome]
+    gps_required_for: [gnss_receiver, antenna, radome, monument] # USER FILLS IN — strict superset of tos
+    default_value: "Jarðeðlismælihópur" # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "yes"
+    subtypes_observed: [antenna, gnss_receiver, monument, radome]
+    sample_values: ["Jarðeðlismælihópur"]
+    n_devices: 125
+    walked: true
+    why: ""
+
+  firmware_version:
+    icelandic_label: Útgáfa fastbúnaðar
+    description: Receiver firmware version
+    classification: mutable
+    tos_required_for: [gnss_receiver]
+    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "yes"
+    subtypes_observed: [gnss_receiver]
+    sample_values: ["CJ12", "4.17", "NP 4.60"]
+    n_devices: 46
+    walked: true
+    why: ""
+
+  software_version:
+    icelandic_label: Útgáfa hugbúnaðar
+    description: Receiver software version
+    classification: mutable # mutable
+    tos_required_for: [gnss_receiver]
+    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "yes"
+    subtypes_observed: [gnss_receiver]
+    sample_values: ["-----", "4.17", "4.60"]
+    n_devices: 45
+    walked: true
+    why: ""
+
+  # --- Antenna "Eigindi sem mælt er með" ---
+
+  antenna_height:
+    icelandic_label: Hæð loftnets
+    description: Antenna height (m)
+    classification: mutable # borderline — re-measurements could be Pattern 4 corrections vs Pattern 2 transitions
+    tos_required_for: []
+    gps_required_for: [antenna] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [antenna]
+    gps_relevance: "yes"
+    subtypes_observed: [antenna, monument]
+    sample_values: ["1.0140", "1.0310", "0.0"]
+    n_devices: 41
+    walked: true
+    why: "Observed on monument in harvest is a TOS data hygiene issue — those records should be monument_height instead. applies_to deliberately excludes monument so a future misplaced-attributes audit can flag the misuse."
+
+  antenna_reference_point:
+    icelandic_label: Loftnetsviðmið
+    description: Antenna Reference Point (e.g. DHARP — HARP standard)
+    classification: inherent # inherent — property of the antenna design
+    tos_required_for: []
+    gps_required_for: [antenna] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [antenna]
+    gps_relevance: "yes"
+    subtypes_observed: [antenna]
+    sample_values: ["DHARP"]
+    n_devices: 33
+    walked: true
+    why: ""
+
+  antenna_offset_north:
+    icelandic_label: Loftnetshliðrun norður
+    description: Antenna offset north relative to monument (m)
+    classification:
+      antenna: mutable # antenna can be re-positioned / calibration-corrected
+      monument: inherent # monument is bolted to ground; offset to marker is fixed
+    tos_required_for: []
+    gps_required_for: [antenna, monument] # USER FILLS IN — strict superset of tos
+    default_value: "0.0" # USER OPTIONAL — what TOS records as the default
+    applies_to: [antenna, monument]
+    gps_relevance: "yes"
+    subtypes_observed: [antenna, monument]
+    sample_values: ["-0.0004", "-0.0002", "-0.0036"]
+    n_devices: 18
+    walked: true
+    why: ""
+
+  antenna_offset_east:
+    icelandic_label: Loftnetshliðrun austur
+    description: Antenna offset east relative to monument (m)
+    classification:
+      antenna: mutable # antenna can be re-positioned / calibration-corrected
+      monument: inherent # monument is bolted to ground; offset to marker is fixed
+    tos_required_for: []
+    gps_required_for: [antenna, monument] # USER FILLS IN — strict superset of tos
+    default_value: "0.0" # USER OPTIONAL — what TOS records as the default
+    applies_to: [antenna, monument]
+    gps_relevance: "yes"
+    subtypes_observed: [antenna, monument]
+    sample_values: ["0.0000", "-0.0001", "-0.0024"]
+    n_devices: 18
+    walked: true
+    why: ""
+
+  # --- Monument-specific (Innviði) ---
+
+  monument_height:
+    icelandic_label: Hæð undirstöðu
+    description: Height of monument foundation above reference point
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [monument] # USER FILLS IN — strict superset of tos
+    default_value: "0.0" # USER OPTIONAL — what TOS records as the default
+    applies_to: [monument]
+    gps_relevance: "yes"
+    subtypes_observed: [monument]
+    sample_values: ["1.014", "0.0000", "0.9237"]
+    n_devices: 11
+    walked: true
+    why: ""
+
+  foundation_depth:
+    icelandic_label: Dýpt undirstöðu
+    description: Monument foundation depth (m)
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [monument] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [monument]
+    gps_relevance: "yes"
+    subtypes_observed: [monument]
+    sample_values: ["0.7"]
+    n_devices: 6
+    walked: true
+    why: ""
+
+  infrastructure_subtype:
+    icelandic_label: Undirtegund
+    description: Sub-type of monument (form-required for monument; differs from devices' Tegund tækis — high-level class, e.g. "GPS undirstaða")
+    classification: inherent
+    tos_required_for: [monument]
+    gps_required_for: [monument]
+    default_value: "GPS undirstaða"
+    applies_to: [monument]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "TOS form labels are crossed — Undirtegund carries the high-level monument class (default GPS undirstaða); Tegund innviða carries the model-equivalent (specific construction type). IS↔EN translation table needed for sitelog rendering — see infrastructure_type."
+
+  infrastructure_type:
+    icelandic_label: Tegund innviða
+    description: Type of infrastructure — monument's "model" equivalent. Known IS values — GPS stál-fjórfótur (default) | GPS stál-staur | GPS stöng á þaki | GPS steyptur stöpull | Short Drilled Braced Monument (SDBM) | Þrífótur. Rendered as "Foundation" in IGS site log section 3.1.
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [monument]
+    default_value: "GPS stál-fjórfótur"
+    applies_to: [monument]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Single source of truth for monument type. Sitelog renderer at legacy/gps_metadata_functions.py:777 reads a 'foundation' key with 'STEEL RODS' fallback — that key is just the English-flavored alias for THIS attribute at render time, NOT a separate TOS code. When wiring infrastructure_type into the renderer, replace the hardcoded literal with the IS→EN translation of the actual stored value (or this default if missing)."
+
+  inscription:
+    icelandic_label: Áletrun
+    description: Monument inscription text — IGS site log section 3.1 "Inscription". Free-text identifier engraved on the monument.
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: []
+    default_value: ~
+    applies_to: [monument]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Read by sitelog renderer (legacy/gps_metadata_functions.py:775) with empty-string fallback. Icelandic label guessed as 'Áletrun' — confirm against TOS UI."
+
+  # --- GNSS constellation toggles (gnss_receiver only) ---
+
+  GPS:
+    icelandic_label: GPS
+    description: GPS constellation enabled (kerfi = system)
+    classification: mutable
+    tos_required_for: []
+    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    default_value: "true"
+    applies_to: [gnss_receiver]
+    gps_relevance: "yes"
+    subtypes_observed: [gnss_receiver]
+    sample_values: ["true"]
+    n_devices: 2
+    walked: true
+    why: ""
+
+  GLO:
+    icelandic_label: GLO
+    description: GLONASS constellation enabled
+    classification: mutable
+    tos_required_for: []
+    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    default_value: "true" # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "yes"
+    subtypes_observed: [gnss_receiver]
+    sample_values: ["true"]
+    n_devices: 1
+    walked: true
+    why: ""
+
+  GAL:
+    icelandic_label: GAL
+    description: Galileo constellation enabled
+    classification: mutable
+    tos_required_for: []
+    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  BDS:
+    icelandic_label: BDS
+    description: BeiDou constellation enabled
+    classification: mutable
+    tos_required_for: []
+    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  QZSS:
+    icelandic_label: QZSS
+    description: QZSS constellation enabled
+    classification: mutable
+    tos_required_for: []
+    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  SBAS:
+    icelandic_label: SBAS
+    description: SBAS constellation enabled
+    classification: mutable
+    tos_required_for: []
+    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  IRN:
+    icelandic_label: IRN
+    description: IRNSS (NavIC) constellation enabled
+    classification: mutable
+    tos_required_for: []
+    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  # --- Receiver network / ports ---
+
+  http_port:
+    icelandic_label: HTTP-port
+    description: HTTP port the device is accessible on (e.g. 80, 8060)
+    classification: mutable # mutable — network reconfig
+    tos_required_for: []
+    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    default_value: "80" # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "yes"
+    subtypes_observed: [gnss_receiver]
+    sample_values: ["8060"]
+    n_devices: 2
+    walked: true
+    why: ""
+
+  soh_port:
+    icelandic_label: SOH-port
+    description: State-Of-Health port (e.g. 50000)
+    classification: mutable  # SOH port is reconfigurable
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: "28784" # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  radio_links_5ghz:
+    icelandic_label: Radiolinkar á 5GHz
+    description: Station identifiers reachable via 5GHz radio (semicolon-list)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  radio_links_2_4ghz:
+    icelandic_label: Radiolinkar á 2.4GHz
+    description: Station identifiers reachable via 2.4GHz radio (semicolon-list)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  azimuth:
+    icelandic_label: Áttarhorn
+    description: Antenna direction relative to true north (degrees)
+    classification: mutable # likely inherent — installation orientation
+    tos_required_for: []
+    gps_required_for: [antenna] # USER FILLS IN — strict superset of tos
+    default_value: "0.0" # USER OPTIONAL — what TOS records as the default
+    applies_to: [antenna]
+    gps_relevance: "yes"
+    subtypes_observed: [antenna]
+    sample_values: ["0.0"]
+    n_devices: 1
+    walked: true
+    why: ""
+
+  # --- Lifecycle dates ---
+
+  end_date:
+    icelandic_label: Lokadagsetning
+    description: Date device was taken out of operation
+    classification: inherent # inherent once set
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  arrival_date:
+    icelandic_label: Komudagsetning
+    description: Date device first arrived at IMO premises
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  # --- Comments / notes / freeform ---
+
+  comment:
+    icelandic_label: Athugasemd
+    description: General comment / freeform notes about the device
+    classification: mutable # mutable
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "yes"
+    subtypes_observed: [antenna, gnss_receiver, monument, radome]
+    sample_values:
+      [
+        "Raðnúmerið er búið til úr skammstöfun stöðvar og dagsetningu SOPAC-lotu þegar hæð loftnets breyttist",
+        "antenna height confirmed by measurements in 2012  still -7 mm offset in timeseries corrected here",
+        "Raðnúmerið er búið til úr skammstöfun stöðvar og dagsetningu SOPAC-lotu, því ógilt raðnúmer 0000000000 var skráð",
+      ]
+    n_devices: 45
+    walked: true
+    why: ""
+
+  start_date_comment:
+    icelandic_label: Athugasemd upphafsdagsetningar
+    description: Comment on the start date
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  end_date_comment:
+    icelandic_label: Athugasemd endadagsetningar
+    description: Comment on the end date
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  notes:
+    icelandic_label: Glósur
+    description: Notes / glosses (separate from comment)
+    classification: mutable
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  # --- Identifiers / cross-refs ---
+
+  galvos_number:
+    icelandic_label: GALVOS-númer
+    description: GALVOS inventory number
+    classification: TODO # inherent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  access_taeki_id:
+    icelandic_label: access_taeki ID
+    description: Legacy access_taeki DB cross-reference id (for migration verification)
+    classification: TODO # inherent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  manufacturer:
+    icelandic_label: Framleiðandi
+    description: Manufacturer of the device
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [gnss_receiver, antenna] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "this can in all cases be derived from model"
+
+  make:
+    icelandic_label: Gerð
+    description: Make / kind (e.g. hitamælir, datalogger)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  subtype:
+    icelandic_label: Undirtegund
+    description: Device sub-type (more granular than primary subtype)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  chipset:
+    icelandic_label: Kubbasett
+    description: Chipset type
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  category:
+    icelandic_label: Flokkur
+    description: Category — describes measurement domain / main purpose
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  name:
+    icelandic_label: Nafn
+    description: Device name (mostly on monument)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [monument]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  registered_by:
+    icelandic_label: Skráð af notanda
+    description: User who originally registered the device
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Metadata about TOS data entry, not the physical device"
+
+  last_modified_by:
+    icelandic_label: Síðast breytt af notand
+    description: User who last modified the entry
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver, antenna, radome, monument]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Metadata about TOS edits, not the physical device"
+
+  # --- Network / connectivity (modem receivers etc.) ---
+
+  mac_address:
+    icelandic_label: MAC address
+    description: Ethernet MAC address (e.g. b8:27:eb:c9:f0:38)
+    classification: TODO # mutable on hardware swap
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  ip_address:
+    icelandic_label: IP-tala tækis
+    description: IP address of the device
+    classification: mutable
+    tos_required_for: []
+    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    default_value: "192.168.100.60" # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  hostname:
+    icelandic_label: Hostname
+    description: Network hostname
+    classification: TODO # mutable
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  service_provider:
+    icelandic_label: Þjónustufyrirtæki
+    description: Service provider (e.g. Síminn, Vodafone) — modem providers
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Modem provider; not relevant to GNSS data quality"
+
+  device_phone:
+    icelandic_label: Símanúmer tækis
+    description: Phone number assigned to the device (modems)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  operating_system:
+    icelandic_label: Stýrikerfi
+    description: OS version (Windows, Linux)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  username:
+    icelandic_label: Notendanafn
+    description: Login username
+    classification: mutable
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  io_type:
+    icelandic_label: Ílag/frálag
+    description: Input/output protocol type (RS232, Decision, Freewave)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Telemetry protocol; not GNSS data quality"
+
+  # --- Hardware ---
+
+  cpu:
+    icelandic_label: Örgjörvi
+    description: CPU type
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  cpu_fan:
+    icelandic_label: Örgjörvavifta
+    description: CPU fan type
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  clock_speed:
+    icelandic_label: Klukkuhraði
+    description: CPU clock speed (MHz)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  motherboard:
+    icelandic_label: Móðurborð
+    description: Motherboard type
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  memory_size:
+    icelandic_label: Minnisstærð
+    description: RAM size (MB)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  disk_size:
+    icelandic_label: Stærð harðdisks
+    description: Hard disk size (GB)
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Disk size matters for receivers buffering data, but probably not audit-relevant"
+
+  disk_type:
+    icelandic_label: Harður diskur
+    description: Hard disk type
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  cable_length:
+    icelandic_label: Lengd kapals
+    description: Attached cable length (m) — antenna cable length
+    classification: mutable # inherent for a given install
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [antenna, gnss_receiver]
+    gps_relevance: "yes"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Antenna cable length affects signal — could be GPS-relevant"
+
+  connection_point:
+    icelandic_label: Tengipuntkur
+    description: Connection point identifier
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  file_type:
+    icelandic_label: Skráartegund
+    description: File type
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  configuration:
+    icelandic_label: Configuration
+    description: External system configuration (JSON)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [gnss_receiver]
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  # --- Clearly NOT GPS (seismic / met / hydro / camera / electrical) ---
+
+  sensor_height:
+    icelandic_label: Hæð skynjara
+    description: Sensor height (cm)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Seismic / meteorological sensor metric"
+
+  sensor_depth:
+    icelandic_label: Dýpi skynjara
+    description: Sensor depth (cm)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Hydrological / borehole sensor metric"
+
+  sensor_adjustable:
+    icelandic_label: Skynjari er stillanlegur
+    description: Whether the sensor is adjustable (já/nei)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: ""
+
+  sensor_role:
+    icelandic_label: Hlutverk
+    description: Device role (e.g. Wet thermometer, Spare thermometer)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Meteorological / sensor classification"
+
+  pressure_offset:
+    icelandic_label: Hliðrun loftþrýstings
+    description: Air pressure offset
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Meteorological"
+
+  bucket_volume_mm:
+    icelandic_label: Rúmmál fötu (mm)
+    description: Rain gauge bucket volume in mm
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Rain gauge"
+
+  bucket_volume_kg:
+    icelandic_label: Rúmmál fötu (kg)
+    description: Rain gauge bucket volume in kg
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Rain gauge"
+
+  camera_image_link:
+    icelandic_label: Tengill á myndir
+    description: URL to webcam images
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Webcam"
+
+  camera_looks_at:
+    icelandic_label: Horfir á
+    description: Camera target (e.g. Hekla, Jökulsá á Sólheimasandi)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Webcam"
+
+  camera_fov:
+    icelandic_label: Sjónsvið
+    description: Camera field of view (degrees, 1-360)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Webcam"
+
+  camera_direction:
+    icelandic_label: Átt
+    description: Camera azimuth (degrees, 0-359)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Webcam (separate from antenna Áttarhorn)"
+
+  camera_image_link_other_lens:
+    icelandic_label: Tengill á myndir (önnur linsa)
+    description: Second-lens webcam image URL
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Webcam"
+
+  camera_looks_at_other_lens:
+    icelandic_label: Horfir á (önnur linsa)
+    description: Second-lens camera target
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Webcam"
+
+  camera_fov_other_lens:
+    icelandic_label: Sjónsvið (önnur linsa)
+    description: Second-lens camera FOV
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Webcam"
+
+  camera_direction_other_lens:
+    icelandic_label: Átt (önnur linsa)
+    description: Second-lens camera direction
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Webcam"
+
+  bearing_type:
+    icelandic_label: Legutegund
+    description: Bearing type (steel, ceramic)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Mechanical sensor"
+
+  watts:
+    icelandic_label: Vött
+    description: Watts
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Electrical / battery"
+
+  voltage:
+    icelandic_label: Spenna
+    description: Voltage
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Electrical"
+
+  capacity:
+    icelandic_label: Rýmd
+    description: Capacity (amp-hours)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Battery capacity"
+
+  calibration:
+    icelandic_label: Kvörðun
+    description: Calibration info
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Sensor calibration"
+
+  calibration_coefficient_k:
+    icelandic_label: Kvörðunarstuðull k
+    description: Calibration coefficient k = 1/(R/R0)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Resistive sensor coefficient"
+
+  x25:
+    icelandic_label: X25
+    description: X25 protocol type (SGX, SGP)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Legacy network protocol"
+
+  units:
+    icelandic_label: Einingar
+    description: Sensor measurement units
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Sensor units"
+
+  output_units:
+    icelandic_label: Einingar úttaks
+    description: Output units (e.g. mV/V)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Sensor output units"
+
+  sensitivity:
+    icelandic_label: Næmi
+    description: Sensor sensitivity
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Sensor metric"
+
+  measurement_range_min:
+    icelandic_label: Lágmark mælisviðs
+    description: Sensor measurement range minimum
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Sensor metric"
+
+  measurement_range_max:
+    icelandic_label: Hámark mælisviðs
+    description: Sensor measurement range maximum
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Sensor metric"
+
+  measurement_scales:
+    icelandic_label: Mælistikar
+    description: Measurement scales (semicolon-list)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Sensor metric"
+
+  mirror_type:
+    icelandic_label: Spegiltegund
+    description: Mirror type
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Optical sensor"
+
+  output_min:
+    icelandic_label: Lágmark úttaks
+    description: Output minimum
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Sensor"
+
+  output_max:
+    icelandic_label: Hámark úttaks
+    description: Output maximum
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Sensor"
+
+  sensor_output:
+    icelandic_label: Úttak skynjara
+    description: Sensor output
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: []
+    gps_relevance: "no"
+    subtypes_observed: []
+    sample_values: []
+    n_devices: 0
+    walked: false
+    why: "Sensor"
+
+# =============================================================================
+# LOCATIONS (Staðsetning)
+# =============================================================================
+locations:
+  name:
+    icelandic_label: Nafn
+    description: Location name
+    classification: inherent
+    tos_required_for: [staðsetning]
+    gps_required_for: [staðsetning] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [staðsetning]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  lat:
+    icelandic_label: Breiddargráða
+    description: Latitude (decimal degrees)
+    classification: inherent
+    tos_required_for: [staðsetning]
+    gps_required_for: [staðsetning] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [staðsetning]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  lon:
+    icelandic_label: Lengdargráða
+    description: Longitude (decimal degrees)
+    classification: inherent
+    tos_required_for: [staðsetning]
+    gps_required_for: [staðsetning] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [staðsetning]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  altitude:
+    icelandic_label: Hæð
+    description: Altitude above sea level (m)
+    classification: inherent
+    tos_required_for: [staðsetning]
+    gps_required_for: [staðsetning] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [staðsetning]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  lon_isn93:
+    icelandic_label: Lengdargráða (isn93)
+    description: Longitude in ISN93 projection
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [staðsetning]
+    gps_relevance: "no"
+    walked: false
+    why: ""
+
+  lat_isn93:
+    icelandic_label: Breiddargráða (isn93)
+    description: Latitude in ISN93 projection
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [staðsetning]
+    gps_relevance: "no"
+    walked: false
+    why: ""
+
+  identifier:
+    icelandic_label: Auðkenni
+    description: Location identifier
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [staðsetning]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  notes:
+    icelandic_label: Glósur
+    description: Notes about the location
+    classification: mutable
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [staðsetning]
+    gps_relevance: "maybe"
+    walked: false
+    why: ""
+
+# =============================================================================
+# STATIONS (Stöð — Jarðeðlisstöð)
+# =============================================================================
+stations:
+  # --- Required form fields ---
+
+  marker:
+    icelandic_label: Auðkenni
+    description: Station marker — 5-letter lowercase English abbreviation
+    classification: inherent
+    tos_required_for: [jarðeðlisstöð]
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  name:
+    icelandic_label: Nafn
+    description: Station name
+    classification: inherent
+    tos_required_for: [jarðeðlisstöð]
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  station_subtype:
+    icelandic_label: Undirtegund
+    description: Station sub-type — describes composition / measurement purpose
+    classification: inherent
+    tos_required_for: [jarðeðlisstöð]
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: "GPS stöð" # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  lat:
+    icelandic_label: Breiddargráða
+    description: Station latitude (decimal degrees)
+    classification: inherent
+    tos_required_for: [jarðeðlisstöð]
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  lon:
+    icelandic_label: Lengdargráða
+    description: Station longitude (decimal degrees)
+    classification: inherent  # station longitude is fixed by location
+    tos_required_for: [jarðeðlisstöð]
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  visit_class:
+    icelandic_label: Vitjanaflokkur
+    description: Visit cadence class — A (<=1 week), B (<=3 weeks), C (3-6 weeks)
+    classification: mutable  # cadence class can change with operator policy
+    tos_required_for: [jarðeðlisstöð]
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: "B" # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  altitude:
+    icelandic_label: Hæð
+    description: Station altitude above sea level (m)
+    classification: inherent
+    tos_required_for: [jarðeðlisstöð]
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  date_start:
+    icelandic_label: Upphafsdagsetning
+    description: Date of station start
+    classification: inherent
+    tos_required_for: [jarðeðlisstöð]
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  # --- Measured ---
+
+  description:
+    icelandic_label: Lýsing
+    description: Station description
+    classification: inherent
+    tos_required_for: [jarðeðlisstöð]
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  # --- Optional ---
+
+  close_date:
+    icelandic_label: Lokadagsetning
+    description: Station close date
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  name_alias:
+    icelandic_label: Nafn alías
+    description: Station name without special characters
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  wigos_number:
+    icelandic_label: WIGOS-númer
+    description: WMO Integrated Global Observing System identifier
+    classification: TODO # inherent once assigned
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: "WMO ID — may not apply to pure GNSS stations"
+
+  iers_domes_number:
+    icelandic_label: IERS domes number
+    description: IERS DOMES site number — IGS site log section 1
+    classification: inherent  # DOMES site number is assigned once and permanent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: "Used in IGS site log section 1"
+
+  geological_characteristic:
+    icelandic_label: Jarðfræðilegt einkenni
+    description: Geological setting — bedrock | clay | conglomerate | gravel | sand
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: "bedrock" # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: "IGS site log section 2"
+
+  is_near_fault_zones:
+    icelandic_label: Er nálægt sprungusvæði
+    description: Whether station is near fault zones
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: "yes" # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: "IGS site log section 2"
+
+  bedrock_condition:
+    icelandic_label: Ástand berggrunns
+    description: Bedrock condition — fresh | jointed | weathered
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: "weathered" # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: "IGS site log section 2"
+
+  bedrock_type:
+    icelandic_label: Bergtegund
+    description: Bedrock type — igneous | metamorphic | sedimentary
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: "igneous" # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: "IGS site log section 2"
+
+  in_network_epos:
+    icelandic_label: Í EPOS neti
+    description: Member of EPOS network (já/nei)
+    classification: mutable
+    tos_required_for: []
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: "nei" # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: "Used by tosGPS to mark EPOS network membership"
+
+  continuity:
+    icelandic_label: Samfella
+    description: GNSS measurement continuity — continuous | campaign
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: "Continuous vs campaign — critical for processing pipeline"
+
+  short_name:
+    icelandic_label: Nafn stutt
+    description: Short name for external systems
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: ""
+
+  early_data_date:
+    icelandic_label: Fyrndardagsetning
+    description: Date of earliest recorded data, before regular operation per date_start
+    classification: TODO # inherent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: "Bounds the historical data span"
+
+  coordinate_quality:
+    icelandic_label: Gæði hnita
+    description: Coordinate quality assessment
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: ""
+
+  bore_depth:
+    icelandic_label: Dýpi borholu
+    description: Borehole depth for strain meter
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: "Strain meter, not GNSS"
+
+  station_phone:
+    icelandic_label: Símanúmer stöðvar
+    description: Station phone number
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: ""
+
+  station_ip:
+    icelandic_label: IP-tala stöðvar
+    description: Station IP address
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: ""
+
+  notes:
+    icelandic_label: Glósur
+    description: Station notes
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  comment:
+    icelandic_label: Athugasemd
+    description: General station comment
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  galvos_number:
+    icelandic_label: GALVOS-númer
+    description: GALVOS station identifier
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: ""
+
+  galvos_location_code:
+    icelandic_label: GALVOS-staðarkóði
+    description: GALVOS location code
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: ""
+
+  owner_station_id:
+    icelandic_label: Stöðvaauðkenni eiganda
+    description: Owner-assigned station identifier (if not IMO-numbered)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: ""
+
+  service_announcement:
+    icelandic_label: Þjónustutilkynning
+    description: Service announcement string
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: ""
+
+  landscape:
+    icelandic_label: Landslag
+    description: Landscape description (e.g. heiði, fjörður, hlíð)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: ""
+
+  environment:
+    icelandic_label: Umhverfi
+    description: Environment description (surrounded by buildings, open area, woods)
+    classification: inherent
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "yes"
+    walked: false
+    why: ""
+
+  lon_isn93:
+    icelandic_label: Lengdargráða (isn93)
+    description: Longitude in ISN93 projection
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: ""
+
+  lat_isn93:
+    icelandic_label: Breiddargráða (isn93)
+    description: Latitude in ISN93 projection
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: ""
+
+  gravitational_acceleration:
+    icelandic_label: Þyngdarhröðun
+    description: Gravitational acceleration measurement
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: "Gravity measurement, not GNSS"
+
+  # --- Met-station specific (clearly not GPS) ---
+
+  forecast_area:
+    icelandic_label: Spásvæði
+    description: Forecast area
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: "Meteorological forecast area"
+
+  wmo_code:
+    icelandic_label: WMO-kóði
+    description: WMO station code
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: "Meteorological"
+
+  vod_area:
+    icelandic_label: VOD-svæði
+    description: VOD area
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: "Met-station classification"
+
+  vhm_reference:
+    icelandic_label: VHM tilvísun
+    description: VHM reference
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: ""
+
+  vi_weather_station_number:
+    icelandic_label: VÍ veðurstöðvanúmer
+    description: VÍ weather station number
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: "Weather station ID"
+
+  precipitation_meter_height:
+    icelandic_label: Hæð úrkomumælis
+    description: Precipitation meter height (m)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: "Rain gauge"
+
+  thermometer_height:
+    icelandic_label: Hæð hitamælis
+    description: Thermometer height (m)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: "Met"
+
+  wind_meter_height:
+    icelandic_label: Hæð vindmælis
+    description: Wind meter height (m)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: "Met"
+
+  barometer_height:
+    icelandic_label: Hæð loftvogar
+    description: Barometer height (m)
+    classification: TODO
+    tos_required_for: []
+    gps_required_for: [] # USER FILLS IN — strict superset of tos
+    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    applies_to: [jarðeðlisstöð]
+    gps_relevance: "no"
+    walked: false
+    why: "Met"

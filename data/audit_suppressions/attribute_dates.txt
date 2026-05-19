@@ -1,0 +1,43 @@
+# === tos audit attribute-dates suppression file ===
+#
+# Read by `tos audit attribute-dates <STA>` (Layer 3 of the
+# attribute-dates audit). Each non-blank, non-comment line silences one
+# (id_entity, code, date_from) triple — the exact violation that the
+# audit would otherwise report.
+#
+# Line format:
+#
+#     SUPPRESS <id_entity> <code> <date_from>
+#
+# - id_entity:   integer; the device's TOS id_entity.
+# - code:        attribute code as stored in TOS (e.g. serial_number,
+#                date_start, antenna_offset_north). Catalog at
+#                data/attribute_codes.yaml lists every known code.
+# - date_from:   YYYY-MM-DD. Pasted ISO datetimes are tolerated — the
+#                parser normalises to date-only on the way in.
+#
+# Comments start with "#" and run to end-of-line; blank lines are
+# ignored. Malformed lines are reported on stderr but do NOT abort the
+# audit (so a single typo doesn't lose the whole file).
+#
+# Workflow:
+#   1. Run `tos audit attribute-dates <STA> --verbose`. The verbose
+#      output prints a copy-pasteable `SUPPRESS …` hint under every
+#      violation.
+#   2. For each known-good (e.g. confirmed-correct retroactive date
+#      entry, or a data hygiene issue queued for `tos audit apply`
+#      handling), copy the hint here, add a `# rationale` comment, and
+#      commit.
+#   3. Re-run the audit; suppressed entries disappear from the default
+#      output. To verify what a stale line is hiding, pass
+#      `--no-suppressions`.
+#
+# Convention: keep entries grouped by station (alphabetical), each with
+# a one-line rationale comment so future-you can audit why this was
+# silenced.
+
+# --- ARHO (id_entity=4233) — Árholt ---
+# (no entries yet)
+
+# --- RHOF (id_entity=4390) — Raufarhöfn ---
+# (no entries yet)

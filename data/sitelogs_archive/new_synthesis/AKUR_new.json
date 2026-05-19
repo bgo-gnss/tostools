@@ -1,0 +1,390 @@
+{
+  "station": "AKUR",
+  "metadata": {
+    "contact": {
+      "owner": {
+        "id_entity": 2509,
+        "role": "owner",
+        "role_is": "Eigandi st\u00f6\u00f0var",
+        "name": "Landm\u00e6lingar \u00cdslands",
+        "address": "",
+        "comment": "",
+        "phone_primary": "",
+        "ssid": "",
+        "abbreviation": "",
+        "name_en": "",
+        "email": "",
+        "primary_contact": "",
+        "department": "",
+        "address_en": "",
+        "main_url": "",
+        "main_url_en": ""
+      },
+      "operator": {
+        "role": "operator",
+        "role_is": "Rekstrara\u00f0ili st\u00f6\u00f0var",
+        "name": "Landm\u00e6lingar \u00cdslands"
+      },
+      "contact": {
+        "id_entity": 2509,
+        "role": "owner",
+        "role_is": "Eigandi st\u00f6\u00f0var",
+        "name": "Landm\u00e6lingar \u00cdslands",
+        "address": "",
+        "comment": "",
+        "phone_primary": "",
+        "ssid": "",
+        "abbreviation": "",
+        "name_en": "",
+        "email": "",
+        "primary_contact": "",
+        "department": "",
+        "address_en": "",
+        "main_url": "",
+        "main_url_en": ""
+      }
+    },
+    "is_near_fault_zones": "true",
+    "date_start": "2001-07-31 00:00",
+    "bedrock_condition": "weathered",
+    "name": "Akureyri",
+    "in_network_epos": "true",
+    "marker": "akur",
+    "bedrock_type": "igneous",
+    "altitude": 134.20651,
+    "lat": 65.685427,
+    "iers_domes_number": "10206M001",
+    "geological_characteristic": "bedrock",
+    "lon": -18.122483,
+    "device_history": [
+      {
+        "time_from": "2001-07-31 00:00:00",
+        "time_to": "2015-12-21 00:00:00",
+        "monument": {
+          "serial_number": "monument-AKUR-20010731",
+          "monument_height": 0.0,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "gnss_receiver": {
+          "model": "TRIMBLE 4700",
+          "serial_number": "20221607",
+          "firmware_version": "Nav 1.30 Sig 0.00",
+          "software_version": "1.30"
+        },
+        "antenna": {
+          "model": "TRM29659.00",
+          "serial_number": "0220145519",
+          "antenna_height": 0.055,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "radome": {
+          "model": "SCIS",
+          "serial_number": "radome-AKUR-20010731"
+        }
+      },
+      {
+        "time_from": "2015-12-21 00:00:00",
+        "time_to": "2018-01-21 00:00:00",
+        "monument": {
+          "serial_number": "monument-AKUR-20010731",
+          "monument_height": 0.0,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "antenna": {
+          "model": "TRM29659.00",
+          "serial_number": "0220145519",
+          "antenna_height": 0.055,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "radome": {
+          "model": "SCIS",
+          "serial_number": "radome-AKUR-20010731"
+        },
+        "gnss_receiver": {
+          "model": "NOV OEM638",
+          "serial_number": "BMAW14440059V",
+          "firmware_version": "6.51",
+          "software_version": "6.51"
+        }
+      },
+      {
+        "time_from": "2018-01-21 00:00:00",
+        "time_to": "2018-01-30 00:00:00",
+        "monument": {
+          "serial_number": "monument-AKUR-20010731",
+          "monument_height": 0.0,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "antenna": {
+          "model": "TRM29659.00",
+          "serial_number": "0220145519",
+          "antenna_height": 0.055,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "radome": {
+          "model": "SCIS",
+          "serial_number": "radome-AKUR-20010731"
+        }
+      },
+      {
+        "time_from": "2018-01-30 00:00:00",
+        "time_to": "2023-09-07 00:00:00",
+        "monument": {
+          "serial_number": "monument-AKUR-20010731",
+          "monument_height": 0.0,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "antenna": {
+          "model": "TRM29659.00",
+          "serial_number": "0220145519",
+          "antenna_height": 0.055,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "radome": {
+          "model": "SCIS",
+          "serial_number": "radome-AKUR-20010731"
+        },
+        "gnss_receiver": {
+          "model": "TRIMBLE NETR5",
+          "serial_number": "4806K53395",
+          "firmware_version": "4.03",
+          "software_version": "4.03"
+        }
+      },
+      {
+        "time_from": "2023-09-07 00:00:00",
+        "time_to": "2025-04-15 00:00:00",
+        "monument": {
+          "serial_number": "monument-AKUR-20010731",
+          "monument_height": 0.0,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "antenna": {
+          "model": "TRM29659.00",
+          "serial_number": "0220145519",
+          "antenna_height": 0.055,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "radome": {
+          "model": "SCIS",
+          "serial_number": "radome-AKUR-20010731"
+        },
+        "gnss_receiver": {
+          "model": "TRIMBLE NETR5",
+          "serial_number": "4806K53395",
+          "firmware_version": "4.45",
+          "software_version": "4.45"
+        }
+      },
+      {
+        "time_from": "2025-04-15 00:00:00",
+        "time_to": null,
+        "monument": {
+          "serial_number": "monument-AKUR-20010731",
+          "monument_height": 0.0,
+          "monument_offset_north": 0.0,
+          "monument_offset_east": 0.0
+        },
+        "antenna": {
+          "model": "TRM29659.00",
+          "serial_number": "0220145519",
+          "antenna_height": 0.055,
+          "antenna_offset_east": 0.0,
+          "antenna_offset_north": 0.0,
+          "antenna_reference_point": "DHARP"
+        },
+        "radome": {
+          "model": "SCIS",
+          "serial_number": "radome-AKUR-20010731"
+        },
+        "gnss_receiver": {
+          "model": "TRIMBLE NETR5",
+          "serial_number": "4825K56777",
+          "firmware_version": "4.41",
+          "software_version": "4.41"
+        }
+      }
+    ]
+  },
+  "device_sessions": [
+    {
+      "time_from": "2001-07-31 00:00:00",
+      "time_to": "2015-12-21 00:00:00",
+      "monument": {
+        "serial_number": "monument-AKUR-20010731",
+        "monument_height": 0.0,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "gnss_receiver": {
+        "model": "TRIMBLE 4700",
+        "serial_number": "20221607",
+        "firmware_version": "Nav 1.30 Sig 0.00",
+        "software_version": "1.30"
+      },
+      "antenna": {
+        "model": "TRM29659.00",
+        "serial_number": "0220145519",
+        "antenna_height": 0.055,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "radome": {
+        "model": "SCIS",
+        "serial_number": "radome-AKUR-20010731"
+      }
+    },
+    {
+      "time_from": "2015-12-21 00:00:00",
+      "time_to": "2018-01-21 00:00:00",
+      "monument": {
+        "serial_number": "monument-AKUR-20010731",
+        "monument_height": 0.0,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "antenna": {
+        "model": "TRM29659.00",
+        "serial_number": "0220145519",
+        "antenna_height": 0.055,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "radome": {
+        "model": "SCIS",
+        "serial_number": "radome-AKUR-20010731"
+      },
+      "gnss_receiver": {
+        "model": "NOV OEM638",
+        "serial_number": "BMAW14440059V",
+        "firmware_version": "6.51",
+        "software_version": "6.51"
+      }
+    },
+    {
+      "time_from": "2018-01-21 00:00:00",
+      "time_to": "2018-01-30 00:00:00",
+      "monument": {
+        "serial_number": "monument-AKUR-20010731",
+        "monument_height": 0.0,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "antenna": {
+        "model": "TRM29659.00",
+        "serial_number": "0220145519",
+        "antenna_height": 0.055,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "radome": {
+        "model": "SCIS",
+        "serial_number": "radome-AKUR-20010731"
+      }
+    },
+    {
+      "time_from": "2018-01-30 00:00:00",
+      "time_to": "2023-09-07 00:00:00",
+      "monument": {
+        "serial_number": "monument-AKUR-20010731",
+        "monument_height": 0.0,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "antenna": {
+        "model": "TRM29659.00",
+        "serial_number": "0220145519",
+        "antenna_height": 0.055,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "radome": {
+        "model": "SCIS",
+        "serial_number": "radome-AKUR-20010731"
+      },
+      "gnss_receiver": {
+        "model": "TRIMBLE NETR5",
+        "serial_number": "4806K53395",
+        "firmware_version": "4.03",
+        "software_version": "4.03"
+      }
+    },
+    {
+      "time_from": "2023-09-07 00:00:00",
+      "time_to": "2025-04-15 00:00:00",
+      "monument": {
+        "serial_number": "monument-AKUR-20010731",
+        "monument_height": 0.0,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "antenna": {
+        "model": "TRM29659.00",
+        "serial_number": "0220145519",
+        "antenna_height": 0.055,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "radome": {
+        "model": "SCIS",
+        "serial_number": "radome-AKUR-20010731"
+      },
+      "gnss_receiver": {
+        "model": "TRIMBLE NETR5",
+        "serial_number": "4806K53395",
+        "firmware_version": "4.45",
+        "software_version": "4.45"
+      }
+    },
+    {
+      "time_from": "2025-04-15 00:00:00",
+      "time_to": null,
+      "monument": {
+        "serial_number": "monument-AKUR-20010731",
+        "monument_height": 0.0,
+        "monument_offset_north": 0.0,
+        "monument_offset_east": 0.0
+      },
+      "antenna": {
+        "model": "TRM29659.00",
+        "serial_number": "0220145519",
+        "antenna_height": 0.055,
+        "antenna_offset_east": 0.0,
+        "antenna_offset_north": 0.0,
+        "antenna_reference_point": "DHARP"
+      },
+      "radome": {
+        "model": "SCIS",
+        "serial_number": "radome-AKUR-20010731"
+      },
+      "gnss_receiver": {
+        "model": "TRIMBLE NETR5",
+        "serial_number": "4825K56777",
+        "firmware_version": "4.41",
+        "software_version": "4.41"
+      }
+    }
+  ],
+  "generated_date": "2026-05-18T17:26:56.055340",
+  "format": "site_log_json_v1"
+}
