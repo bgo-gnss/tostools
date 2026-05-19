@@ -1991,8 +1991,14 @@ def _audit_main(argv):
     p = argparse.ArgumentParser(
         prog="tos audit",
         description=(
-            "Verify TOS device-warehouse invariants. Read-only; no "
-            "credentials required."
+            "Verify TOS device-warehouse invariants and patch corrections. "
+            "Most verbs are read-only (device, station, orphans, "
+            "fleet-gaps, timeline, show, attribute-dates) — no credentials "
+            "needed. `apply` is the exception: it consumes an operator-"
+            "edited ACTION file and writes back to TOS, so it requires "
+            "credentials via $TOS_USERNAME/$TOS_PASSWORD, the [tos] "
+            "section in database.cfg, or interactive prompt. `apply` "
+            "defaults to dry-run; pass --apply to commit writes."
         ),
         epilog=(
             "WHAT TOS TRACKS\n"
