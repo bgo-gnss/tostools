@@ -52,6 +52,14 @@ url_rest_tos = "https://vi-api.vedur.is:11223/tos/v1"
 
 
 def searchStation(station_identifier, url_rest, domains=None):
+    if not isinstance(url_rest, str) or not url_rest.startswith(
+        ("http://", "https://")
+    ):
+        raise ValueError(
+            f"searchStation: url_rest must be a TOS base URL like "
+            f"{url_rest_tos!r}; got {url_rest!r}. Argument order is "
+            "(station_identifier, url_rest, domains)."
+        )
 
     if domains is None:
         domains = [
@@ -1112,7 +1120,7 @@ def generateSC3ML(station_list=None, schema_version=None):
     # Get stations
     if len(station_list) > 0:
         for station_identifier in station_list:
-            station = searchStation(station_identifier, "geophysical", url_rest_tos)
+            station = searchStation(station_identifier, url_rest_tos, "geophysical")
             if len(station) == 0:
                 logging.warning(
                     f"Station with station_identifier {station_identifier} not found"
@@ -4521,7 +4529,7 @@ def _legacy_main(argv):
         stations = []
 
         for station_identifier in args.identifiers:
-            station = searchStation(station_identifier, args.domain, url_rest_tos)
+            station = searchStation(station_identifier, url_rest_tos, args.domain)
             id_entity = station[0]["id_entity"]
             if args.devices:
                 devices = getDevicesByParentEntityId(id_entity)
