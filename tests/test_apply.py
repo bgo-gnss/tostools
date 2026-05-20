@@ -916,3 +916,305 @@ def test_dispatch_patch_attribute_date_captures_read_exception():
     assert result.status == "failed"
     assert "get_attribute_values raised" in result.detail
     writer.patch_attribute_value.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _parse_action_file — add-attribute
+# ---------------------------------------------------------------------------
+
+
+def test_parse_action_file_add_attribute_three_args():
+    text = "ACTION 4257 add-attribute in_network_epos true 2021-11-01\n"
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert len(actions) == 1
+    assert actions[0].verb == "add-attribute"
+    assert actions[0].id_entity == 4257
+    assert actions[0].args == ["in_network_epos", "true", "2021-11-01"]
+
+
+def test_parse_action_file_add_attribute_quoted_value():
+    """Values with spaces must be quoted — shlex.split unquotes them
+    back to a single token. The `'GPS stöð'` case is the regression
+    target: the catalog's `subtype` default carries a space."""
+    text = "ACTION 4390 add-attribute subtype 'GPS stöð' 2001-07-19\n"
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert actions[0].args == ["subtype", "GPS stöð", "2001-07-19"]
+
+
+def test_parse_action_file_add_attribute_double_quoted_value():
+    """Double quotes also work — shlex accepts either form."""
+    text = 'ACTION 4390 add-attribute subtype "GPS stöð" 2001-07-19\n'
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert actions[0].args == ["subtype", "GPS stöð", "2001-07-19"]
+
+
+def test_parse_action_file_add_attribute_rejects_too_few_args():
+    text = "ACTION 4257 add-attribute date_start 2010-01-01\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "add-attribute requires exactly three arguments" in errors[0].message
+
+
+def test_parse_action_file_add_attribute_rejects_extra_args():
+    text = "ACTION 4257 add-attribute date_start 2010-01-01 2011-01-01 EXTRA\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "add-attribute requires exactly three arguments" in errors[0].message
+
+
+def test_parse_action_file_rejects_unbalanced_quoting():
+    """shlex raises on unbalanced quotes; the error is captured, not
+    propagated, so the rest of the file still parses."""
+    text = (
+        "ACTION 100 add-attribute marker 'unclosed quote 2020-01-01\n"
+        "ACTION 200 defer\n"
+    )
+    actions, errors = _parse_action_file(text)
+    assert len(actions) == 1
+    assert actions[0].id_entity == 200
+    assert "malformed quoting" in errors[0].message
+
+
+def test_parse_action_file_backward_compat_with_bare_tokens():
+    """shlex.split on lines with no quoting behaves identically to
+    str.split — verify existing verbs aren't disturbed."""
+    text = (
+        "ACTION 16321 change-subtype digitizer\n"
+        "ACTION 16321 patch-attribute-date serial_number "
+        "2014-10-17 2002-01-01\n"
+        "ACTION 16321 defer\n"
+    )
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert [a.verb for a in actions] == [
+        "change-subtype",
+        "patch-attribute-date",
+        "defer",
+    ]
+
+
+# ---------------------------------------------------------------------------
+# _dispatch_action — add-attribute
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_add_attribute_happy_path():
+    """No existing open period → POST a new attribute value."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = []  # entity has no values yet
+    writer.add_attribute_value.return_value = {"id_attribute_value": 99001}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4257, "add-attribute", "date_start", "2010-06-15", "2010-06-15"
+        ),
+    )
+
+    assert result.status == "ok"
+    writer.get_attribute_values.assert_called_once_with(4257, "date_start")
+    writer.add_attribute_value.assert_called_once_with(
+        4257, "date_start", "2010-06-15", "2010-06-15"
+    )
+    assert "POST /attribute_values id_entity=4257" in result.detail
+
+
+def test_dispatch_add_attribute_quoted_value_passes_through():
+    """A value parsed from `'GPS stöð'` reaches the writer unchanged."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = []
+    writer.add_attribute_value.return_value = {"id_attribute_value": 99002}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4390, "add-attribute", "subtype", "GPS stöð", "2001-07-19"
+        ),
+    )
+
+    assert result.status == "ok"
+    writer.add_attribute_value.assert_called_once_with(
+        4390, "subtype", "GPS stöð", "2001-07-19"
+    )
+
+
+def test_dispatch_add_attribute_same_value_is_no_op():
+    """Open period with the same value → idempotent skip; never POSTs.
+    Guards against accidental duplicate periods when the apply runs
+    twice in a row."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(50001, "date_start", "2010-06-15", "2010-06-15 00:00:00")
+    ]
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4257, "add-attribute", "date_start", "2010-06-15", "2010-06-15"
+        ),
+    )
+
+    assert result.status == "ok"
+    assert "already present" in result.detail
+    writer.add_attribute_value.assert_not_called()
+
+
+def test_dispatch_add_attribute_different_value_refuses():
+    """Open period exists with a different value → refuse rather than
+    silently overwrite. This is the safety contract the dispatcher
+    enforces; the operator should use a transition verb for
+    history-preserving updates."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(50001, "subtype", "Annað", "2001-01-01 00:00:00")
+    ]
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4390, "add-attribute", "subtype", "GPS stöð", "2001-07-19"
+        ),
+    )
+
+    assert result.status == "failed"
+    assert "refuse to overwrite" in result.detail
+    assert "Annað" in result.detail
+    writer.add_attribute_value.assert_not_called()
+
+
+def test_dispatch_add_attribute_multiple_open_periods_refuses():
+    """Two open periods for the same code → data is already corrupt.
+    add-attribute refuses to compound the problem."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(50001, "subtype", "X", "2001-01-01 00:00:00"),
+        _attr_value(50002, "subtype", "Y", "2005-01-01 00:00:00"),
+    ]
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4390, "add-attribute", "subtype", "GPS stöð", "2001-07-19"
+        ),
+    )
+
+    assert result.status == "failed"
+    assert "2 open periods" in result.detail
+    writer.add_attribute_value.assert_not_called()
+
+
+def test_dispatch_add_attribute_fill_value_placeholder_refuses():
+    """A literal <FILL_VALUE> in the action line means the operator
+    forgot to fill it in — refuse before any network call."""
+    writer = MagicMock()
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4257, "add-attribute", "note", "<FILL_VALUE>", "2010-01-01"
+        ),
+    )
+
+    assert result.status == "failed"
+    assert "placeholder" in result.detail
+    writer.get_attribute_values.assert_not_called()
+    writer.add_attribute_value.assert_not_called()
+
+
+def test_dispatch_add_attribute_fill_date_placeholder_refuses():
+    writer = MagicMock()
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4257, "add-attribute", "date_start", "2010-01-01", "<FILL_DATE>"
+        ),
+    )
+
+    assert result.status == "failed"
+    assert "date placeholder" in result.detail
+    writer.add_attribute_value.assert_not_called()
+
+
+def test_dispatch_add_attribute_invalid_date_format_refuses():
+    writer = MagicMock()
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4257, "add-attribute", "date_start", "2010-01-01", "not-a-date"
+        ),
+    )
+
+    assert result.status == "failed"
+    assert "YYYY-MM-DD" in result.detail
+    writer.add_attribute_value.assert_not_called()
+
+
+def test_dispatch_add_attribute_get_raises_returns_failed():
+    """Network/auth errors from get_attribute_values surface as failed
+    actions — never raise out of the dispatcher."""
+    writer = MagicMock()
+    writer.get_attribute_values.side_effect = RuntimeError("simulated 503")
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4257, "add-attribute", "date_start", "2010-06-15", "2010-06-15"
+        ),
+    )
+
+    assert result.status == "failed"
+    assert "get_attribute_values raised" in result.detail
+    writer.add_attribute_value.assert_not_called()
+
+
+def test_dispatch_add_attribute_writer_raises_returns_failed():
+    """Network/auth errors from add_attribute_value surface as failed
+    actions — never raise out of the dispatcher."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = []
+    writer.add_attribute_value.side_effect = RuntimeError("simulated 500")
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4257, "add-attribute", "date_start", "2010-06-15", "2010-06-15"
+        ),
+    )
+
+    assert result.status == "failed"
+    assert "add_attribute_value raised" in result.detail
+
+
+def test_dispatch_add_attribute_skips_closed_periods_for_conflict_check():
+    """Closed periods (date_to set) don't count as open conflicts — only
+    open periods (date_to is None) gate the new POST."""
+    writer = MagicMock()
+    # All existing periods are closed → still allowed to add a new open one.
+    writer.get_attribute_values.return_value = [
+        _attr_value(
+            50001, "subtype", "Old", "2001-01-01 00:00:00",
+            date_to="2005-12-31 00:00:00",
+        ),
+        _attr_value(
+            50002, "subtype", "Older", "1995-01-01 00:00:00",
+            date_to="2000-12-31 00:00:00",
+        ),
+    ]
+    writer.add_attribute_value.return_value = {"id_attribute_value": 99003}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4390, "add-attribute", "subtype", "GPS stöð", "2006-01-01"
+        ),
+    )
+
+    assert result.status == "ok"
+    writer.add_attribute_value.assert_called_once_with(
+        4390, "subtype", "GPS stöð", "2006-01-01"
+    )

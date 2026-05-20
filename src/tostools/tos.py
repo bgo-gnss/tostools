@@ -2408,6 +2408,14 @@ def _audit_main(argv):
             "                            PATCH /attribute_value/<id> "
             "date_from — consumes triage files from\n"
             "                            `tos audit attribute-dates --triage`\n"
+            "  add-attribute <code> <value> <date_from>\n"
+            "                            POST /attribute_values — add a new open "
+            "period to fill\n"
+            "                            a required-attribute gap. Consumes triage "
+            "files from\n"
+            "                            `tos audit missing-attributes --triage`. "
+            "Quote values\n"
+            "                            with spaces, e.g. `'GPS stöð'`.\n"
             "  defer                      no-op placeholder (review next run)\n\n"
             "Validation: each ACTION line is parsed before any HTTP call. "
             "If any line is malformed, nothing is sent. Otherwise actions "
@@ -3019,6 +3027,7 @@ class ParseError:
 
 
 _SUPPORTED_VERBS = (
+    "add-attribute",
     "change-subtype",
     "decommission",
     "defer",
@@ -3036,9 +3045,16 @@ def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]
 
         ACTION <id_entity> <verb> [args...]
 
+    Token splitting uses :func:`shlex.split` so values containing spaces
+    can be quoted (e.g. ``add-attribute subtype 'GPS stöð' 2010-01-01``).
+    For verbs that take bare tokens (patch-attribute-date, change-subtype,
+    …), shlex.split behaves identically to ``str.split()``.
+
     Returns both lists so the runner can report every malformed line at
     once instead of bailing on the first error.
     """
+    import shlex
+
     actions: List[ParsedAction] = []
     errors: List[ParseError] = []
     for i, line in enumerate(text.splitlines(), 1):
@@ -3049,7 +3065,17 @@ def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]
         line = line.strip()
         if not line:
             continue
-        tokens = line.split()
+        try:
+            tokens = shlex.split(line)
+        except ValueError as exc:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=f"malformed quoting: {exc}",
+                    raw=raw,
+                )
+            )
+            continue
         if tokens[0] != "ACTION":
             errors.append(
                 ParseError(
@@ -3160,6 +3186,20 @@ def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]
                     message=(
                         "patch-attribute-date requires exactly three "
                         "arguments: <code> <old_date_from> <new_date_from>"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        if verb == "add-attribute" and len(tokens) != 6:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "add-attribute requires exactly three arguments: "
+                        "<code> <value> <date_from> "
+                        "(quote the value if it contains spaces, e.g. "
+                        "'GPS stöð')"
                     ),
                     raw=raw,
                 )
@@ -3529,6 +3569,143 @@ def _dispatch_patch_attribute_date(writer, action: ParsedAction) -> ActionResult
     )
 
 
+def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
+    """Add a new attribute period to an existing entity.
+
+    Action shape: ``ACTION <id_entity> add-attribute <code> <value>
+    <date_from>``. Fires the missing-attributes audit's ``add-attribute``
+    verb — used to fill the gap when an entity is required to carry a
+    code but has no open period for it.
+
+    Pre-flight checks before POSTing
+    --------------------------------
+    * **Placeholder rejection** — if ``value`` or ``date_from`` still
+      contains a ``<FILL_*>`` placeholder, the operator forgot to
+      replace it. Refuse rather than POST a literal placeholder string
+      to TOS.
+    * **Date format** — ``date_from`` must be ``YYYY-MM-DD``.
+    * **Conflict detection** — fetches existing periods via
+      :meth:`writer.get_attribute_values`; if an open period already
+      exists with the same value, the action is a no-op (idempotent).
+      If an open period exists with a *different* value, refuse —
+      silent overwrite is the failure mode we're explicitly guarding
+      against; the operator should use a transition verb if they want
+      history-preserving update.
+    * **Multiple open periods** — refuse; the entity is already in a
+      corrupt state and ``add-attribute`` would compound it.
+
+    Otherwise calls :meth:`writer.add_attribute_value` to POST a new
+    period with ``date_to=None``. The writer's ``dry_run`` flag
+    controls whether anything actually goes over the wire.
+    """
+    code = action.args[0]
+    value = action.args[1]
+    date_from_raw = action.args[2]
+
+    # Placeholder rejection — anything matching <...> shape is a
+    # triage marker the operator forgot to fill in. Cheaper to refuse
+    # here than to debug a literal "<FILL_VALUE>" string sitting in TOS.
+    if value.startswith("<") and value.endswith(">"):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"add-attribute: value placeholder {value!r} not replaced — "
+                "fill in the value before applying"
+            ),
+        )
+    if date_from_raw.startswith("<") and date_from_raw.endswith(">"):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"add-attribute: date placeholder {date_from_raw!r} not "
+                "replaced — fill in the date_from before applying"
+            ),
+        )
+
+    # Date format check — same YYYY-MM-DD contract as patch-attribute-date.
+    date_from = date_from_raw[:10]
+    if len(date_from) != 10 or date_from[4] != "-" or date_from[7] != "-":
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"add-attribute: date_from must be YYYY-MM-DD "
+                f"(got {date_from_raw!r})"
+            ),
+        )
+
+    try:
+        existing = writer.get_attribute_values(action.id_entity, code)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"get_attribute_values raised: {exc}",
+        )
+
+    open_values = [a for a in existing if a.get("date_to") is None]
+    if len(open_values) > 1:
+        ids = ", ".join(
+            str(a.get("id_attribute_value")) for a in open_values
+        )
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"add-attribute: {len(open_values)} open periods already "
+                f"exist for code {code!r} on id_entity={action.id_entity} "
+                f"(ids: {ids}) — refusing to add; clean up the existing "
+                "duplicates first"
+            ),
+        )
+    if len(open_values) == 1:
+        current = open_values[0]
+        current_value = current.get("value")
+        if str(current_value) == value:
+            return ActionResult(
+                action=action,
+                status="ok",
+                detail=(
+                    f"already present: open period for {code!r} on "
+                    f"id_entity={action.id_entity} already has value "
+                    f"{value!r} (no-op)"
+                ),
+            )
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"add-attribute: open period for {code!r} on "
+                f"id_entity={action.id_entity} already has value "
+                f"{current_value!r}; refuse to overwrite with {value!r}. "
+                "Use a transition verb (history-preserving) instead."
+            ),
+        )
+
+    try:
+        response = writer.add_attribute_value(
+            action.id_entity, code, value, date_from
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"add_attribute_value raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"POST /attribute_values id_entity={action.id_entity} "
+            f"code={code!r} value={value!r} date_from={date_from} "
+            f"— {response!r}"
+        ),
+    )
+
+
 def _dispatch_action(
     writer,
     action: ParsedAction,
@@ -3566,6 +3743,8 @@ def _dispatch_action(
         return _dispatch_fill_gap(writer, action)
     if action.verb == "patch-attribute-date":
         return _dispatch_patch_attribute_date(writer, action)
+    if action.verb == "add-attribute":
+        return _dispatch_add_attribute(writer, action)
     if action.verb == "change-subtype":
         code = action.args[0]
         mapping = subtype_id_by_code or {}
