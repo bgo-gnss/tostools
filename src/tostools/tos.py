@@ -35,7 +35,7 @@ import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import requests
 from tabulate import tabulate
@@ -2409,13 +2409,21 @@ def _audit_main(argv):
             "date_from — consumes triage files from\n"
             "                            `tos audit attribute-dates --triage`\n"
             "  add-attribute <code> <value> <date_from>\n"
-            "                            POST /attribute_values — add a new open "
-            "period to fill\n"
-            "                            a required-attribute gap. Consumes triage "
-            "files from\n"
-            "                            `tos audit missing-attributes --triage`. "
-            "Quote values\n"
-            "                            with spaces, e.g. `'GPS stöð'`.\n"
+            "                            POST a new open attribute period to fill "
+            "a required-\n"
+            "                            attribute gap. Consumes triage files "
+            "from\n"
+            "                            `tos audit missing-attributes --triage`.\n"
+            "                            <value>: quote with single/double quotes "
+            "if it has\n"
+            "                                     spaces, e.g. `'GPS stöð'`.\n"
+            "                            <date_from>: YYYY-MM-DD, or one of two "
+            "shortcuts:\n"
+            "                              `now`   → today's UTC date (for mutable "
+            "transitions)\n"
+            "                              `start` → entity's earliest open "
+            "attribute date_from\n"
+            "                                        (for inherent backfills)\n"
             "  defer                      no-op placeholder (review next run)\n\n"
             "Validation: each ACTION line is parsed before any HTTP call. "
             "If any line is malformed, nothing is sent. Otherwise actions "
@@ -3569,6 +3577,26 @@ def _dispatch_patch_attribute_date(writer, action: ParsedAction) -> ActionResult
     )
 
 
+def _earliest_open_attr_date_from(attrs: List[Dict[str, Any]]) -> Optional[str]:
+    """Min ``date_from`` (YYYY-MM-DD) across all OPEN attribute periods.
+
+    Used by ``add-attribute``'s ``start`` token to resolve the entity's
+    creation timestamp without a catalog lookup. Matches the walker's
+    cascade tier-2 logic — inherent attrs (marker, name, lat, lon) share
+    a creation date_from, so the min is a reliable proxy."""
+    earliest: Optional[str] = None
+    for a in attrs:
+        if a.get("date_to") is not None:
+            continue
+        df = a.get("date_from")
+        if not df:
+            continue
+        df_d = str(df)[:10]
+        if earliest is None or df_d < earliest:
+            earliest = df_d
+    return earliest
+
+
 def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
     """Add a new attribute period to an existing entity.
 
@@ -3577,13 +3605,28 @@ def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
     verb — used to fill the gap when an entity is required to carry a
     code but has no open period for it.
 
+    Date-token shortcuts
+    --------------------
+    The ``<date_from>`` field accepts two special tokens that expand at
+    dispatch time:
+
+    * ``now`` — today's UTC date (``YYYY-MM-DD``). For mutable transitions
+      the operator wants to start "right now" — saves typing the date.
+    * ``start`` — the entity's earliest open attribute ``date_from``,
+      i.e. when the entity first appeared in TOS. Useful for inherent
+      gaps that should backfill from the entity's beginning.
+
+    Both are expanded BEFORE the date-format check, so they're handled
+    transparently downstream.
+
     Pre-flight checks before POSTing
     --------------------------------
     * **Placeholder rejection** — if ``value`` or ``date_from`` still
       contains a ``<FILL_*>`` placeholder, the operator forgot to
       replace it. Refuse rather than POST a literal placeholder string
       to TOS.
-    * **Date format** — ``date_from`` must be ``YYYY-MM-DD``.
+    * **Date format** — ``date_from`` must be ``YYYY-MM-DD`` (after
+      token expansion).
     * **Conflict detection** — fetches existing periods via
       :meth:`writer.get_attribute_values`; if an open period already
       exists with the same value, the action is a no-op (idempotent).
@@ -3624,8 +3667,46 @@ def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
             ),
         )
 
+    # Fetch the entity's attribute periods once. Used for both the
+    # `start` token expansion AND the conflict check below — same
+    # HTTP cost as the previous code-filtered fetch (the writer's
+    # get_attribute_values calls get_entity_history under the hood
+    # regardless of the code filter).
+    try:
+        all_attrs = writer.get_attribute_values(action.id_entity)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"get_attribute_values raised: {exc}",
+        )
+
+    # Date-token expansion: `now` → today; `start` → entity's earliest
+    # open attribute date_from. Mutable transitions usually want `now`;
+    # inherent backfills usually want `start`. Reduces operator typing
+    # and removes the "look up the entity's start date" detour.
+    if date_from_raw == "now":
+        from datetime import datetime, timezone
+
+        date_from = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    elif date_from_raw == "start":
+        resolved = _earliest_open_attr_date_from(all_attrs)
+        if resolved is None:
+            return ActionResult(
+                action=action,
+                status="failed",
+                detail=(
+                    f"add-attribute: 'start' token requires the entity to "
+                    f"have at least one open attribute period; "
+                    f"id_entity={action.id_entity} has none. Use an "
+                    "explicit YYYY-MM-DD date."
+                ),
+            )
+        date_from = resolved
+    else:
+        date_from = date_from_raw[:10]
+
     # Date format check — same YYYY-MM-DD contract as patch-attribute-date.
-    date_from = date_from_raw[:10]
     if len(date_from) != 10 or date_from[4] != "-" or date_from[7] != "-":
         return ActionResult(
             action=action,
@@ -3636,14 +3717,8 @@ def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
             ),
         )
 
-    try:
-        existing = writer.get_attribute_values(action.id_entity, code)
-    except Exception as exc:  # noqa: BLE001
-        return ActionResult(
-            action=action,
-            status="failed",
-            detail=f"get_attribute_values raised: {exc}",
-        )
+    # Conflict detection — filter the cached list rather than a second GET.
+    existing = [a for a in all_attrs if a.get("code") == code]
 
     open_values = [a for a in existing if a.get("date_to") is None]
     if len(open_values) > 1:

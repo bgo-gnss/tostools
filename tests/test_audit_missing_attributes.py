@@ -272,7 +272,12 @@ def test_violation_without_default_has_no_suggested_value(catalog_path: Path):
 
 
 def test_device_missing_serial_number_flagged(catalog_path: Path):
-    """Open device missing required attribute on devices scope."""
+    """Open device missing required attribute on devices scope.
+
+    Date hint cascade for the inherent ``serial_number`` violation:
+    tier 1 (device.date_start) missing → tier 2 (earliest open
+    attribute date_from on the device) → 2015-06-01 (the ``model``
+    attribute's date_from)."""
     station = _station(
         100,
         "Test Station",
@@ -287,7 +292,7 @@ def test_device_missing_serial_number_flagged(catalog_path: Path):
     device = _device(
         200,
         "gnss_receiver",
-        [_attr("model", "POLARX5")],
+        [_attr("model", "POLARX5", date_from="2015-06-01")],
         # serial_number missing
     )
     client = _client_for({100: station, 200: device})
@@ -301,7 +306,6 @@ def test_device_missing_serial_number_flagged(catalog_path: Path):
     assert v.id_entity == 200
     assert v.subtype == "gnss_receiver"
     assert v.scope == "devices"
-    # Earliest open-join time_from used as date hint for the triage line.
     assert v.suggested_date_from == "2015-06-01"
 
 
@@ -512,9 +516,14 @@ def test_device_with_multiple_open_joins_picks_earliest_date(
     assert serial_vios[0].suggested_date_from == "2012-03-15"
 
 
-def test_station_violations_have_no_date_hint(catalog_path: Path):
-    """Station-level missing attributes don't carry a date hint — the
-    operator picks the date when uncommenting the triage line."""
+def test_station_inherent_cascade_uses_other_attribute_dates(catalog_path: Path):
+    """Station inherent violations get a date hint via cascade.
+
+    Tier 1 (station.date_start) is missing, but tier 2 (earliest open
+    attribute date_from on the station — marker, subtype, altitude all
+    set at 2010-01-01) picks up 2010-01-01. Per operator: even REYK
+    (no date_start) has a usable signal from its inherent attributes'
+    shared creation timestamp."""
     station = _station(
         100,
         "Test Station",
@@ -531,8 +540,114 @@ def test_station_violations_have_no_date_hint(catalog_path: Path):
         client, id_entity=100, catalog_path=catalog_path
     )
 
-    for v in report.violations:
-        assert v.suggested_date_from is None
+    # `date_start` is inherent → cascade tier 2 → 2010-01-01
+    date_vio = next(v for v in report.violations if v.code == "date_start")
+    assert date_vio.suggested_date_from == "2010-01-01"
+
+
+def test_inherent_cascade_tier1_uses_entity_date_start(catalog_path: Path):
+    """When the entity has an open ``date_start`` attribute, tier 1
+    of the cascade wins — it's the most authoritative anchor."""
+    station = _station(
+        100,
+        "Test Station",
+        connections=[],
+        extra_attrs=[
+            _attr("marker", "tst1", date_from="2010-01-01"),
+            _attr("date_start", "2008-05-15", date_from="2010-01-01"),
+            _attr("altitude", 12.3, date_from="2010-01-01"),
+            # subtype missing — should pick up tier 1 (date_start's value)
+        ],
+    )
+    client = _client_for({100: station})
+    report = audit_station_missing_attributes(
+        client, id_entity=100, catalog_path=catalog_path
+    )
+
+    sub_vio = next(v for v in report.violations if v.code == "subtype")
+    assert sub_vio.suggested_date_from == "2008-05-15"
+
+
+def test_inherent_cascade_tier3_falls_back_to_join_date(catalog_path: Path):
+    """When the device has no date_start AND no other open attributes,
+    the cascade falls through to tier 3 — the earliest open-join
+    time_from from the station's perspective."""
+    station = _station(
+        100,
+        "Test Station",
+        connections=[_conn(200, time_from="2018-03-15")],
+        extra_attrs=[
+            _attr("marker", "tst1"),
+            _attr("date_start", "2010-01-01"),
+            _attr("subtype", "GPS stöð"),
+            _attr("altitude", 12.3),
+        ],
+    )
+    # Device has NO attributes — cascade tier 1 and tier 2 both miss.
+    device = _device(200, "gnss_receiver", [])
+    client = _client_for({100: station, 200: device})
+    report = audit_station_missing_attributes(
+        client, id_entity=100, catalog_path=catalog_path
+    )
+
+    serial_vio = next(v for v in report.violations if v.code == "serial_number")
+    assert serial_vio.suggested_date_from == "2018-03-15"
+
+
+def test_mutable_attribute_gets_no_auto_date(catalog_path: Path):
+    """Mutable attributes are explicitly NOT pre-filled — the operator
+    must consciously choose the transition date (today vs entity-start
+    vs explicit), and that decision is theirs to make."""
+    # firmware_version is mutable in the test catalog.
+    station = _station(
+        100,
+        "Test Station",
+        connections=[_conn(200, time_from="2018-03-15")],
+        extra_attrs=[
+            _attr("marker", "tst1"),
+            _attr("date_start", "2010-01-01"),
+            _attr("subtype", "GPS stöð"),
+            _attr("altitude", 12.3),
+        ],
+    )
+    # Mutable codes don't have gps_required_for: [gnss_receiver] in the
+    # test fixture, so synthesize a station where the test catalog's
+    # mutable code DOES apply. Easier: add a custom catalog inline.
+    import yaml as _yaml
+    custom_catalog = (catalog_path.parent / "custom_catalog.yaml")
+    custom_catalog.write_text(_yaml.safe_dump({
+        "devices": {
+            "serial_number": {
+                "classification": "inherent",
+                "gps_required_for": ["gnss_receiver"],
+                "applies_to": ["gnss_receiver"],
+                "gps_relevance": "yes",
+            },
+            "firmware_version": {
+                "classification": "mutable",
+                "gps_required_for": ["gnss_receiver"],
+                "applies_to": ["gnss_receiver"],
+                "gps_relevance": "yes",
+            },
+        },
+        "locations": {},
+        "stations": {},
+    }), encoding="utf-8")
+
+    device = _device(
+        200,
+        "gnss_receiver",
+        [_attr("serial_number", "SN001", date_from="2018-03-15")],
+        # firmware_version missing (mutable)
+    )
+    client = _client_for({100: station, 200: device})
+    report = audit_station_missing_attributes(
+        client, id_entity=100, catalog_path=custom_catalog
+    )
+
+    fw_vio = next(v for v in report.violations if v.code == "firmware_version")
+    # Mutable → no auto-date even though tier 2 / tier 3 would resolve.
+    assert fw_vio.suggested_date_from is None
 
 
 # ---------------------------------------------------------------------------
@@ -777,31 +892,34 @@ def test_triage_default_value_pre_filled_in_action_line(catalog_path: Path):
 
 
 def test_triage_fill_value_placeholder_when_no_default(catalog_path: Path):
-    """date_start has no catalog default → triage emits the placeholder."""
+    """date_start has no catalog default → value placeholder appears.
+    Date hint comes from cascade tier 2 (earliest open attr on station,
+    2010-01-01 from the fixture's marker/altitude default date_from)."""
     report = _station_with_two_gaps(catalog_path)
     out = format_triage_file(
         report, generated_at="2026-05-20T00:00:00+00:00"
     )
-    # date_start has no default, and station violations have no date hint
-    # → both placeholders appear.
     assert (
         f"#ACTION 100 add-attribute date_start {FILL_VALUE_PLACEHOLDER} "
-        f"{FILL_DATE_PLACEHOLDER}" in out
+        "2010-01-01" in out
     )
 
 
-def test_triage_device_date_hint_used_when_present(catalog_path: Path):
-    """For device violations, the earliest open-join time_from is used
-    as the date hint — no placeholder."""
+def test_triage_device_date_hint_from_inherent_cascade(catalog_path: Path):
+    """Device violation date hint comes from the inherent cascade.
+
+    serial_number is inherent; cascade tier 1 (device.date_start) is
+    missing; cascade tier 2 (earliest open attr on device) = 2010-01-01
+    (the ``model`` attribute's default date_from from ``_attr()``).
+    Without cascade, the operator would have fallen back to the join
+    time_from (2015-06-01) — same idea, more precise."""
     report = _station_with_two_gaps(catalog_path)
     out = format_triage_file(
         report, generated_at="2026-05-20T00:00:00+00:00"
     )
-    # serial_number missing → no default value, but join date 2015-06-01
-    # used as date hint.
     assert (
         f"#ACTION 200 add-attribute serial_number {FILL_VALUE_PLACEHOLDER} "
-        "2015-06-01" in out
+        "2010-01-01" in out
     )
 
 

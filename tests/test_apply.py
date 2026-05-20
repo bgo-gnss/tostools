@@ -1015,7 +1015,9 @@ def test_dispatch_add_attribute_happy_path():
     )
 
     assert result.status == "ok"
-    writer.get_attribute_values.assert_called_once_with(4257, "date_start")
+    # The dispatcher fetches all attrs (unfiltered) so it can serve both
+    # `start`-token expansion and conflict detection from one call.
+    writer.get_attribute_values.assert_called_once_with(4257)
     writer.add_attribute_value.assert_called_once_with(
         4257, "date_start", "2010-06-15", "2010-06-15"
     )
@@ -1217,4 +1219,127 @@ def test_dispatch_add_attribute_skips_closed_periods_for_conflict_check():
     assert result.status == "ok"
     writer.add_attribute_value.assert_called_once_with(
         4390, "subtype", "GPS stöð", "2006-01-01"
+    )
+
+
+# ---------------------------------------------------------------------------
+# _dispatch_action — add-attribute date-token shortcuts (`now`, `start`)
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_add_attribute_now_token_expands_to_today():
+    """`now` resolves to today's UTC date — saves the operator from
+    typing the current date when applying a mutable transition."""
+    from datetime import datetime, timezone
+
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = []
+    writer.add_attribute_value.return_value = {"id_attribute_value": 99100}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4257, "add-attribute", "firmware_version", "5.6.0", "now"
+        ),
+    )
+
+    expected_today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    assert result.status == "ok"
+    writer.add_attribute_value.assert_called_once_with(
+        4257, "firmware_version", "5.6.0", expected_today
+    )
+
+
+def test_dispatch_add_attribute_start_token_uses_earliest_open_attr():
+    """`start` resolves to the entity's earliest open attribute date_from
+    — the proxy for 'when this entity began existing in TOS', useful
+    for inherent backfills."""
+    writer = MagicMock()
+    # Entity has three open attrs with varying date_from — the min wins.
+    writer.get_attribute_values.return_value = [
+        _attr_value(50001, "name", "Test", "2010-05-01 00:00:00"),
+        _attr_value(50002, "marker", "tst1", "2008-03-15 00:00:00"),
+        _attr_value(50003, "subtype", "GPS stöð", "2008-03-15 00:00:00"),
+    ]
+    writer.add_attribute_value.return_value = {"id_attribute_value": 99101}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4257, "add-attribute", "date_start", "2008-03-15", "start"
+        ),
+    )
+
+    assert result.status == "ok"
+    writer.add_attribute_value.assert_called_once_with(
+        4257, "date_start", "2008-03-15", "2008-03-15"
+    )
+
+
+def test_dispatch_add_attribute_start_token_skips_closed_periods():
+    """Closed periods don't anchor the `start` token — they reflect
+    *previous* values, not when the entity began. The 1995 closed
+    period must NOT be picked over the 2010 open one."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(
+            50001, "marker", "old", "1995-01-01 00:00:00",
+            date_to="2010-04-30 00:00:00",
+        ),
+        _attr_value(50002, "marker", "tst1", "2010-05-01 00:00:00"),
+        _attr_value(50003, "subtype", "GPS stöð", "2010-05-01 00:00:00"),
+    ]
+    writer.add_attribute_value.return_value = {"id_attribute_value": 99102}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4257, "add-attribute", "date_start", "2010-05-01", "start"
+        ),
+    )
+
+    assert result.status == "ok"
+    writer.add_attribute_value.assert_called_once_with(
+        4257, "date_start", "2010-05-01", "2010-05-01"
+    )
+
+
+def test_dispatch_add_attribute_start_token_refuses_when_no_open_attrs():
+    """An entity with no open attributes can't anchor the `start`
+    token — refuse with a clear message rather than POST garbage."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = []
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4257, "add-attribute", "date_start", "2010-05-01", "start"
+        ),
+    )
+
+    assert result.status == "failed"
+    assert "'start' token requires" in result.detail
+    writer.add_attribute_value.assert_not_called()
+
+
+def test_dispatch_add_attribute_now_works_when_entity_has_no_attrs():
+    """`now` does NOT depend on entity history — it always resolves to
+    today. Empty-attrs entity should still accept `now`."""
+    from datetime import datetime, timezone
+
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = []
+    writer.add_attribute_value.return_value = {"id_attribute_value": 99103}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4257, "add-attribute", "subtype", "GPS stöð", "now"
+        ),
+    )
+
+    expected_today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    assert result.status == "ok"
+    writer.add_attribute_value.assert_called_once_with(
+        4257, "subtype", "GPS stöð", expected_today
     )

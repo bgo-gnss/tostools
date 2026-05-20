@@ -45,6 +45,7 @@ from .audit_attribute_dates import (
     _open_attribute_value,
     _station_display_name,
     _station_joins_by_device,
+    classification_for,
     load_catalog_scoped,
 )
 
@@ -226,6 +227,61 @@ def _device_display_label(history: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _earliest_open_attribute_date(history: Dict[str, Any]) -> Optional[str]:
+    """Min ``date_from`` across all OPEN attribute periods on an entity.
+
+    Used as the tier-2 cascade signal for ``inherent`` attribute date
+    hints when the entity has no explicit ``date_start`` of its own.
+    The operator's observation: inherent attrs like ``marker``, ``name``,
+    ``lat``, ``lon``, ``subtype`` are set together at TOS creation time,
+    so their min ``date_from`` is a reliable proxy for "when did this
+    entity start existing in TOS".
+
+    Closed periods (``date_to`` set) are excluded — a historical value
+    from 1995 that was later closed shouldn't anchor the date for a
+    new attribute period in 2018.
+    """
+    earliest: Optional[str] = None
+    for a in history.get("attributes") or []:
+        if a.get("date_to") is not None:
+            continue
+        df = a.get("date_from")
+        if not df:
+            continue
+        df_d = _date_only(str(df))
+        if earliest is None or df_d < earliest:
+            earliest = df_d
+    return earliest
+
+
+def _resolve_inherent_date_hint(
+    history: Dict[str, Any],
+    fallback: Optional[str],
+) -> Optional[str]:
+    """Cascade-resolve a date hint for an ``inherent`` attribute violation.
+
+    Order:
+    1. The entity's open ``date_start`` attribute value (if any).
+    2. The earliest open attribute ``date_from`` on the entity (proxy
+       for "when did this entity show up in TOS").
+    3. The caller-supplied ``fallback`` — for devices this is the
+       earliest open-join ``time_from``, which the dispatcher can't
+       see but the walker can.
+    4. ``None`` — triage will emit ``<FILL_DATE>``.
+
+    Returns date-only ``YYYY-MM-DD`` or None.
+    """
+    ds = _open_attribute_value(history, "date_start")
+    if ds:
+        ds_d = _date_only(str(ds))
+        if len(ds_d) == 10:
+            return ds_d
+    earliest = _earliest_open_attribute_date(history)
+    if earliest:
+        return earliest
+    return fallback
+
+
 def _required_codes_in_scope(
     scope_rules: Dict[str, Dict[str, Any]],
     entity_subtype: str,
@@ -257,7 +313,7 @@ def _audit_entity(
     entity_subtype: str,
     entity_label: Optional[str],
     scope_name: str,
-    suggested_date_from: Optional[str] = None,
+    device_join_date_hint: Optional[str] = None,
 ) -> None:
     """Walk one entity (station, device, or monument).
 
@@ -265,6 +321,22 @@ def _audit_entity(
     The caller passes the correct catalog scope (``catalog['stations']`` for
     a station entity, ``catalog['devices']`` for a device/monument) so
     cross-scope code collisions stay distinct.
+
+    ``device_join_date_hint`` — the earliest open-join ``time_from`` for
+    this entity from the station's perspective; passed as the tier-3
+    fallback of the inherent date cascade (devices only — stations have
+    no parent join, so callers pass ``None``).
+
+    Per-violation date hint resolution:
+
+    * ``classification == 'inherent'`` (per the polymorphic catalog
+      shape — handled by :func:`classification_for`): cascade through
+      :func:`_resolve_inherent_date_hint` — entity's open ``date_start``,
+      then the entity's earliest open attribute ``date_from``, then
+      ``device_join_date_hint``, then ``None``.
+    * ``classification == 'mutable'`` / ``'TODO'`` / unclassified:
+      ``suggested_date_from`` is ``None``. The operator must consciously
+      pick a date — no silent default for transitions.
     """
     report.audited_entities += 1
     for code, entry in _required_codes_in_scope(scope_rules, entity_subtype):
@@ -272,6 +344,16 @@ def _audit_entity(
             continue
         default = entry.get("default_value")
         suggested_value = str(default) if default is not None else None
+        # Date hint depends on classification — only inherent codes get
+        # an auto-filled date; mutable codes leave <FILL_DATE> for the
+        # operator to fill in consciously.
+        classification = classification_for(entry, entity_subtype)
+        if classification == "inherent":
+            suggested_date = _resolve_inherent_date_hint(
+                history, fallback=device_join_date_hint
+            )
+        else:
+            suggested_date = None
         report.violations.append(
             MissingAttributeViolation(
                 id_entity=entity_id,
@@ -280,7 +362,7 @@ def _audit_entity(
                 code=code,
                 scope=scope_name,
                 suggested_value=suggested_value,
-                suggested_date_from=suggested_date_from,
+                suggested_date_from=suggested_date,
             )
         )
 
@@ -371,6 +453,7 @@ def audit_station_missing_attributes(
     )
 
     # 1. Station entity itself — iterate stations scope.
+    #    Stations have no parent join, so no device_join_date_hint.
     _audit_entity(
         report=report,
         scope_rules=stations_rules,
@@ -379,7 +462,7 @@ def audit_station_missing_attributes(
         entity_subtype=station_subtype,
         entity_label=station_name,
         scope_name="stations",
-        suggested_date_from=None,
+        device_join_date_hint=None,
     )
 
     # 2. Each open child device — iterate devices scope. Closed joins
@@ -416,7 +499,7 @@ def audit_station_missing_attributes(
             entity_subtype=dev_subtype,
             entity_label=device_label,
             scope_name="devices",
-            suggested_date_from=suggested_date,
+            device_join_date_hint=suggested_date,
         )
 
     # Apply suppressions — partition violations into kept vs suppressed.
@@ -528,6 +611,11 @@ def format_triage_file(
     lines.append("#   2. Uncomment the ACTION line(s) you want to fire.")
     lines.append("#   3. tos audit apply <file>          # dry-run preview")
     lines.append("#   4. tos audit apply <file> --apply  # commit writes")
+    lines.append("#")
+    lines.append("# <date_from> accepts two shortcuts in addition to YYYY-MM-DD:")
+    lines.append("#   now    — today's UTC date (use for mutable transitions)")
+    lines.append("#   start  — entity's earliest open attribute date_from")
+    lines.append("#            (use for inherent backfills you forgot to record)")
     lines.append("#")
     lines.append("# Alternative for known-good gaps: copy the SUPPRESS hint into")
     lines.append("# data/audit_suppressions/missing_attributes.txt instead.")
