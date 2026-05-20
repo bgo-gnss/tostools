@@ -8,7 +8,7 @@ This is **tostools**, a Python3 command-line toolkit for GPS/GNSS station metada
 
 **Main Application**: `tosGPS` - GPS metadata quality control tool that queries TOS API and validates against RINEX files.
 
-**Current Version**: v0.3.5 (TOS read/write API client with IGS equipment standard support)
+**Current Version**: v0.4.0 (Layers 1-5 attribute-dates audit + TOS read/write API client; Layer 6 missing-attributes in planning)
 
 ### Core Components
 
@@ -257,7 +257,7 @@ Integration with VS Code Todo Tree and Neovim todo-comments.nvim available.
 
 ## Quick Reference
 
-### Project Status: **Active Development** (v0.3.5)
+### Project Status: **Active Development** (v0.4.0)
 
 ### Main Focus: **TOS read/write integration and GPS station metadata management**
 
