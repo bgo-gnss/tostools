@@ -1633,9 +1633,12 @@ stations:
     walked: false
     why: ""
 
-  station_subtype:
+  subtype:
     icelandic_label: Undirtegund
     description: Station sub-type — describes composition / measurement purpose
+    # NOTE: TOS uses the same `subtype` code on both stations and devices.
+    # This is the stations-scope entry (value e.g. "GPS stöð"); see devices.subtype
+    # for the device-scope entry (value e.g. "4G LTE" on a router).
     classification: inherent
     tos_required_for: [geophysical]
     gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
