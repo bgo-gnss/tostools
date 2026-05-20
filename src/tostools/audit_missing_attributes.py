@@ -32,6 +32,7 @@ task #10); this module exposes the walker + data model only.
 
 from __future__ import annotations
 
+import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -50,6 +51,18 @@ from .audit_attribute_dates import (
 # (id_entity, code) — "missing" has no date anchor, so the suppression key
 # is shorter than the attribute-dates audit's 3-tuple.
 MissingSuppressionKey = Tuple[int, str]
+
+# Layer 3 — committed-in-repo suppression file for missing-attributes.
+# Format: one ``SUPPRESS <id_entity> <code>`` per known-good gap.
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_MISSING_SUPPRESSIONS_PATH = (
+    _REPO_ROOT / "data" / "audit_suppressions" / "missing_attributes.txt"
+)
+
+# Placeholders rendered in triage output for codes without catalog defaults
+# or when a sensible date_from anchor isn't available.
+FILL_VALUE_PLACEHOLDER = "<FILL_VALUE>"
+FILL_DATE_PLACEHOLDER = "<FILL_DATE>"
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +121,95 @@ class StationMissingAttributesReport:
     @property
     def suppressed_count(self) -> int:
         return len(self.suppressed)
+
+
+# ---------------------------------------------------------------------------
+# Suppression file parsing (Layer 3 — 2-tuple key)
+# ---------------------------------------------------------------------------
+
+
+def load_missing_suppressions(
+    path: Optional[Path] = None,
+) -> Tuple[Dict[MissingSuppressionKey, int], List[SuppressionParseError], Path]:
+    """Parse a SUPPRESS-style file for the missing-attributes audit.
+
+    Format: one ``SUPPRESS <id_entity> <code>`` per line. Comments start
+    with ``#`` and run to end-of-line; blank lines are ignored. The key
+    is a 2-tuple — there's no ``date_from`` anchor since "missing" has
+    no date. Mirrors :func:`tostools.audit_attribute_dates.load_suppressions`
+    in spirit; the shorter shape is the only material difference.
+
+    Returns ``(suppressions, errors, resolved_path)``:
+
+    * ``suppressions`` — ``{(id_entity, code): line_no}`` mapping. Line
+      numbers are kept so verbose output can show which file line
+      silenced each entry.
+    * ``errors`` — collected malformed lines; the caller decides whether
+      to abort or continue with the parsed entries.
+    * ``resolved_path`` — the path actually tried.
+
+    File-not-found is NOT an error. Returns an empty mapping. The
+    suppression file is opt-in.
+    """
+    if path is None:
+        path = DEFAULT_MISSING_SUPPRESSIONS_PATH
+
+    suppressions: Dict[MissingSuppressionKey, int] = {}
+    errors: List[SuppressionParseError] = []
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return suppressions, errors, path
+
+    for i, line in enumerate(text.splitlines(), 1):
+        raw = line
+        if "#" in line:
+            line = line.split("#", 1)[0]
+        line = line.strip()
+        if not line:
+            continue
+
+        tokens = line.split()
+        if tokens[0] != "SUPPRESS":
+            errors.append(
+                SuppressionParseError(
+                    line_no=i,
+                    message=(
+                        f"expected line to start with 'SUPPRESS' "
+                        f"(got {tokens[0]!r})"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        if len(tokens) < 3:
+            errors.append(
+                SuppressionParseError(
+                    line_no=i,
+                    message=(
+                        "SUPPRESS line requires 2 arguments: "
+                        f"<id_entity> <code> (got {len(tokens) - 1})"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        try:
+            id_entity = int(tokens[1])
+        except ValueError:
+            errors.append(
+                SuppressionParseError(
+                    line_no=i,
+                    message=f"id_entity must be int, got {tokens[1]!r}",
+                    raw=raw,
+                )
+            )
+            continue
+        code = tokens[2]
+        suppressions[(id_entity, code)] = i
+
+    return suppressions, errors, path
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +297,8 @@ def audit_station_missing_attributes(
     id_entity: Optional[int] = None,
     subtypes: Optional[Sequence[str]] = None,
     catalog_path: Optional[Path] = None,
+    suppressions_path: Optional[Path] = None,
+    use_suppressions: bool = True,
 ) -> StationMissingAttributesReport:
     """Walk a station + its open child devices and flag missing required
     attributes.
@@ -215,12 +319,19 @@ def audit_station_missing_attributes(
     catalog_path
         Override the catalog file location. Defaults to the canonical
         repo path / ``TOSTOOLS_ATTRIBUTE_CODES_PATH`` env var.
+    suppressions_path
+        Override the suppression file location. Defaults to
+        :data:`DEFAULT_MISSING_SUPPRESSIONS_PATH`. File-not-found is silent.
+    use_suppressions
+        When False, skip the suppression file entirely — every missing
+        hit lands in ``violations``. Equivalent to ``--no-suppressions``.
 
     Returns
     -------
     StationMissingAttributesReport
-        ``has_violations`` is True when at least one required attribute is
-        missing from an audited entity.
+        ``has_violations`` reflects the **filtered** violations list —
+        suppressed entries are preserved on ``report.suppressed`` so
+        verbose output can show what was silenced.
 
     Raises
     ------
@@ -229,13 +340,22 @@ def audit_station_missing_attributes(
     ValueError
         Neither ``name`` nor ``id_entity`` set.
     FileNotFoundError
-        Catalog file missing.
+        Catalog file missing (suppression file missing is not an error).
     """
     scoped = load_catalog_scoped(catalog_path)
     stations_rules = scoped.get("stations") or {}
     devices_rules = scoped.get("devices") or {}
 
     wanted = tuple(subtypes) if subtypes else GPS_DEVICE_SUBTYPES
+
+    if use_suppressions:
+        suppressions, supp_errors, supp_path = load_missing_suppressions(
+            suppressions_path
+        )
+    else:
+        suppressions = {}
+        supp_errors = []
+        supp_path = suppressions_path or DEFAULT_MISSING_SUPPRESSIONS_PATH
 
     station_history = _resolve_station_entity(client, name=name, id_entity=id_entity)
     station_id = int(station_history["id_entity"])
@@ -245,6 +365,9 @@ def audit_station_missing_attributes(
     report = StationMissingAttributesReport(
         station_id=station_id,
         station_name=station_name,
+        suppressions_path=supp_path,
+        suppressions_errors=supp_errors,
+        suppressions_disabled=not use_suppressions,
     )
 
     # 1. Station entity itself — iterate stations scope.
@@ -296,4 +419,163 @@ def audit_station_missing_attributes(
             suggested_date_from=suggested_date,
         )
 
+    # Apply suppressions — partition violations into kept vs suppressed.
+    if suppressions:
+        kept: List[MissingAttributeViolation] = []
+        for v in report.violations:
+            key = (v.id_entity, v.code)
+            line_no = suppressions.get(key)
+            if line_no is not None:
+                report.suppressed.append(
+                    SuppressedMissing(
+                        violation=v,
+                        suppressions_path=supp_path,
+                        line_no=line_no,
+                    )
+                )
+            else:
+                kept.append(v)
+        report.violations = kept
+
     return report
+
+
+# ---------------------------------------------------------------------------
+# Triage file emission (Layer 4)
+# ---------------------------------------------------------------------------
+
+
+def _quote_value(value: Optional[str]) -> str:
+    """Render a value for the ACTION line — shlex-quote when needed.
+
+    ``None`` becomes the ``<FILL_VALUE>`` placeholder so the operator
+    has to fill it in before applying. Values with spaces or shell
+    metacharacters get single-quoted (e.g. ``GPS stöð`` → ``'GPS stöð'``),
+    matching the shlex-split parsing the apply verb (task #11) will use.
+    """
+    if value is None:
+        return FILL_VALUE_PLACEHOLDER
+    return shlex.quote(value)
+
+
+def format_triage_file(
+    report: StationMissingAttributesReport,
+    *,
+    audit_command: Optional[str] = None,
+    generated_at: Optional[str] = None,
+) -> str:
+    """Render a missing-attributes report as an operator-editable
+    action file.
+
+    Each violation becomes a commented ``#ACTION <id> add-attribute
+    <code> <value> <date_from>`` line. The operator reviews, fills in
+    ``<FILL_VALUE>`` / ``<FILL_DATE>`` placeholders where present,
+    uncomments the lines they want to apply, then feeds the file into
+    ``tos audit apply`` (which dispatches to the ``add-attribute`` verb
+    once Layer 6 task #11 lands).
+
+    Parameters
+    ----------
+    report
+        The audit report. Only ``report.violations`` is consulted —
+        suppressed entries are intentionally NOT emitted.
+    audit_command
+        Optional command-line string captured at audit time; rendered
+        in the header so the file is self-documenting.
+    generated_at
+        Optional ISO timestamp. Defaults to ``datetime.utcnow()`` at
+        call time. Pass an explicit value in tests to keep output
+        byte-deterministic.
+
+    Returns
+    -------
+    str
+        Newline-terminated file contents, safe to write directly with
+        :meth:`pathlib.Path.write_text`.
+
+    Notes
+    -----
+    Violations are grouped by entity (station first, then devices) so
+    the operator can read the file linearly and decide per-entity what
+    to fill in.
+    """
+    from datetime import datetime, timezone
+
+    if generated_at is None:
+        generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+    lines: List[str] = []
+    station_label = report.station_name or "<unknown>"
+    lines.append("# === tos audit missing-attributes — triage action file ===")
+    lines.append(f"# Generated:  {generated_at}")
+    lines.append(f"# Station:    {station_label!r} (id_entity={report.station_id})")
+    if audit_command:
+        lines.append(f"# Audit cmd:  {audit_command}")
+    lines.append(f"# Violations: {len(report.violations)}")
+    lines.append("#")
+    lines.append("# Format: one ACTION per line, '#' for comments.")
+    lines.append("#")
+    lines.append("#   ACTION <id_entity> add-attribute \\")
+    lines.append("#          <code> <value> <date_from>")
+    lines.append("#")
+    lines.append("# Workflow:")
+    lines.append("#   1. Review each block below. Replace any")
+    lines.append(
+        f"#      {FILL_VALUE_PLACEHOLDER} / {FILL_DATE_PLACEHOLDER}"
+        " placeholders with the value/date you"
+    )
+    lines.append("#      know is correct for the entity.")
+    lines.append("#   2. Uncomment the ACTION line(s) you want to fire.")
+    lines.append("#   3. tos audit apply <file>          # dry-run preview")
+    lines.append("#   4. tos audit apply <file> --apply  # commit writes")
+    lines.append("#")
+    lines.append("# Alternative for known-good gaps: copy the SUPPRESS hint into")
+    lines.append("# data/audit_suppressions/missing_attributes.txt instead.")
+    lines.append("")
+
+    if not report.violations:
+        lines.append("# (no violations — nothing to triage)")
+        lines.append("")
+        return "\n".join(lines)
+
+    # Group by entity for readability. Station entity always comes first
+    # if present; devices follow in id_entity order.
+    station_vios: List[MissingAttributeViolation] = []
+    by_device: Dict[int, List[MissingAttributeViolation]] = {}
+    entity_meta: Dict[int, Tuple[str, Optional[str]]] = {}
+    for v in report.violations:
+        if v.id_entity == report.station_id:
+            station_vios.append(v)
+        else:
+            by_device.setdefault(v.id_entity, []).append(v)
+        entity_meta[v.id_entity] = (v.subtype, v.name)
+
+    def _emit_entity_block(
+        entity_id: int, entity_vios: List[MissingAttributeViolation]
+    ) -> None:
+        subtype, label = entity_meta[entity_id]
+        label_part = f" {label!r}" if label else ""
+        lines.append(f"# --- {subtype} id_entity={entity_id}{label_part} ---")
+        for v in entity_vios:
+            value_token = _quote_value(v.suggested_value)
+            date_token = v.suggested_date_from or FILL_DATE_PLACEHOLDER
+            suggested_note = ""
+            if v.suggested_value is not None:
+                suggested_note = f"  (default: {v.suggested_value!r})"
+            elif v.suggested_date_from is not None:
+                suggested_note = f"  (date hint: {v.suggested_date_from})"
+            lines.append(f"# missing: {v.code}{suggested_note}")
+            lines.append(
+                f"#ACTION {v.id_entity} add-attribute "
+                f"{v.code} {value_token} {date_token}"
+            )
+            lines.append(f"# (or suppress: SUPPRESS {v.id_entity} {v.code})")
+            lines.append("")
+
+    if station_vios:
+        _emit_entity_block(report.station_id, station_vios)
+
+    for did in sorted(by_device):
+        _emit_entity_block(did, by_device[did])
+
+    return "\n".join(lines)
