@@ -189,6 +189,9 @@ def _logged_in_writer(**kwargs: object) -> TOSWriter:
 
 def test_dry_run_returns_dry_run_result_for_post():
     w = _logged_in_writer(dry_run=True)
+    # Pre-populate the id_attribute cache so the writer doesn't try to
+    # GET /admin_attribute_rows during the dry-run smoke test.
+    w._id_attribute_cache = {"marker": 1, "name": 2}
     result = w.add_attribute_value(
         id_entity=1,
         code="marker",
@@ -197,9 +200,87 @@ def test_dry_run_returns_dry_run_result_for_post():
     )
     assert isinstance(result, DryRunResult)
     assert result.method == "POST"
-    assert result.endpoint == "/attribute_values"
+    # Admin endpoint — the public /attribute_values returns 401 on
+    # many real (entity, code) combinations. See add_attribute_value
+    # docstring.
+    assert result.endpoint == "/admin_attribute_value_rows"
     assert result.payload is not None
-    assert result.payload["value"] == "eldc"
+    assert result.payload["value_varchar"] == "eldc"
+    assert result.payload["id_attribute"] == 1
+    assert result.payload["id_entity"] == 1
+
+
+def test_resolve_id_attribute_caches_admin_attribute_rows():
+    """First call fetches /admin_attribute_rows; subsequent calls hit
+    the cache. Keeps the per-action POST cost at one GET amortised
+    across an apply run."""
+    w = _logged_in_writer(dry_run=True)
+    rows = [
+        {"id": 1, "code": "marker"},
+        {"id": 2, "code": "name"},
+        {"id": 30, "code": "visit_class"},
+    ]
+    with patch.object(w, "_request", return_value=rows) as mock_req:
+        assert w._resolve_id_attribute("marker") == 1
+        assert w._resolve_id_attribute("visit_class") == 30
+        assert w._resolve_id_attribute("name") == 2
+    # Only one GET should have been issued — the cache absorbs the rest.
+    assert mock_req.call_count == 1
+    assert mock_req.call_args.args == ("GET", "/admin_attribute_rows")
+
+
+def test_resolve_id_attribute_unknown_code_raises_value_error():
+    """Surfacing typos at the boundary beats sending an unresolvable POST."""
+    w = _logged_in_writer(dry_run=True)
+    w._id_attribute_cache = {"marker": 1}
+    with pytest.raises(ValueError, match="unknown attribute code"):
+        w._resolve_id_attribute("not_a_real_code")
+
+
+def test_resolve_id_attribute_skips_rows_missing_id_or_code():
+    """Defensive: malformed rows from /admin_attribute_rows (missing
+    ``id`` or ``code``) are silently filtered, not crashed on."""
+    w = _logged_in_writer(dry_run=True)
+    rows = [
+        {"id": 1, "code": "marker"},
+        {"id": None, "code": "ghost"},
+        {"code": "no_id"},
+        {"id": 2},  # no code
+    ]
+    with patch.object(w, "_request", return_value=rows):
+        assert w._resolve_id_attribute("marker") == 1
+    assert w._id_attribute_cache == {"marker": 1}
+
+
+def test_add_attribute_value_resolves_id_then_posts_admin_endpoint():
+    """End-to-end: add_attribute_value performs the lookup, then POSTs
+    to the admin endpoint with id_attribute (int) and value_varchar."""
+    w = _logged_in_writer(dry_run=False)
+    rows = [{"id": 30, "code": "visit_class"}]
+
+    with patch.object(w, "_request") as mock_req:
+        # First call (GET /admin_attribute_rows) returns the rows;
+        # second call (POST) returns the create response.
+        mock_req.side_effect = [rows, {"id_attribute_value": 99001}]
+        result = w.add_attribute_value(
+            id_entity=4257,
+            code="visit_class",
+            value="B",
+            date_from="2018-03-15",
+        )
+
+    assert result == {"id_attribute_value": 99001}
+    assert mock_req.call_count == 2
+    # Second call is the POST — assert URL + body.
+    post_call = mock_req.call_args_list[1]
+    assert post_call.args[0] == "POST"
+    assert post_call.args[1] == "/admin_attribute_value_rows"
+    body = post_call.kwargs["data"]
+    assert body["id_entity"] == 4257
+    assert body["id_attribute"] == 30
+    assert body["value_varchar"] == "B"
+    assert body["date_from"] == "2018-03-15T00:00:00"  # _tos_date promotes
+    assert body["date_to"] is None
 
 
 def test_dry_run_does_not_send_http():
@@ -343,6 +424,9 @@ def test_upsert_noop_when_value_already_matches():
 
 def test_upsert_posts_when_no_open_value():
     w = _logged_in_writer(dry_run=False)
+    # Pre-populate the id_attribute cache so the POST path doesn't
+    # need to fetch /admin_attribute_rows during the test.
+    w._id_attribute_cache = {"marker": 1}
     closed = [{"id": 10, "code": "marker", "value": "old", "date_to": "2021-12-31"}]
 
     with patch.object(w, "get_attribute_values", return_value=closed):
@@ -352,7 +436,8 @@ def test_upsert_posts_when_no_open_value():
 
     call = mock_req.call_args
     assert call.args[0] == "POST"
-    assert call.args[1] == "/attribute_values"
+    # add_attribute_value routes through the admin endpoint.
+    assert call.args[1] == "/admin_attribute_value_rows"
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +512,9 @@ def test_upsert_with_date_hint_targets_open_period():
 def test_upsert_with_date_hint_no_match_posts():
     """date_hint that falls in no period falls back to POST."""
     w = _logged_in_writer(dry_run=False)
+    # Pre-populate the id_attribute cache; the POST path goes through
+    # add_attribute_value → admin endpoint with id_attribute (int FK).
+    w._id_attribute_cache = {"firmware_version": 7}
     existing = [
         {
             "id_attribute_value": 10,

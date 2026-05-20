@@ -246,6 +246,13 @@ class TOSWriter:
         self._token: Optional[str] = None
         self._token_exp: float = 0.0
 
+        # Lazily-populated ``code → id_attribute`` map from
+        # ``GET /admin_attribute_rows``. Used by ``add_attribute_value``,
+        # which posts to the admin endpoint (the only attribute-value POST
+        # path that accepts our tokens — the public ``/attribute_values``
+        # endpoint returns confusing 401s, see :meth:`add_attribute_value`).
+        self._id_attribute_cache: Optional[Dict[str, int]] = None
+
     # ------------------------------------------------------------------
     # Authentication
     # ------------------------------------------------------------------
@@ -622,6 +629,33 @@ class TOSWriter:
             dt = f"{dt}T00:00:00"
         return dt
 
+    def _resolve_id_attribute(self, code: str) -> int:
+        """Look up the integer ``id_attribute`` FK for an attribute ``code``.
+
+        Loads the full attribute table from ``GET /admin_attribute_rows``
+        on first call and caches it on the instance — there's no
+        ``/attributes/<code>`` lookup endpoint per the OpenAPI spec
+        (confirmed 2026-05-20), so client-side filtering is the only path.
+
+        Raises :class:`ValueError` if the code isn't present in TOS's
+        attribute catalog — surfaces typos at the boundary rather than
+        sending an unresolvable POST.
+        """
+        if self._id_attribute_cache is None:
+            rows = self._request("GET", "/admin_attribute_rows")
+            self._id_attribute_cache = {
+                r["code"]: int(r["id"])
+                for r in (rows or [])
+                if r.get("code") and r.get("id") is not None
+            }
+        if code not in self._id_attribute_cache:
+            raise ValueError(
+                f"unknown attribute code {code!r} — not in "
+                "/admin_attribute_rows. Check spelling or refresh the "
+                "writer instance to bust the cache."
+            )
+        return self._id_attribute_cache[code]
+
     def add_attribute_value(
         self,
         id_entity: int,
@@ -632,16 +666,31 @@ class TOSWriter:
     ) -> Any:
         """Add an attribute value to an existing entity.
 
-        Does NOT check for existing values — use :meth:`upsert_attribute_value`
-        for idempotent writes.
+        Routes through ``POST /admin_attribute_value_rows`` rather than
+        the public ``/attribute_values`` endpoint. The public endpoint
+        returns 401 ``"User provided an invalid token"`` for many
+        (entity, code) combinations even with valid ``jwt_auth_simple``
+        tokens — confirmed empirically 2026-05-20 on the live API. The
+        admin endpoint accepts the same JWT bearer (we already require
+        ``API.TOS.Admin`` in the scope claim for other writes) and works
+        cleanly. Mirrors the precedent set by :meth:`update_entity_subtype`,
+        which uses ``/admin_entity_row/`` for the same reason.
+
+        Tradeoff: the admin endpoint takes an integer ``id_attribute`` FK
+        rather than the string ``code``, so we cache the catalog from
+        ``GET /admin_attribute_rows`` on first call (see
+        :meth:`_resolve_id_attribute`).
+
+        Does NOT check for existing values — use
+        :meth:`upsert_attribute_value` for idempotent writes.
         """
         return self._request(
             "POST",
-            "/attribute_values",
+            "/admin_attribute_value_rows",
             data={
                 "id_entity": id_entity,
-                "code": code,
-                "value": value,
+                "id_attribute": self._resolve_id_attribute(code),
+                "value_varchar": value,
                 "date_from": self._tos_date(date_from),
                 "date_to": self._tos_date(date_to),
             },
