@@ -1613,10 +1613,10 @@ stations:
     icelandic_label: Auðkenni
     description: Station marker — 5-letter lowercase English abbreviation
     classification: inherent
-    tos_required_for: [jarðeðlisstöð]
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    tos_required_for: [geophysical]
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1625,10 +1625,10 @@ stations:
     icelandic_label: Nafn
     description: Station name
     classification: inherent
-    tos_required_for: [jarðeðlisstöð]
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    tos_required_for: [geophysical]
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1637,10 +1637,10 @@ stations:
     icelandic_label: Undirtegund
     description: Station sub-type — describes composition / measurement purpose
     classification: inherent
-    tos_required_for: [jarðeðlisstöð]
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    tos_required_for: [geophysical]
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: "GPS stöð" # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1649,10 +1649,10 @@ stations:
     icelandic_label: Breiddargráða
     description: Station latitude (decimal degrees)
     classification: inherent
-    tos_required_for: [jarðeðlisstöð]
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    tos_required_for: [geophysical]
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1661,10 +1661,10 @@ stations:
     icelandic_label: Lengdargráða
     description: Station longitude (decimal degrees)
     classification: inherent  # station longitude is fixed by location
-    tos_required_for: [jarðeðlisstöð]
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    tos_required_for: [geophysical]
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1673,10 +1673,10 @@ stations:
     icelandic_label: Vitjanaflokkur
     description: Visit cadence class — A (<=1 week), B (<=3 weeks), C (3-6 weeks)
     classification: mutable  # cadence class can change with operator policy
-    tos_required_for: [jarðeðlisstöð]
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    tos_required_for: [geophysical]
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: "B" # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1685,10 +1685,10 @@ stations:
     icelandic_label: Hæð
     description: Station altitude above sea level (m)
     classification: inherent
-    tos_required_for: [jarðeðlisstöð]
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    tos_required_for: [geophysical]
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1697,10 +1697,10 @@ stations:
     icelandic_label: Upphafsdagsetning
     description: Date of station start
     classification: inherent
-    tos_required_for: [jarðeðlisstöð]
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    tos_required_for: [geophysical]
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1711,10 +1711,10 @@ stations:
     icelandic_label: Lýsing
     description: Station description
     classification: inherent
-    tos_required_for: [jarðeðlisstöð]
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    tos_required_for: [geophysical]
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1726,9 +1726,9 @@ stations:
     description: Station close date
     classification: inherent
     tos_required_for: []
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1740,7 +1740,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1752,7 +1752,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: "WMO ID — may not apply to pure GNSS stations"
@@ -1764,7 +1764,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: "Used in IGS site log section 1"
@@ -1774,9 +1774,9 @@ stations:
     description: Geological setting — bedrock | clay | conglomerate | gravel | sand
     classification: inherent
     tos_required_for: []
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: "bedrock" # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: "IGS site log section 2"
@@ -1786,9 +1786,9 @@ stations:
     description: Whether station is near fault zones
     classification: inherent
     tos_required_for: []
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: "yes" # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: "IGS site log section 2"
@@ -1798,9 +1798,9 @@ stations:
     description: Bedrock condition — fresh | jointed | weathered
     classification: inherent
     tos_required_for: []
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: "weathered" # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: "IGS site log section 2"
@@ -1810,9 +1810,9 @@ stations:
     description: Bedrock type — igneous | metamorphic | sedimentary
     classification: inherent
     tos_required_for: []
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: "igneous" # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: "IGS site log section 2"
@@ -1822,9 +1822,9 @@ stations:
     description: Member of EPOS network (já/nei)
     classification: mutable
     tos_required_for: []
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: "nei" # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: "Used by tosGPS to mark EPOS network membership"
@@ -1834,9 +1834,9 @@ stations:
     description: GNSS measurement continuity — continuous | campaign
     classification: inherent
     tos_required_for: []
-    gps_required_for: [jarðeðlisstöð] # USER FILLS IN — strict superset of tos
+    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: "Continuous vs campaign — critical for processing pipeline"
@@ -1848,7 +1848,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: ""
@@ -1860,7 +1860,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: "Bounds the historical data span"
@@ -1872,7 +1872,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: ""
@@ -1884,7 +1884,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: "Strain meter, not GNSS"
@@ -1896,7 +1896,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: ""
@@ -1908,7 +1908,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: ""
@@ -1920,7 +1920,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1932,7 +1932,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1944,7 +1944,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: ""
@@ -1956,7 +1956,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: ""
@@ -1968,7 +1968,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: ""
@@ -1980,7 +1980,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: ""
@@ -1992,7 +1992,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: ""
@@ -2004,7 +2004,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -2016,7 +2016,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: ""
@@ -2028,7 +2028,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: ""
@@ -2040,7 +2040,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: "Gravity measurement, not GNSS"
@@ -2054,7 +2054,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: "Meteorological forecast area"
@@ -2066,7 +2066,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: "Meteorological"
@@ -2078,7 +2078,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: "Met-station classification"
@@ -2090,7 +2090,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: ""
@@ -2102,7 +2102,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: "Weather station ID"
@@ -2114,7 +2114,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: "Rain gauge"
@@ -2126,7 +2126,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: "Met"
@@ -2138,7 +2138,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: "Met"
@@ -2150,7 +2150,7 @@ stations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [jarðeðlisstöð]
+    applies_to: [geophysical]
     gps_relevance: "no"
     walked: false
     why: "Met"
