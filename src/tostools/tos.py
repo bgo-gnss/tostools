@@ -2063,6 +2063,13 @@ def _audit_main(argv):
             "  tos audit attribute-dates RHOF --no-suppressions     # bypass committed SUPPRESSes\n"
             "  tos audit attribute-dates RHOF --json                # machine-readable\n"
             "\n"
+            "  # ---- Missing required attributes (Layer 6) ---------------\n"
+            "  tos audit missing-attributes HAUC                    # station + open devices + monument\n"
+            "  tos audit missing-attributes HAUC --verbose          # show SUPPRESS hints + silenced entries\n"
+            "  tos audit missing-attributes HAUC --triage trial.txt # emit ACTION file (add-attribute lines)\n"
+            "  tos audit missing-attributes HAUC --no-suppressions  # bypass committed SUPPRESSes\n"
+            "  tos audit missing-attributes HAUC --json             # machine-readable\n"
+            "\n"
             "  # ---- Apply triage files (writes; needs credentials) -----\n"
             "  tos audit apply trial.txt                            # dry-run preview (default)\n"
             "  tos audit apply trial.txt --apply                    # commit writes\n"
@@ -2401,6 +2408,14 @@ def _audit_main(argv):
             "                            PATCH /attribute_value/<id> "
             "date_from — consumes triage files from\n"
             "                            `tos audit attribute-dates --triage`\n"
+            "  add-attribute <code> <value> <date_from>\n"
+            "                            POST /attribute_values — add a new open "
+            "period to fill\n"
+            "                            a required-attribute gap. Consumes triage "
+            "files from\n"
+            "                            `tos audit missing-attributes --triage`. "
+            "Quote values\n"
+            "                            with spaces, e.g. `'GPS stöð'`.\n"
             "  defer                      no-op placeholder (review next run)\n\n"
             "Validation: each ACTION line is parsed before any HTTP call. "
             "If any line is malformed, nothing is sent. Otherwise actions "
@@ -2603,6 +2618,101 @@ def _audit_main(argv):
         help="TOS API host (default: vi-api.vedur.is).",
     )
     p_attr.add_argument("--port", type=int, default=443)
+
+    p_missing = sub.add_parser(
+        "missing-attributes",
+        help="Flag required TOS attributes that have no open period.",
+        description=(
+            "Walk a station + its open child devices + monument and flag "
+            "every catalog code where the entity's subtype is listed in "
+            "``gps_required_for`` but the entity has no open attribute "
+            "period for it. Complements `attribute-dates` (which checks "
+            "the dates of attributes that *exist*); this verb checks the "
+            "presence of attributes that *should* exist.\n\n"
+            "Rule: for each entity in scope (station + open GPS-quartet "
+            "children — gnss_receiver, antenna, radome, monument), iterate "
+            "the catalog rules for that entity's scope. Flag every code "
+            "where ``entity.code_entity_subtype ∈ entry['gps_required_for']`` "
+            "AND the entity has no open attribute period for that code. "
+            "Filters: ``gps_relevance == 'yes'`` gates above "
+            "``gps_required_for`` — TODO / maybe / no entries are silently "
+            "skipped until the operator classifies them.\n\n"
+            "Exits 0 when no violations found (or all were suppressed), "
+            "1 when at least one violation survives, 2 on lookup / usage "
+            "error. The ``(id_entity, code)`` 2-tuple in each violation "
+            "is the natural suppression key for Layer 3 "
+            "(data/audit_suppressions/missing_attributes.txt)."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos audit missing-attributes HAUC\n"
+            "  tos audit missing-attributes HAUC --verbose\n"
+            "  tos audit missing-attributes HAUC --triage hauc_missing.txt\n"
+            "  tos audit missing-attributes --id 1234 --subtypes antenna monument\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_missing.add_argument(
+        "name", nargs="?", help="Station marker (e.g. HAUC) or display name."
+    )
+    p_missing.add_argument(
+        "--id", dest="id_entity", type=int, help="Station id_entity."
+    )
+    p_missing.add_argument(
+        "--subtypes",
+        nargs="+",
+        help=(
+            "Device subtypes to audit (short or canonical). Default: "
+            "gnss_receiver, antenna, radome, monument."
+        ),
+    )
+    p_missing.add_argument(
+        "--catalog",
+        type=Path,
+        default=None,
+        help="Override the catalog YAML path. Defaults to repo "
+        "data/attribute_codes.yaml or $TOSTOOLS_ATTRIBUTE_CODES_PATH.",
+    )
+    p_missing.add_argument(
+        "--suppressions",
+        type=Path,
+        default=None,
+        help="Override the suppression file path. Defaults to "
+        "data/audit_suppressions/missing_attributes.txt. File-not-found "
+        "is silent (the file is opt-in).",
+    )
+    p_missing.add_argument(
+        "--no-suppressions",
+        action="store_true",
+        help="Bypass the suppression file entirely; every missing-attribute "
+        "hit is reported. Useful to verify what a stale SUPPRESS line is hiding.",
+    )
+    p_missing.add_argument(
+        "--triage",
+        dest="triage_path",
+        type=Path,
+        default=None,
+        help="Emit a draft ACTION file at this path. One commented "
+        "`ACTION ... add-attribute ...` line per violation, with the "
+        "catalog's default_value pre-filled when present (otherwise "
+        "<FILL_VALUE>) and the device's earliest open-join time_from "
+        "as the date hint (otherwise <FILL_DATE>).",
+    )
+    p_missing.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of plain text."
+    )
+    p_missing.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show extra context: SUPPRESS hint per violation and any "
+        "entries that were silenced by the suppression file.",
+    )
+    p_missing.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_missing.add_argument("--port", type=int, default=443)
 
     args = p.parse_args(argv)
 
@@ -2842,6 +2952,51 @@ def _audit_main(argv):
             _print_attribute_date_report(report, verbose=args.verbose)
         return 1 if report.has_violations else 0
 
+    if args.kind == "missing-attributes":
+        from . import audit_missing_attributes as ama_mod
+
+        try:
+            report = ama_mod.audit_station_missing_attributes(
+                client,
+                name=args.name,
+                id_entity=args.id_entity,
+                subtypes=args.subtypes,
+                catalog_path=args.catalog,
+                suppressions_path=args.suppressions,
+                use_suppressions=not args.no_suppressions,
+            )
+        except (LookupError, ValueError, FileNotFoundError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if report.suppressions_errors:
+            print(
+                f"warning: {len(report.suppressions_errors)} malformed line(s) "
+                f"in {report.suppressions_path}:",
+                file=sys.stderr,
+            )
+            for err in report.suppressions_errors:
+                print(f"  line {err.line_no}: {err.message}", file=sys.stderr)
+        if args.triage_path:
+            audit_cmd = "tos audit " + " ".join(argv) if argv else "tos audit"
+            content = ama_mod.format_triage_file(report, audit_command=audit_cmd)
+            args.triage_path.write_text(content, encoding="utf-8")
+            print(
+                f"wrote triage file: {args.triage_path} "
+                f"({len(report.violations)} violation(s))",
+                file=sys.stderr,
+            )
+        if args.json:
+            print(
+                _json.dumps(
+                    _missing_attributes_report_to_dict(report),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            _print_missing_attributes_report(report, verbose=args.verbose)
+        return 1 if report.has_violations else 0
+
     p.error(f"unknown kind: {args.kind}")
     return 2
 
@@ -2872,6 +3027,7 @@ class ParseError:
 
 
 _SUPPORTED_VERBS = (
+    "add-attribute",
     "change-subtype",
     "decommission",
     "defer",
@@ -2889,9 +3045,16 @@ def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]
 
         ACTION <id_entity> <verb> [args...]
 
+    Token splitting uses :func:`shlex.split` so values containing spaces
+    can be quoted (e.g. ``add-attribute subtype 'GPS stöð' 2010-01-01``).
+    For verbs that take bare tokens (patch-attribute-date, change-subtype,
+    …), shlex.split behaves identically to ``str.split()``.
+
     Returns both lists so the runner can report every malformed line at
     once instead of bailing on the first error.
     """
+    import shlex
+
     actions: List[ParsedAction] = []
     errors: List[ParseError] = []
     for i, line in enumerate(text.splitlines(), 1):
@@ -2902,7 +3065,17 @@ def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]
         line = line.strip()
         if not line:
             continue
-        tokens = line.split()
+        try:
+            tokens = shlex.split(line)
+        except ValueError as exc:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=f"malformed quoting: {exc}",
+                    raw=raw,
+                )
+            )
+            continue
         if tokens[0] != "ACTION":
             errors.append(
                 ParseError(
@@ -3013,6 +3186,20 @@ def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]
                     message=(
                         "patch-attribute-date requires exactly three "
                         "arguments: <code> <old_date_from> <new_date_from>"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        if verb == "add-attribute" and len(tokens) != 6:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "add-attribute requires exactly three arguments: "
+                        "<code> <value> <date_from> "
+                        "(quote the value if it contains spaces, e.g. "
+                        "'GPS stöð')"
                     ),
                     raw=raw,
                 )
@@ -3382,6 +3569,143 @@ def _dispatch_patch_attribute_date(writer, action: ParsedAction) -> ActionResult
     )
 
 
+def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
+    """Add a new attribute period to an existing entity.
+
+    Action shape: ``ACTION <id_entity> add-attribute <code> <value>
+    <date_from>``. Fires the missing-attributes audit's ``add-attribute``
+    verb — used to fill the gap when an entity is required to carry a
+    code but has no open period for it.
+
+    Pre-flight checks before POSTing
+    --------------------------------
+    * **Placeholder rejection** — if ``value`` or ``date_from`` still
+      contains a ``<FILL_*>`` placeholder, the operator forgot to
+      replace it. Refuse rather than POST a literal placeholder string
+      to TOS.
+    * **Date format** — ``date_from`` must be ``YYYY-MM-DD``.
+    * **Conflict detection** — fetches existing periods via
+      :meth:`writer.get_attribute_values`; if an open period already
+      exists with the same value, the action is a no-op (idempotent).
+      If an open period exists with a *different* value, refuse —
+      silent overwrite is the failure mode we're explicitly guarding
+      against; the operator should use a transition verb if they want
+      history-preserving update.
+    * **Multiple open periods** — refuse; the entity is already in a
+      corrupt state and ``add-attribute`` would compound it.
+
+    Otherwise calls :meth:`writer.add_attribute_value` to POST a new
+    period with ``date_to=None``. The writer's ``dry_run`` flag
+    controls whether anything actually goes over the wire.
+    """
+    code = action.args[0]
+    value = action.args[1]
+    date_from_raw = action.args[2]
+
+    # Placeholder rejection — anything matching <...> shape is a
+    # triage marker the operator forgot to fill in. Cheaper to refuse
+    # here than to debug a literal "<FILL_VALUE>" string sitting in TOS.
+    if value.startswith("<") and value.endswith(">"):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"add-attribute: value placeholder {value!r} not replaced — "
+                "fill in the value before applying"
+            ),
+        )
+    if date_from_raw.startswith("<") and date_from_raw.endswith(">"):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"add-attribute: date placeholder {date_from_raw!r} not "
+                "replaced — fill in the date_from before applying"
+            ),
+        )
+
+    # Date format check — same YYYY-MM-DD contract as patch-attribute-date.
+    date_from = date_from_raw[:10]
+    if len(date_from) != 10 or date_from[4] != "-" or date_from[7] != "-":
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"add-attribute: date_from must be YYYY-MM-DD "
+                f"(got {date_from_raw!r})"
+            ),
+        )
+
+    try:
+        existing = writer.get_attribute_values(action.id_entity, code)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"get_attribute_values raised: {exc}",
+        )
+
+    open_values = [a for a in existing if a.get("date_to") is None]
+    if len(open_values) > 1:
+        ids = ", ".join(
+            str(a.get("id_attribute_value")) for a in open_values
+        )
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"add-attribute: {len(open_values)} open periods already "
+                f"exist for code {code!r} on id_entity={action.id_entity} "
+                f"(ids: {ids}) — refusing to add; clean up the existing "
+                "duplicates first"
+            ),
+        )
+    if len(open_values) == 1:
+        current = open_values[0]
+        current_value = current.get("value")
+        if str(current_value) == value:
+            return ActionResult(
+                action=action,
+                status="ok",
+                detail=(
+                    f"already present: open period for {code!r} on "
+                    f"id_entity={action.id_entity} already has value "
+                    f"{value!r} (no-op)"
+                ),
+            )
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"add-attribute: open period for {code!r} on "
+                f"id_entity={action.id_entity} already has value "
+                f"{current_value!r}; refuse to overwrite with {value!r}. "
+                "Use a transition verb (history-preserving) instead."
+            ),
+        )
+
+    try:
+        response = writer.add_attribute_value(
+            action.id_entity, code, value, date_from
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"add_attribute_value raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"POST /attribute_values id_entity={action.id_entity} "
+            f"code={code!r} value={value!r} date_from={date_from} "
+            f"— {response!r}"
+        ),
+    )
+
+
 def _dispatch_action(
     writer,
     action: ParsedAction,
@@ -3419,6 +3743,8 @@ def _dispatch_action(
         return _dispatch_fill_gap(writer, action)
     if action.verb == "patch-attribute-date":
         return _dispatch_patch_attribute_date(writer, action)
+    if action.verb == "add-attribute":
+        return _dispatch_add_attribute(writer, action)
     if action.verb == "change-subtype":
         code = action.args[0]
         mapping = subtype_id_by_code or {}
@@ -3892,6 +4218,129 @@ def _print_attribute_date_report(report, *, verbose: bool = False):
             f"  ({len(report.unknown_codes)} unknown attribute code(s); "
             f"re-run with --verbose to list them)"
         )
+
+
+def _missing_attributes_report_to_dict(report):
+    """Convert a :class:`StationMissingAttributesReport` to a JSON-serialisable dict."""
+
+    def _violation_dict(v):
+        return {
+            "id_entity": v.id_entity,
+            "subtype": v.subtype,
+            "name": v.name,
+            "code": v.code,
+            "scope": v.scope,
+            "suggested_value": v.suggested_value,
+            "suggested_date_from": v.suggested_date_from,
+        }
+
+    return {
+        "kind": "missing-attributes",
+        "station_id": report.station_id,
+        "station_name": report.station_name,
+        "audited_entities": report.audited_entities,
+        "devices_skipped": report.devices_skipped,
+        "violations": [_violation_dict(v) for v in report.violations],
+        "suppressed": [
+            {
+                **_violation_dict(s.violation),
+                "suppressions_path": str(s.suppressions_path),
+                "line_no": s.line_no,
+            }
+            for s in report.suppressed
+        ],
+        "suppressions_path": (
+            str(report.suppressions_path) if report.suppressions_path else None
+        ),
+        "suppressions_disabled": report.suppressions_disabled,
+        "suppressions_errors": [
+            {"line_no": e.line_no, "message": e.message, "raw": e.raw}
+            for e in report.suppressions_errors
+        ],
+    }
+
+
+def _print_missing_attributes_report(report, *, verbose: bool = False):
+    """Render a missing-attributes audit report as plain text on stdout.
+
+    Groups violations by entity (station first, then devices) for a
+    compact, human-readable layout. ``verbose=True`` shows:
+
+    * a copy-pasteable ``SUPPRESS`` hint per violation
+    * the suppressed entries that the file silenced, with file:lineno
+      references — the only audit trail of silenced violations
+    """
+    status = "CLEAN" if not report.has_violations else "VIOLATIONS"
+    marker = "✓" if not report.has_violations else "✗"
+    name = report.station_name or "?"
+    print(f"{marker} Station {name!r} (id_entity={report.station_id}) — {status}")
+    print(
+        f"  audited entities: {report.audited_entities}  "
+        f"(skipped {report.devices_skipped} non-GPS device(s))"
+    )
+    if report.suppressed_count:
+        print(
+            f"  suppressed: {report.suppressed_count} entry(ies) via "
+            f"{report.suppressions_path}"
+        )
+    elif report.suppressions_disabled:
+        print("  suppressions: disabled (--no-suppressions)")
+
+    if report.violations:
+        # Group by entity for the same shape as the triage file.
+        station_vios: List = []
+        by_device: Dict[int, List] = {}
+        entity_meta: Dict[int, tuple] = {}
+        for v in report.violations:
+            if v.id_entity == report.station_id:
+                station_vios.append(v)
+            else:
+                by_device.setdefault(v.id_entity, []).append(v)
+            entity_meta[v.id_entity] = (v.subtype, v.name, v.scope)
+        print()
+        print(f"  flagged ({len(report.violations)} attribute(s)):")
+
+        def _emit_entity(eid: int, vios: List) -> None:
+            subtype, label, _scope = entity_meta[eid]
+            label_part = f" {label!r}" if label else ""
+            print(f"    {subtype} id_entity={eid}{label_part}")
+            for v in vios:
+                hint_parts = []
+                if v.suggested_value is not None:
+                    hint_parts.append(f"suggested: {v.suggested_value!r}")
+                else:
+                    hint_parts.append("suggested: <FILL_VALUE>")
+                if v.suggested_date_from is not None:
+                    hint_parts.append(f"date hint: {v.suggested_date_from}")
+                hint_str = ", ".join(hint_parts)
+                print(f"      · {v.code:24s} ({hint_str})")
+                if verbose:
+                    print(f"        suppress: SUPPRESS {v.id_entity} {v.code}")
+
+        if station_vios:
+            _emit_entity(report.station_id, station_vios)
+        for did in sorted(by_device):
+            _emit_entity(did, by_device[did])
+
+    if verbose and report.suppressed:
+        print()
+        print(f"  suppressed ({len(report.suppressed)} silenced entry(ies)):")
+        by_device_s: Dict[int, List] = {}
+        entity_meta_s: Dict[int, tuple] = {}
+        for s in report.suppressed:
+            v = s.violation
+            by_device_s.setdefault(v.id_entity, []).append(s)
+            entity_meta_s[v.id_entity] = (v.subtype, v.name)
+        for eid in sorted(by_device_s):
+            subtype, label = entity_meta_s[eid]
+            label_part = f" {label!r}" if label else ""
+            print(f"    {subtype} id_entity={eid}{label_part}")
+            for s in by_device_s[eid]:
+                v = s.violation
+                print(
+                    f"      · {v.code:24s} "
+                    f"(suppressed at {s.suppressions_path}:{s.line_no})"
+                )
 
 
 def _station_report_to_dict(report):

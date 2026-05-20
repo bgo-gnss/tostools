@@ -179,31 +179,69 @@ class StationAttributeDateReport:
 # ---------------------------------------------------------------------------
 
 
+SCOPES: Tuple[str, ...] = ("devices", "locations", "stations")
+
+
+def _resolve_catalog_path(path: Optional[Path]) -> Path:
+    if path is not None:
+        return path
+    env_path = os.environ.get(CATALOG_ENV_VAR)
+    return Path(env_path) if env_path else DEFAULT_CATALOG_PATH
+
+
+def load_catalog_scoped(
+    path: Optional[Path] = None,
+) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    """Load ``attribute_codes.yaml`` preserving the three scopes.
+
+    Returns ``{scope: {code: entry}}`` with ``_scope`` attached to each
+    entry for parity with :func:`load_catalog`. Use this when iterating
+    rules per-entity-type — the station entity walks ``catalog['stations']``
+    and each device walks ``catalog['devices']``, so cross-scope code
+    collisions (``subtype``, ``date_start``, ``lat``, …) stay distinct.
+
+    Path resolution: explicit ``path`` arg → env
+    ``TOSTOOLS_ATTRIBUTE_CODES_PATH`` → :data:`DEFAULT_CATALOG_PATH`.
+
+    Raises :class:`FileNotFoundError` if no catalog is reachable.
+    """
+    resolved = _resolve_catalog_path(path)
+    with open(resolved, encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    scoped: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for scope in SCOPES:
+        scoped[scope] = {}
+        for code, entry in (data.get(scope) or {}).items():
+            merged = dict(entry)
+            merged["_scope"] = scope
+            scoped[scope][code] = merged
+    return scoped
+
+
 def load_catalog(path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
     """Load ``attribute_codes.yaml`` and flatten the three scopes into a
     single ``{code: entry}`` map.
 
     Path resolution: explicit ``path`` arg → env ``TOSTOOLS_ATTRIBUTE_CODES_PATH``
     → :data:`DEFAULT_CATALOG_PATH`. The devices/locations/stations scopes
-    are merged with devices winning on the rare collision; each entry
-    carries a ``_scope`` key so callers can disambiguate when relevant.
+    are merged with devices winning on collision; each entry carries a
+    ``_scope`` key so callers can disambiguate when relevant.
+
+    Use :func:`load_catalog_scoped` when the caller must distinguish
+    cross-scope collisions (e.g. ``subtype`` exists on both stations and
+    devices); the flat view is suitable for Layers 2-5 which only iterate
+    device-scope rules.
 
     Raises :class:`FileNotFoundError` if no catalog is reachable —
     audit cannot run without it.
     """
-    if path is None:
-        env_path = os.environ.get(CATALOG_ENV_VAR)
-        path = Path(env_path) if env_path else DEFAULT_CATALOG_PATH
-    with open(path, encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
+    scoped = load_catalog_scoped(path)
     flat: Dict[str, Dict[str, Any]] = {}
-    for scope in ("devices", "locations", "stations"):
-        for code, entry in (data.get(scope) or {}).items():
+    for scope in SCOPES:
+        for code, entry in scoped[scope].items():
             if code in flat:
                 continue
-            merged = dict(entry)
-            merged["_scope"] = scope
-            flat[code] = merged
+            flat[code] = entry  # already carries _scope
     return flat
 
 

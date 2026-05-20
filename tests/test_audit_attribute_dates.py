@@ -25,6 +25,7 @@ from tostools.audit_attribute_dates import (
     classification_for,
     format_triage_file,
     load_catalog,
+    load_catalog_scoped,
     load_suppressions,
     validate_codes_against_catalog,
 )
@@ -263,6 +264,74 @@ def test_load_catalog_devices_wins_on_collision(tmp_path: Path):
 def test_load_catalog_missing_file_raises(tmp_path: Path):
     with pytest.raises(FileNotFoundError):
         load_catalog(tmp_path / "does-not-exist.yaml")
+
+
+# ---------------------------------------------------------------------------
+# load_catalog_scoped
+# ---------------------------------------------------------------------------
+
+
+def test_load_catalog_scoped_preserves_scopes(catalog_path: Path):
+    """The scoped view keeps the three scopes separate — Layer 6 walker
+    iterates rules per-entity-type, so cross-scope code collisions must
+    stay distinct (unlike the flat view where devices wins)."""
+    scoped = load_catalog_scoped(catalog_path)
+    assert set(scoped.keys()) == {"devices", "locations", "stations"}
+    assert "serial_number" in scoped["devices"]
+    assert "address" in scoped["locations"]
+    assert "marker" in scoped["stations"]
+
+
+def test_load_catalog_scoped_keeps_cross_scope_collisions_distinct(tmp_path: Path):
+    """When the same code appears in two scopes, each entry survives under
+    its own scope key — the regression the rename + scoped view exists to
+    fix (TOS uses ``subtype`` on both stations and devices)."""
+    yaml_text = dedent("""
+        devices:
+          subtype:
+            classification: TODO
+            applies_to: [gnss_receiver, antenna, radome, monument]
+            gps_relevance: "no"
+            why: "from devices"
+        stations:
+          subtype:
+            classification: inherent
+            tos_required_for: [geophysical]
+            gps_required_for: [geophysical]
+            default_value: "GPS stöð"
+            applies_to: [geophysical]
+            gps_relevance: "yes"
+            why: "from stations"
+        """).strip()
+    p = tmp_path / "cat.yaml"
+    p.write_text(yaml_text, encoding="utf-8")
+    scoped = load_catalog_scoped(p)
+    assert scoped["devices"]["subtype"]["why"] == "from devices"
+    assert scoped["stations"]["subtype"]["why"] == "from stations"
+    assert scoped["stations"]["subtype"]["default_value"] == "GPS stöð"
+
+
+def test_load_catalog_scoped_attaches_scope_to_each_entry(catalog_path: Path):
+    """Parity with the flat view — every entry carries ``_scope``."""
+    scoped = load_catalog_scoped(catalog_path)
+    assert scoped["devices"]["serial_number"]["_scope"] == "devices"
+    assert scoped["locations"]["address"]["_scope"] == "locations"
+    assert scoped["stations"]["marker"]["_scope"] == "stations"
+
+
+def test_load_catalog_scoped_missing_file_raises(tmp_path: Path):
+    with pytest.raises(FileNotFoundError):
+        load_catalog_scoped(tmp_path / "does-not-exist.yaml")
+
+
+def test_load_catalog_derived_from_scoped(catalog_path: Path):
+    """The flat view is a flatten of the scoped view — they must agree on
+    every code the flat view exposes."""
+    scoped = load_catalog_scoped(catalog_path)
+    flat = load_catalog(catalog_path)
+    for code, entry in flat.items():
+        scope = entry["_scope"]
+        assert scoped[scope][code] == entry
 
 
 # ---------------------------------------------------------------------------
