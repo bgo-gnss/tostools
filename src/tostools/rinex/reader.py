@@ -6,11 +6,234 @@ including support for various compression formats.
 """
 
 import logging
+import re
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ..io.file_utils import read_gzip_file, read_text_file, read_zzipped_file
 from ..utils.logging import get_logger
+
+# Lowercase month names — match the on-disk archive layout
+# ``<base>/<YYYY>/<mon>/<STA>/...`` used by the IMO GPS pipeline.
+MONTHS = [
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "may",
+    "jun",
+    "jul",
+    "aug",
+    "sep",
+    "oct",
+    "nov",
+    "dec",
+]
+
+
+def _parse_daily_rinex_date(name: str, station: str) -> Optional[datetime]:
+    """
+    Parse the observation date from a daily Hatanaka RINEX filename.
+
+    Expected pattern: ``STA<DDD>0.<YY>[DO][.Z|.gz]`` where DDD is day of year
+    and YY is two-digit year (pivot 80: <80 → 2000+YY, otherwise 1900+YY).
+
+    Args:
+        name: Bare filename (no directory)
+        station: Four-character station code
+
+    Returns:
+        ``datetime`` at 00:00 on the parsed date, or ``None`` if the name
+        does not match the daily pattern
+    """
+    m = re.match(
+        rf"^{re.escape(station)}(\d{{3}})\d\.(\d{{2}})[DO](?:\.Z|\.gz)?$",
+        name,
+        re.IGNORECASE,
+    )
+    if not m:
+        return None
+    doy = int(m.group(1))
+    yy = int(m.group(2))
+    year = 2000 + yy if yy < 80 else 1900 + yy
+    return datetime(year, 1, 1) + timedelta(days=doy - 1)
+
+
+def _parse_hourly_raw_date(name: str, station: str) -> Optional[datetime]:
+    """
+    Parse the observation timestamp from a 1 Hz raw filename.
+
+    Expected prefix: ``STA<YYYY><MM><DD><HHMM>`` (followed by any suffix/extension).
+
+    Args:
+        name: Bare filename (no directory)
+        station: Four-character station code
+
+    Returns:
+        ``datetime`` at the parsed timestamp, or ``None`` if the name does
+        not match the hourly pattern
+    """
+    m = re.match(
+        rf"^{re.escape(station)}(\d{{4}})(\d{{2}})(\d{{2}})(\d{{2}})(\d{{2}})",
+        name,
+        re.IGNORECASE,
+    )
+    if not m:
+        return None
+    try:
+        return datetime(
+            int(m.group(1)),
+            int(m.group(2)),
+            int(m.group(3)),
+            int(m.group(4)),
+            int(m.group(5)),
+        )
+    except ValueError:
+        return None
+
+
+def _scan_dir_dates(
+    directory: Path,
+    parser,
+    station: str,
+) -> List[Tuple[datetime, Path]]:
+    """Return ``(date, path)`` pairs for every file in ``directory`` whose
+    name is recognised by ``parser``. Returns an empty list if the directory
+    does not exist.
+    """
+    if not directory.is_dir():
+        return []
+    dates: List[Tuple[datetime, Path]] = []
+    for f in directory.iterdir():
+        dt = parser(f.name, station)
+        if dt is not None:
+            dates.append((dt, f))
+    return dates
+
+
+def find_station_archive_range(
+    station: str,
+    base_dir: Union[str, Path] = "/mnt_data/rawgpsdata",
+) -> Dict[str, Any]:
+    """
+    Find the first and last archived file for a station.
+
+    Scans the archive layout
+    ``<base_dir>/<YYYY>/<mon>/<STATION>/<rate>/<leaf>/`` for two rate kinds:
+
+    * ``15s_24hr/rinex`` — daily Hatanaka RINEX (``STA<DDD>0.<YY>D[.Z|.gz]``)
+    * ``1Hz_1hr/raw``   — hourly raw (``STA<YYYY><MM><DD><HHMM>...``)
+
+    For each kind, walks years ascending to find the earliest month that
+    contains matching files (and picks the earliest file in that month),
+    then mirrors the walk descending for the latest.
+
+    Args:
+        station: Four-character station code (case-insensitive)
+        base_dir: Archive root directory
+
+    Returns:
+        Dict with per-kind results under keys ``"15s_24hr"`` and ``"1Hz_1hr"``
+        (each containing ``first``, ``last``, ``first_file``, ``last_file``)
+        plus the overall ``first`` and ``last`` across kinds.
+    """
+    base = Path(base_dir)
+    sta = station.upper()
+    kinds = [
+        ("15s_24hr", "15s_24hr", "rinex", _parse_daily_rinex_date),
+        ("1Hz_1hr", "1Hz_1hr", "raw", _parse_hourly_raw_date),
+    ]
+
+    if not base.is_dir():
+        return {"first": None, "last": None, "15s_24hr": {}, "1Hz_1hr": {}}
+
+    years = sorted([p.name for p in base.iterdir() if p.is_dir() and p.name.isdigit()])
+
+    result: Dict[str, Any] = {}
+    for kind, rate, leaf, parser in kinds:
+        first_dt = last_dt = None
+        first_file = last_file = None
+
+        for y in years:
+            found = False
+            for mon in MONTHS:
+                dates = _scan_dir_dates(base / y / mon / sta / rate / leaf, parser, sta)
+                if dates:
+                    dates.sort()
+                    first_dt, first_file = dates[0]
+                    found = True
+                    break
+            if found:
+                break
+
+        for y in reversed(years):
+            found = False
+            for mon in reversed(MONTHS):
+                dates = _scan_dir_dates(base / y / mon / sta / rate / leaf, parser, sta)
+                if dates:
+                    dates.sort()
+                    last_dt, last_file = dates[-1]
+                    found = True
+                    break
+            if found:
+                break
+
+        result[kind] = {
+            "first": first_dt,
+            "last": last_dt,
+            "first_file": first_file,
+            "last_file": last_file,
+        }
+
+    firsts = [result[k]["first"] for k in ("15s_24hr", "1Hz_1hr") if result[k]["first"]]
+    lasts = [result[k]["last"] for k in ("15s_24hr", "1Hz_1hr") if result[k]["last"]]
+    result["first"] = min(firsts) if firsts else None
+    result["last"] = max(lasts) if lasts else None
+    return result
+
+
+def find_most_recent_rinex(
+    station: str,
+    base_dir: Union[str, Path] = "/mnt_data/rawgpsdata",
+    rate_dir: str = "15s_24hr",
+) -> Optional[Path]:
+    """
+    Return the most recent daily RINEX file for a station.
+
+    Archive layout:
+    ``<base_dir>/<YYYY>/<mon>/<STATION>/<rate_dir>/rinex/<STA><DDD>0.<YY>[DO][.Z|.gz]``
+
+    Walks years and months descending and, within the first populated month
+    found, returns the file with the highest ``(year, DOY)``.
+
+    Args:
+        station: Four-character station code (case-insensitive)
+        base_dir: Archive root directory
+        rate_dir: Sampling-rate subdirectory (default ``"15s_24hr"``)
+
+    Returns:
+        Path to the most recent daily RINEX file, or ``None`` if no
+        matching file is found under ``base_dir``.
+    """
+    base = Path(base_dir)
+    if not base.is_dir():
+        return None
+
+    sta = station.upper()
+    years = sorted(
+        (p for p in base.iterdir() if p.is_dir() and p.name.isdigit()),
+        reverse=True,
+    )
+    for year_dir in years:
+        months_present = [m for m in MONTHS if (year_dir / m).is_dir()]
+        for mon in reversed(months_present):
+            rinex_dir = year_dir / mon / sta / rate_dir / "rinex"
+            dates = _scan_dir_dates(rinex_dir, _parse_daily_rinex_date, sta)
+            if dates:
+                dates.sort()
+                return dates[-1][1]
+    return None
 
 
 def get_rinex_labels() -> Tuple[List[str], List[str]]:
