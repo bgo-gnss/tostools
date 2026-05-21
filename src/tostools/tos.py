@@ -1895,7 +1895,6 @@ def _device_main(argv):
         serial=args.serial,
         model=igs_model,
         owner=args.owner,
-        location=args.location,
         date_start=date_start,
     )
     optional = device_helpers.iter_optional_attributes(
@@ -1926,6 +1925,33 @@ def _device_main(argv):
     id_entity = None
     if isinstance(response, dict):
         id_entity = response.get("id_entity")
+
+    # ---- Location join (parent area entity → child device) --------------
+    # Replaces the old "location as a free-text attribute on the device"
+    # approach; physical placement in TOS is conveyed via entity_connection.
+    if dry_run or id_entity is None:
+        if not args.json:
+            print(
+                f"DRY RUN: would resolve location {args.location!r} → entity_id "
+                f"and create entity_connection(parent=<area>, "
+                f"child={id_entity if id_entity is not None else '<new>'}, "
+                f"time_from={date_start})"
+            )
+        connection_response = {"location": args.location, "dry_run": True}
+    else:
+        try:
+            connection_response = writer.connect_device_to_location(
+                id_device=id_entity,
+                location_name=args.location,
+                date_start=date_start,
+            )
+        except ValueError as e:
+            print(
+                f"Device created (id_entity={id_entity}) but location join "
+                f"failed: {e}",
+                file=sys.stderr,
+            )
+            return 1
 
     # ---- Optional attributes --------------------------------------------
     upsert_responses = []
@@ -1959,6 +1985,7 @@ def _device_main(argv):
             "required_attributes": required,
             "optional_attributes": [{"code": c, "value": v} for c, v in optional],
             "upsert_results": upsert_responses,
+            "location_connection": connection_response,
         }
         print(_json.dumps(payload, ensure_ascii=False, indent=2))
     else:
@@ -1968,6 +1995,13 @@ def _device_main(argv):
             f"Created {args.subtype} serial={args.serial} "
             f"id_entity={id_str}{suffix}"
         )
+        if not dry_run and isinstance(connection_response, dict):
+            conn_id = connection_response.get("id_connection")
+            if conn_id is not None:
+                print(
+                    f"Connected to location {args.location!r} "
+                    f"(connection id={conn_id})"
+                )
     return 0
 
 
@@ -3647,9 +3681,7 @@ def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
 
     open_values = [a for a in existing if a.get("date_to") is None]
     if len(open_values) > 1:
-        ids = ", ".join(
-            str(a.get("id_attribute_value")) for a in open_values
-        )
+        ids = ", ".join(str(a.get("id_attribute_value")) for a in open_values)
         return ActionResult(
             action=action,
             status="failed",
@@ -3685,9 +3717,7 @@ def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
         )
 
     try:
-        response = writer.add_attribute_value(
-            action.id_entity, code, value, date_from
-        )
+        response = writer.add_attribute_value(action.id_entity, code, value, date_from)
     except Exception as exc:  # noqa: BLE001
         return ActionResult(
             action=action,

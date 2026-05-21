@@ -502,6 +502,108 @@ class TOSWriter:
                 return entity
         return None
 
+    def find_location_by_name(
+        self,
+        name: str,
+        type_filter: str = "vöruhús",
+    ) -> Optional[int]:
+        """Look up a warehouse / location entity by its ``name`` attribute.
+
+        Uses ``POST /basic_search/`` to search for the literal location name
+        string, filters to hits with ``code='name'`` and ``distance=0``, and
+        returns the matching entity's ``id_entity`` (the entity is identified
+        by ``id_lvl_two`` in basic_search results since the match is on the
+        location entity itself, not on a child of it).
+
+        Args:
+            name: Full location name as recorded in TOS, e.g.
+                ``"B9 - Kjallari - Jörð"``. Matched exactly (case-sensitive,
+                no whitespace normalisation).
+            type_filter: Restrict to a TOS ``type_lvl_two`` (e.g.
+                ``"vöruhús"`` for warehouses, ``"stöð"`` for stations).
+                Set to ``""`` or ``None`` to disable the type filter.
+
+        Returns:
+            The entity's ``id_entity`` (an int) or ``None`` when no exact
+            match exists.
+        """
+        if not name:
+            return None
+
+        results = self._request(
+            "POST",
+            "/basic_search/",
+            data={"search_term": name},
+            _force_send=True,
+        )
+        if not isinstance(results, list):
+            return None
+
+        for hit in results:
+            if hit.get("code") != "name":
+                continue
+            if hit.get("distance") != 0:
+                continue
+            if hit.get("value_varchar") != name:
+                continue
+            if type_filter and hit.get("type_lvl_two") != type_filter:
+                continue
+            # The location entity itself is at lvl_two — the match was on its
+            # name attribute, not on a child entity's attribute.
+            entity_id = hit.get("id_entity") or hit.get("id_lvl_two")
+            if entity_id:
+                return int(entity_id)
+        return None
+
+    def connect_device_to_location(
+        self,
+        id_device: int,
+        location_name: str,
+        date_start: str,
+        *,
+        type_filter: str = "vöruhús",
+    ) -> Any:
+        """Resolve a location name to an entity ID and join the device to it.
+
+        Convenience wrapper around :meth:`find_location_by_name` +
+        :meth:`create_entity_connection` — this is the canonical way to
+        place a device at a warehouse / station so it appears under that
+        location in the TOS web UI (e.g. ``station_device_status``).
+
+        Args:
+            id_device: Entity ID of the child (the device entity, freshly
+                returned by :meth:`create_device`).
+            location_name: The full location name in TOS (e.g.
+                ``"B9 - Kjallari - Jörð"``).
+            date_start: ISO-8601 date marking when the device was placed
+                at the location. Passed through to the connection as
+                ``time_from``.
+            type_filter: Forwarded to :meth:`find_location_by_name`.
+
+        Returns:
+            The API response from :meth:`create_entity_connection`, or
+            :class:`DryRunResult` in dry-run mode.
+
+        Raises:
+            ValueError: When the location name cannot be resolved to an
+                entity ID. Better to fail loudly than to leave the
+                device floating without a placement.
+        """
+        location_id = self.find_location_by_name(location_name, type_filter=type_filter)
+        if location_id is None:
+            raise ValueError(
+                f"connect_device_to_location: location {location_name!r} not "
+                f"found in TOS (type_filter={type_filter!r}). The device has "
+                f"already been created (id_entity={id_device}); register the "
+                f"location first or pass a name that matches a TOS entity."
+            )
+        return self.create_entity_connection(
+            id_parent=location_id,
+            id_child=id_device,
+            time_from=date_start,
+            time_to=None,
+        )
+
     def get_attribute_values(
         self,
         id_entity: int,
