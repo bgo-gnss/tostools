@@ -744,6 +744,117 @@ def test_find_device_by_serial_search_runs_in_dry_run_mode():
     assert mock_req.call_args.args[0] == "POST"
 
 
+# ---------------------------------------------------------------------------
+# find_location_by_name / connect_device_to_location
+# ---------------------------------------------------------------------------
+
+
+def _basic_search_location_hit(
+    name: str,
+    entity_id: int,
+    type_lvl_two: str = "vöruhús",
+    distance: int = 0,
+) -> dict:
+    """Mirror the basic_search hit shape for an entity-name match (location)."""
+    return {
+        "code": "name",
+        "value_varchar": name,
+        "distance": distance,
+        "id_entity": entity_id,
+        "id_lvl_two": entity_id,
+        "id_lvl_three": None,
+        "type_lvl_two": type_lvl_two,
+        "subtype_lvl_two": "Lager",
+    }
+
+
+def test_find_location_by_name_returns_id_on_exact_match():
+    w = _logged_in_writer(dry_run=False)
+    hits = [_basic_search_location_hit("B9 - Kjallari - Jörð", entity_id=4)]
+    with patch.object(w, "_request", return_value=hits):
+        assert w.find_location_by_name("B9 - Kjallari - Jörð") == 4
+
+
+def test_find_location_by_name_returns_none_on_no_match():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request", return_value=[]):
+        assert w.find_location_by_name("Nowhere") is None
+
+
+def test_find_location_by_name_filters_distance_and_value():
+    w = _logged_in_writer(dry_run=False)
+    hits = [
+        # fuzzy match — should be skipped
+        _basic_search_location_hit("B9 - Kjallari", entity_id=999, distance=2),
+        # wrong value_varchar with distance=0 — should be skipped
+        _basic_search_location_hit("B7 - Kjallari", entity_id=998),
+        # the right one
+        _basic_search_location_hit("B9 - Kjallari - Jörð", entity_id=4),
+    ]
+    with patch.object(w, "_request", return_value=hits):
+        assert w.find_location_by_name("B9 - Kjallari - Jörð") == 4
+
+
+def test_find_location_by_name_filters_type():
+    w = _logged_in_writer(dry_run=False)
+    # value matches but type_lvl_two doesn't match the warehouse filter
+    hits = [
+        _basic_search_location_hit(
+            "B9 - Kjallari - Jörð", entity_id=999, type_lvl_two="stöð"
+        )
+    ]
+    with patch.object(w, "_request", return_value=hits):
+        assert w.find_location_by_name("B9 - Kjallari - Jörð") is None
+    # Disabling the type filter recovers the match.
+    with patch.object(w, "_request", return_value=hits):
+        assert (
+            w.find_location_by_name("B9 - Kjallari - Jörð", type_filter="")
+            == 999
+        )
+
+
+def test_find_location_by_name_empty_short_circuits():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request") as mock_req:
+        assert w.find_location_by_name("") is None
+    mock_req.assert_not_called()
+
+
+def test_connect_device_to_location_resolves_then_creates_join():
+    w = _logged_in_writer(dry_run=False)
+    hits = [_basic_search_location_hit("B9 - Kjallari - Jörð", entity_id=4)]
+    join_response = {"id_connection": 12345}
+    with patch.object(w, "_request") as mock_req:
+        # 1st call: basic_search hits; 2nd call: create_entity_connection POST
+        mock_req.side_effect = [hits, join_response]
+        result = w.connect_device_to_location(
+            id_device=21499,
+            location_name="B9 - Kjallari - Jörð",
+            date_start="2026-05-21T00:00:00",
+        )
+
+    assert result is join_response
+    # Confirm the second call was POST /entity_connection/ with the right body
+    post = mock_req.call_args_list[1]
+    assert post.args[0] == "POST"
+    body = post.kwargs.get("data") or post.args[2]
+    assert body["id_entity_parent"] == 4
+    assert body["id_entity_child"] == 21499
+    assert body["time_from"] == "2026-05-21T00:00:00"
+    assert body["time_to"] is None
+
+
+def test_connect_device_to_location_raises_when_unresolved():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request", return_value=[]):
+        with pytest.raises(ValueError, match="not found in TOS"):
+            w.connect_device_to_location(
+                id_device=21499,
+                location_name="Unknown - Place",
+                date_start="2026-05-21T00:00:00",
+            )
+
+
 def test_create_device_rejects_duplicate_serial():
     w = _logged_in_writer(dry_run=True)
     existing = {

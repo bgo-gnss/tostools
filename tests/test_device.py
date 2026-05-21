@@ -131,7 +131,6 @@ def test_build_required_attributes_shape() -> None:
         serial="SN1",
         model="SEPT POLARX5",
         owner="Veðurstofa Íslands",
-        location="Bench A",
         date_start="2026-05-11T00:00:00",
     )
     assert [a["code"] for a in attrs] == list(REQUIRED_ATTR_CODES)
@@ -140,7 +139,11 @@ def test_build_required_attributes_shape() -> None:
     assert by_code["serial_number"] == "SN1"
     assert by_code["model"] == "SEPT POLARX5"
     assert by_code["owner"] == "Veðurstofa Íslands"
-    assert by_code["location"] == "Bench A"
+    assert by_code["status"] == "virkt"
+    assert by_code["date_start"] == "2026-05-11T00:00:00"
+    # Location is intentionally NOT an attribute on the device — it is
+    # represented via an entity_connection to the location entity instead.
+    assert "location" not in by_code
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +243,10 @@ def test_device_main_dry_run_happy_path(base_argv: list, capsys) -> None:
     assert attrs["model"] == "SEPT POLARX5"
     assert attrs["serial_number"] == "SN_HAPPY"
     assert attrs["owner"] == "Veðurstofa Íslands"
-    assert attrs["location"] == "Bench A"
+    # location is NOT a device attribute — it is conveyed via entity_connection
+    assert "location" not in attrs
+    assert attrs["status"] == "virkt"
+    assert attrs["date_start"] == "2026-05-11T00:00:00"
     assert call.kwargs["force"] is False
     # No optional inputs → no upsert calls.
     writer.upsert_attribute_value.assert_not_called()

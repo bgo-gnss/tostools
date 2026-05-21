@@ -1895,7 +1895,6 @@ def _device_main(argv):
         serial=args.serial,
         model=igs_model,
         owner=args.owner,
-        location=args.location,
         date_start=date_start,
     )
     optional = device_helpers.iter_optional_attributes(
@@ -1926,6 +1925,33 @@ def _device_main(argv):
     id_entity = None
     if isinstance(response, dict):
         id_entity = response.get("id_entity")
+
+    # ---- Location join (parent area entity → child device) --------------
+    # Replaces the old "location as a free-text attribute on the device"
+    # approach; physical placement in TOS is conveyed via entity_connection.
+    if dry_run or id_entity is None:
+        if not args.json:
+            print(
+                f"DRY RUN: would resolve location {args.location!r} → entity_id "
+                f"and create entity_connection(parent=<area>, "
+                f"child={id_entity if id_entity is not None else '<new>'}, "
+                f"time_from={date_start})"
+            )
+        connection_response = {"location": args.location, "dry_run": True}
+    else:
+        try:
+            connection_response = writer.connect_device_to_location(
+                id_device=id_entity,
+                location_name=args.location,
+                date_start=date_start,
+            )
+        except ValueError as e:
+            print(
+                f"Device created (id_entity={id_entity}) but location join "
+                f"failed: {e}",
+                file=sys.stderr,
+            )
+            return 1
 
     # ---- Optional attributes --------------------------------------------
     upsert_responses = []

@@ -52,7 +52,8 @@ REQUIRED_ATTR_CODES: Tuple[str, ...] = (
     "serial_number",
     "model",
     "owner",
-    "location",
+    "status",
+    "date_start",
 )
 
 # Order here drives the iteration order in :func:`iter_optional_attributes`
@@ -177,13 +178,30 @@ def build_required_attributes(
     serial: str,
     model: str,
     owner: str,
-    location: str,
     date_start: str,
 ) -> List[Dict[str, Optional[str]]]:
     """Build the attribute list passed to :meth:`TOSWriter.create_device`.
 
     Each attribute carries an explicit ``date_to: None`` — the TOS ``/entities``
     endpoint treats the field as required-present even when the period is open.
+
+    Returns the canonical warehouse-device attribute set verified against
+    existing open children of B9 - Kjallari - Jörð (id_entity=4) on
+    2026-05-21:
+
+    - ``serial_number``, ``model``, ``owner`` — device identity
+    - ``status`` = ``"virkt"`` (active) — canonical "device is alive" marker
+    - ``date_start`` — separate from the per-attribute ``date_from`` field;
+      stored as its own attribute_value row by TOS
+
+    Note: ``location`` was previously written here as a free-text attribute
+    on the device. It has been removed — TOS represents "device at
+    location" via an ``entity_connection`` row joining the device entity
+    to the location entity, not via a string attribute on the device.
+    Callers must call :meth:`TOSWriter.create_entity_connection` after
+    :meth:`TOSWriter.create_device` to record the placement; see
+    :meth:`TOSWriter.connect_device_to_location` for the resolve + connect
+    convenience wrapper.
     """
     return [
         {
@@ -205,8 +223,14 @@ def build_required_attributes(
             "date_to": None,
         },
         {
-            "code": "location",
-            "value": location,
+            "code": "status",
+            "value": "virkt",
+            "date_from": date_start,
+            "date_to": None,
+        },
+        {
+            "code": "date_start",
+            "value": date_start,
             "date_from": date_start,
             "date_to": None,
         },
