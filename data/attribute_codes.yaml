@@ -68,7 +68,7 @@ devices:
     description: Manufacturer / model designation (e.g. "TRIMBLE NETR9", "TRM57971.00")
     classification: inherent
     tos_required_for: [gnss_receiver, antenna, radome]
-    gps_required_for: [gnss_receiver, antenna, radome, monument] # USER FILLS IN — strict superset of tos
+    gps_required_for: [gnss_receiver, antenna, radome] # monument structure type lives in infrastructure_type instead
     default_value: ~ # USER OPTIONAL — what TOS records as the default
     applies_to: [gnss_receiver, antenna, radome, monument]
     gps_relevance: "yes"
@@ -424,7 +424,7 @@ devices:
   soh_port:
     icelandic_label: SOH-port
     description: State-Of-Health port (e.g. 50000)
-    classification: mutable  # SOH port is reconfigurable
+    classification: mutable # SOH port is reconfigurable
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: "28784" # USER OPTIONAL — what TOS records as the default
@@ -751,11 +751,11 @@ devices:
 
   ip_address:
     icelandic_label: IP-tala tækis
-    description: IP address of the device
+    description: IP address of the device — per-device, no meaningful default
     classification: mutable
     tos_required_for: []
     gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
-    default_value: "192.168.100.60" # USER OPTIONAL — what TOS records as the default
+    default_value: ~ # no default — every receiver has its own IP; operator must fill in
     applies_to: [gnss_receiver]
     gps_relevance: "yes"
     subtypes_observed: []
@@ -1663,7 +1663,7 @@ stations:
   lon:
     icelandic_label: Lengdargráða
     description: Station longitude (decimal degrees)
-    classification: inherent  # station longitude is fixed by location
+    classification: inherent # station longitude is fixed by location
     tos_required_for: [geophysical]
     gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
@@ -1672,10 +1672,10 @@ stations:
     walked: false
     why: ""
 
-  visit_class:
+  operational_class:
     icelandic_label: Vitjanaflokkur
     description: Visit cadence class — A (<=1 week), B (<=3 weeks), C (3-6 weeks)
-    classification: mutable  # cadence class can change with operator policy
+    classification: mutable # cadence class can change with operator policy
     tos_required_for: [geophysical]
     gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: "B" # USER OPTIONAL — what TOS records as the default
@@ -1712,10 +1712,10 @@ stations:
 
   description:
     icelandic_label: Lýsing
-    description: Station description
+    description: Station description — free text; nice-to-have, not operationally required
     classification: inherent
     tos_required_for: [geophysical]
-    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
+    gps_required_for: [] # optional — TOS form marks it required but the audit doesn't enforce
     default_value: ~ # USER OPTIONAL — what TOS records as the default
     applies_to: [geophysical]
     gps_relevance: "yes"
@@ -1726,10 +1726,10 @@ stations:
 
   close_date:
     icelandic_label: Lokadagsetning
-    description: Station close date
+    description: Station close date — only set when the station is permanently decommissioned
     classification: inherent
     tos_required_for: []
-    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
+    gps_required_for: [] # conditional — only required at decommissioning, never on active stations
     default_value: ~ # USER OPTIONAL — what TOS records as the default
     applies_to: [geophysical]
     gps_relevance: "yes"
@@ -1763,7 +1763,7 @@ stations:
   iers_domes_number:
     icelandic_label: IERS domes number
     description: IERS DOMES site number — IGS site log section 1
-    classification: inherent  # DOMES site number is assigned once and permanent
+    classification: inherent # DOMES site number is assigned once and permanent
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
@@ -1835,14 +1835,14 @@ stations:
   continuity:
     icelandic_label: Samfella
     description: GNSS measurement continuity — continuous | campaign
-    classification: inherent
+    classification: mutable # campaign stations can be promoted to continuous (and vice versa)
     tos_required_for: []
     gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
     applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
-    why: "Continuous vs campaign — critical for processing pipeline"
+    why: "Continuous vs campaign — critical for processing pipeline. Mutable: a station's continuity can change over its lifetime."
 
   short_name:
     icelandic_label: Nafn stutt
