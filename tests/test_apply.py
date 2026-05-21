@@ -919,6 +919,50 @@ def test_dispatch_patch_attribute_date_captures_read_exception():
 
 
 # ---------------------------------------------------------------------------
+# _parse_action_file — patch-attribute-value
+# ---------------------------------------------------------------------------
+
+
+def test_parse_action_file_patch_attribute_value_three_args():
+    text = "ACTION 20516 patch-attribute-value serial_number 2024-08-29 3099973\n"
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert len(actions) == 1
+    assert actions[0].verb == "patch-attribute-value"
+    assert actions[0].args == ["serial_number", "2024-08-29", "3099973"]
+
+
+def test_parse_action_file_patch_attribute_value_quoted_value():
+    """Quoted new_value with spaces survives the shlex round-trip."""
+    text = (
+        'ACTION 4390 patch-attribute-value description 2001-07-19 '
+        '"GPS station deployed by U Arizona"\n'
+    )
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert actions[0].args == [
+        "description", "2001-07-19", "GPS station deployed by U Arizona"
+    ]
+
+
+def test_parse_action_file_patch_attribute_value_rejects_too_few_args():
+    text = "ACTION 20516 patch-attribute-value serial_number 2024-08-29\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "patch-attribute-value requires exactly three arguments" in errors[0].message
+
+
+def test_parse_action_file_patch_attribute_value_rejects_extra_args():
+    text = (
+        "ACTION 20516 patch-attribute-value serial_number "
+        "2024-08-29 3099973 EXTRA\n"
+    )
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "patch-attribute-value requires exactly three arguments" in errors[0].message
+
+
+# ---------------------------------------------------------------------------
 # _parse_action_file — add-attribute
 # ---------------------------------------------------------------------------
 
@@ -1218,3 +1262,186 @@ def test_dispatch_add_attribute_skips_closed_periods_for_conflict_check():
     writer.add_attribute_value.assert_called_once_with(
         4390, "subtype", "GPS stöð", "2006-01-01"
     )
+
+
+# ---------------------------------------------------------------------------
+# _dispatch_action — patch-attribute-value
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_patch_attribute_value_happy_path():
+    """Single matching period → PATCH the value field; dates left alone."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(55101, "serial_number", "3099973 ", "2024-08-29 00:00:00"),
+    ]
+    writer.patch_attribute_value.return_value = {"ok": True}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            20516, "patch-attribute-value", "serial_number", "2024-08-29", "3099973"
+        ),
+    )
+
+    assert result.status == "ok"
+    writer.get_attribute_values.assert_called_once_with(20516, "serial_number")
+    writer.patch_attribute_value.assert_called_once_with(55101, value="3099973")
+    assert "PATCH /attribute_value/55101" in result.detail
+    assert "'3099973 ' → '3099973'" in result.detail
+
+
+def test_dispatch_patch_attribute_value_normalises_tos_datetime():
+    """TOS stores `2024-08-29 00:00:00` but the action carries `2024-08-29`.
+    Without date-only normalisation the match would silently fail."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(55101, "serial_number", "old", "2024-08-29 00:00:00"),
+    ]
+    writer.patch_attribute_value.return_value = {"ok": True}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            20516, "patch-attribute-value", "serial_number", "2024-08-29", "new"
+        ),
+    )
+    assert result.status == "ok"
+    writer.patch_attribute_value.assert_called_once_with(55101, value="new")
+
+
+def test_dispatch_patch_attribute_value_zero_matches_fails():
+    """No period with the given date_from → failed; never PATCHes some
+    other arbitrary period."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(55101, "serial_number", "X", "2010-01-01 00:00:00"),
+    ]
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            20516, "patch-attribute-value", "serial_number", "2024-08-29", "new"
+        ),
+    )
+    assert result.status == "failed"
+    assert "no period found" in result.detail
+    writer.patch_attribute_value.assert_not_called()
+
+
+def test_dispatch_patch_attribute_value_ambiguous_match_fails():
+    """Two periods with the same date-only date_from → refuse rather
+    than PATCH arbitrarily. Same safety contract as patch-attribute-date."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(55101, "serial_number", "A", "2024-08-29 00:00:00"),
+        _attr_value(55102, "serial_number", "B", "2024-08-29 12:00:00"),
+    ]
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            20516, "patch-attribute-value", "serial_number", "2024-08-29", "new"
+        ),
+    )
+    assert result.status == "failed"
+    assert "2 periods share" in result.detail
+    writer.patch_attribute_value.assert_not_called()
+
+
+def test_dispatch_patch_attribute_value_value_already_matches_is_no_op():
+    """Idempotent skip when the value is already correct — safe to re-run."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(55101, "serial_number", "3099973", "2024-08-29 00:00:00"),
+    ]
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            20516, "patch-attribute-value", "serial_number", "2024-08-29", "3099973"
+        ),
+    )
+    assert result.status == "ok"
+    assert "already correct" in result.detail
+    writer.patch_attribute_value.assert_not_called()
+
+
+def test_dispatch_patch_attribute_value_placeholder_refuses():
+    """<FILL_VALUE> in new_value → refuse before any network call."""
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            20516, "patch-attribute-value", "serial_number",
+            "2024-08-29", "<FILL_VALUE>"
+        ),
+    )
+    assert result.status == "failed"
+    assert "placeholder" in result.detail
+    writer.get_attribute_values.assert_not_called()
+    writer.patch_attribute_value.assert_not_called()
+
+
+def test_dispatch_patch_attribute_value_invalid_date_format_refuses():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            20516, "patch-attribute-value", "serial_number",
+            "not-a-date", "new"
+        ),
+    )
+    assert result.status == "failed"
+    assert "YYYY-MM-DD" in result.detail
+    writer.get_attribute_values.assert_not_called()
+
+
+def test_dispatch_patch_attribute_value_get_raises_returns_failed():
+    """Network/auth errors from get_attribute_values surface as failed,
+    never raise out of the dispatcher."""
+    writer = MagicMock()
+    writer.get_attribute_values.side_effect = RuntimeError("simulated 503")
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            20516, "patch-attribute-value", "serial_number", "2024-08-29", "new"
+        ),
+    )
+    assert result.status == "failed"
+    assert "get_attribute_values raised" in result.detail
+    writer.patch_attribute_value.assert_not_called()
+
+
+def test_dispatch_patch_attribute_value_writer_raises_returns_failed():
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(55101, "serial_number", "old", "2024-08-29 00:00:00"),
+    ]
+    writer.patch_attribute_value.side_effect = RuntimeError("simulated 500")
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            20516, "patch-attribute-value", "serial_number", "2024-08-29", "new"
+        ),
+    )
+    assert result.status == "failed"
+    assert "patch_attribute_value raised" in result.detail
+
+
+def test_dispatch_patch_attribute_value_handles_trailing_space_serial():
+    """The motivating use case: serial '3099973 ' (trailing space) →
+    '3099973'. This is exactly the data-quality issue surfaced during
+    the HAUC operator review on receiver 20516."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(55101, "serial_number", "3099973 ", "2024-08-29 00:00:00"),
+    ]
+    writer.patch_attribute_value.return_value = {"value": "3099973"}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            20516, "patch-attribute-value", "serial_number", "2024-08-29", "3099973"
+        ),
+    )
+
+    assert result.status == "ok"
+    writer.patch_attribute_value.assert_called_once_with(55101, value="3099973")

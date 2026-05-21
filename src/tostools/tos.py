@@ -2442,6 +2442,15 @@ def _audit_main(argv):
             "                            PATCH /attribute_value/<id> "
             "date_from — consumes triage files from\n"
             "                            `tos audit attribute-dates --triage`\n"
+            "  patch-attribute-value <code> <date_from> <new_value>\n"
+            "                            PATCH /attribute_value/<id> "
+            "value — in-place\n"
+            "                            data-quality correction (typo, "
+            "trailing whitespace,\n"
+            "                            casing). Leaves dates untouched. "
+            "Refuses ambiguous\n"
+            "                            matches and idempotent no-ops on "
+            "matching value.\n"
             "  add-attribute <code> <value> <date_from>\n"
             "                            POST /attribute_values — add a new open "
             "period to fill\n"
@@ -3068,6 +3077,7 @@ _SUPPORTED_VERBS = (
     "fill-gap",
     "move",
     "patch-attribute-date",
+    "patch-attribute-value",
 )
 
 
@@ -3234,6 +3244,19 @@ def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]
                         "<code> <value> <date_from> "
                         "(quote the value if it contains spaces, e.g. "
                         "'GPS stöð')"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        if verb == "patch-attribute-value" and len(tokens) != 6:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "patch-attribute-value requires exactly three "
+                        "arguments: <code> <date_from> <new_value> "
+                        "(quote the new value if it contains spaces)"
                     ),
                     raw=raw,
                 )
@@ -3736,6 +3759,156 @@ def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
     )
 
 
+def _dispatch_patch_attribute_value(writer, action: ParsedAction) -> ActionResult:
+    """In-place correction of an attribute value (Pattern 1).
+
+    Action shape: ``ACTION <id_entity> patch-attribute-value <code>
+    <date_from> <new_value>``. PATCHes the matching attribute period's
+    ``value`` field, leaving ``date_from`` / ``date_to`` untouched.
+
+    The intended use case is data-quality cleanup — fixing typos,
+    trailing whitespace, casing errors on an existing value where the
+    semantic record is correct but the literal string is wrong (e.g.
+    serial number ``'3099973 '`` with trailing space → ``'3099973'``).
+    For a genuine value change that should preserve history (e.g. a
+    firmware update), use a transition pattern instead.
+
+    Match rule
+    ----------
+    A period matches when its ``date_from`` *date-only* prefix
+    (``YYYY-MM-DD``) equals the action's ``<date_from>`` — same
+    normalisation as :func:`_dispatch_patch_attribute_date`.
+
+    Failure modes
+    -------------
+    * **Zero matches** — no period found. The operator's audit was
+      stale; rerun and regenerate.
+    * **Multiple matches** — two or more periods share the date-only
+      prefix. Refuse rather than PATCH arbitrarily.
+    * **``<FILL_*>`` placeholder** in new_value — operator forgot to
+      replace; refuse before any network call.
+    * **Period has no ``id_attribute_value``** — partial TOS payload.
+    * **Value already matches** — idempotent no-op (safe to re-run).
+    """
+    code = action.args[0]
+    date_from_raw = action.args[1]
+    new_value = action.args[2]
+
+    # Placeholder rejection — same shape check as add-attribute.
+    if new_value.startswith("<") and new_value.endswith(">"):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: value placeholder {new_value!r} "
+                "not replaced — fill in the new value before applying"
+            ),
+        )
+
+    date_from = date_from_raw[:10]
+    if len(date_from) != 10 or date_from[4] != "-" or date_from[7] != "-":
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: date_from must be YYYY-MM-DD "
+                f"(got {date_from_raw!r})"
+            ),
+        )
+
+    try:
+        attrs = writer.get_attribute_values(action.id_entity, code)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"get_attribute_values raised: {exc}",
+        )
+
+    matches = [
+        a for a in attrs
+        if str(a.get("date_from") or "")[:10] == date_from
+    ]
+    if not matches:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: no period found for "
+                f"id_entity={action.id_entity} code={code!r} "
+                f"date_from={date_from} (re-audit and regenerate triage)"
+            ),
+        )
+    if len(matches) > 1:
+        ids = ", ".join(str(a.get("id_attribute_value")) for a in matches)
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: {len(matches)} periods share "
+                f"date_from={date_from} for code {code!r} on "
+                f"id_entity={action.id_entity} (ids: {ids}) — refusing to "
+                "PATCH ambiguously. Operator must disambiguate manually."
+            ),
+        )
+
+    target = matches[0]
+    id_av_raw = target.get("id_attribute_value")
+    if id_av_raw is None:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "patch-attribute-value: matched period has no "
+                "id_attribute_value (unexpected TOS payload shape); "
+                "re-audit against a fresh history"
+            ),
+        )
+
+    try:
+        id_av = int(id_av_raw)
+    except (TypeError, ValueError):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: id_attribute_value={id_av_raw!r} "
+                "is not an integer (unexpected TOS payload shape)"
+            ),
+        )
+
+    old_value = target.get("value")
+    if str(old_value) == new_value:
+        return ActionResult(
+            action=action,
+            status="ok",
+            detail=(
+                f"already correct: id_attribute_value={id_av} for "
+                f"id_entity={action.id_entity} code={code!r} "
+                f"date_from={date_from} already has value {new_value!r} (no-op)"
+            ),
+        )
+
+    try:
+        response = writer.patch_attribute_value(id_av, value=new_value)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch_attribute_value raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"PATCH /attribute_value/{id_av} "
+            f"value {old_value!r} → {new_value!r} "
+            f"(code={code!r}, date_from={date_from}) — {response!r}"
+        ),
+    )
+
+
 def _dispatch_action(
     writer,
     action: ParsedAction,
@@ -3773,6 +3946,8 @@ def _dispatch_action(
         return _dispatch_fill_gap(writer, action)
     if action.verb == "patch-attribute-date":
         return _dispatch_patch_attribute_date(writer, action)
+    if action.verb == "patch-attribute-value":
+        return _dispatch_patch_attribute_value(writer, action)
     if action.verb == "add-attribute":
         return _dispatch_add_attribute(writer, action)
     if action.verb == "change-subtype":
