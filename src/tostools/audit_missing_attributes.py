@@ -402,9 +402,7 @@ def audit_station_missing_attributes(
 
         device_label = _device_display_label(history)
         join_dates = [
-            _date_only(str(j["time_from"]))
-            for j in open_joins
-            if j.get("time_from")
+            _date_only(str(j["time_from"])) for j in open_joins if j.get("time_from")
         ]
         suggested_date = min(join_dates) if join_dates else None
 

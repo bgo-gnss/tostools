@@ -589,9 +589,7 @@ class TOSWriter:
                 entity ID. Better to fail loudly than to leave the
                 device floating without a placement.
         """
-        location_id = self.find_location_by_name(
-            location_name, type_filter=type_filter
-        )
+        location_id = self.find_location_by_name(location_name, type_filter=type_filter)
         if location_id is None:
             raise ValueError(
                 f"connect_device_to_location: location {location_name!r} not "

@@ -3681,9 +3681,7 @@ def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
 
     open_values = [a for a in existing if a.get("date_to") is None]
     if len(open_values) > 1:
-        ids = ", ".join(
-            str(a.get("id_attribute_value")) for a in open_values
-        )
+        ids = ", ".join(str(a.get("id_attribute_value")) for a in open_values)
         return ActionResult(
             action=action,
             status="failed",
@@ -3719,9 +3717,7 @@ def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
         )
 
     try:
-        response = writer.add_attribute_value(
-            action.id_entity, code, value, date_from
-        )
+        response = writer.add_attribute_value(action.id_entity, code, value, date_from)
     except Exception as exc:  # noqa: BLE001
         return ActionResult(
             action=action,
