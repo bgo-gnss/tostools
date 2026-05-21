@@ -1985,6 +1985,7 @@ def _device_main(argv):
             "required_attributes": required,
             "optional_attributes": [{"code": c, "value": v} for c, v in optional],
             "upsert_results": upsert_responses,
+            "location_connection": connection_response,
         }
         print(_json.dumps(payload, ensure_ascii=False, indent=2))
     else:
@@ -1994,6 +1995,13 @@ def _device_main(argv):
             f"Created {args.subtype} serial={args.serial} "
             f"id_entity={id_str}{suffix}"
         )
+        if not dry_run and isinstance(connection_response, dict):
+            conn_id = connection_response.get("id_connection")
+            if conn_id is not None:
+                print(
+                    f"Connected to location {args.location!r} "
+                    f"(connection id={conn_id})"
+                )
     return 0
 
 
