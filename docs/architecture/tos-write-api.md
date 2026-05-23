@@ -43,6 +43,12 @@ Base URL: `https://vi-api.vedur.is/tos/v1`
 | PATCH | `/attribute_value/{id_attribute_value}` | JWT | Edit existing value (value, date_from, date_to — any combination) |
 | POST | `/joins` | JWT | Create parent→child entity connection |
 | PATCH | `/join/{id_connection}` | JWT | Modify a join record (e.g. close a device session) |
+| GET | `/entity/parent_history/{id_child}` | None | List all (open + closed) parent connections of a child entity |
+| POST | `/basic_search/` | None | Fuzzy search by attribute code/value (returns `distance` per hit) |
+| POST | `/maintenances/id_entity/{id_entity}` | JWT | Create vitjun stub; seeds blank attribute-value rows. Returns `{id, …}` but NOT the seeded value IDs |
+| GET | `/maintenances/id_entity/{id_entity}` | None | List vitjun records for an entity (flat web-UI shape) |
+| GET | `/maintenance/id_maintenance/{id}` | None | One vitjun's full detail incl. `maintenance_attribute_values[]` with each row's `id_maintenance_attribute_value` |
+| PUT | `/maintenance/id_maintenance/{id}` | JWT | Fill in vitjun details: `participants`, dates, `completed`, list of `{id_maintenance_attribute_value, value}` |
 
 ## Python Client
 
@@ -68,6 +74,11 @@ The JWT is kept in memory only. `TOSWriter` re-authenticates when the token is w
 - `patch_attribute_value(id_attribute_value, *, value, date_from, date_to)` — PATCH, only non-None fields sent
 - `create_entity_connection(id_parent, id_child, time_from, time_to=None)` — POST `/joins`
 - `patch_entity_connection(id_connection, **kwargs)` — PATCH `/join/{id}`
+- `find_station_by_marker(marker)` — case-insensitive RINEX-marker → `id_entity` lookup; filters to `type_lvl_two="stöð"`
+- `get_open_parent_join(id_child)` — GET `/entity/parent_history/{id}`, return the row with `time_to is None`
+- `move_device(id_device, to_id_entity, transition_date, from_id_entity=None)` — **Pattern 2 for joins** (close open parent + open new), see below
+- `list_maintenance_visits(id_entity)` / `get_maintenance_visit(id_maintenance)` — read vitjun
+- `add_maintenance_visit(id_entity, *, start_time, end_time=None, maintenance_type, participants, reasons, work, comment, remaining, completed)` — 3-call POST + GET + PUT flow for creating vitjun
 
 ## Write Patterns
 
@@ -101,6 +112,46 @@ writer.add_attribute_value(id_entity, "altitude", "112.5", "2019-06-01T00:00:00"
 
 Same as Pattern 1 but targets a historical record. `upsert_attribute_value` operates on the most recent open value; for a closed period, use `get_attribute_values()` to locate the record by `date_from`, then call `patch_attribute_value()` directly.
 
+### Pattern 2 for joins (device move)
+
+Pattern 2 also applies to *joins* — closing the open parent connection and opening a new one is how devices change locations (warehouse → station, station → station, station → warehouse). Use `move_device()`:
+
+```python
+# Auto-detect from (B9 warehouse 4) → HRAC station 16096:
+writer.move_device(id_device=21501, to_id_entity=16096,
+                   transition_date="2026-05-22")
+
+# Sanity-check the current parent (raises ValueError on mismatch):
+writer.move_device(21501, 16096, "2026-05-22", from_id_entity=4)
+```
+
+The transition date sets `time_to` on the closed join and `time_from` on the new one (same string for both — TOS allows back-to-back joins with no gap). Bare dates (`"2026-05-22"`) are promoted to midnight by `_tos_date()`.
+
+### Vitjun (maintenance / station visit)
+
+A vitjun is created in three round-trips because TOS does not return the auto-seeded attribute-value IDs on POST:
+
+```python
+writer.add_maintenance_visit(
+    id_entity=16096,                        # station HRAC
+    start_time="2026-05-22",                # accepts YYYY-MM-DD or full ISO
+    maintenance_type="on_site",             # or "remote" (Fjarvitjun)
+    participants="bgo@vedur.is",            # comma-sep emails
+    reasons=["change"],                     # multi-select; allowed:
+                                            # change/repairs/inspection/improvements/other
+    work="Skipt um móttakara",              # Framkvæmt
+    comment=None,                           # Athugasemdir (None → leave default)
+    remaining=None,                         # Útistandandi
+    completed=True,
+)
+```
+
+Internally: POST `/maintenances/id_entity/{id_entity}` → GET `/maintenance/id_maintenance/{new_id}` to discover seeded `id_maintenance_attribute_value` per code (`reason_change`, `work`, etc.) → PUT `/maintenance/id_maintenance/{new_id}` with the value list.
+
+Reason fields are stored as **booleans** ("true"/"false") — multiple can be true on one vitjun. Text fields not passed (`None`) are left at the seeded default (empty string).
+
+In `dry_run=True` mode the POST short-circuits and returns `id_maintenance="<dry-run>"` — the GET + PUT roundtrip cannot be simulated without a real ID.
+
 ## IGS Equipment Name Convention
 
 TOS stores equipment names in IGS rcvr_ant.tab format: `"SEPT POLARX5"`, `"TRIMBLE NETR9"`, `"LEICA GR10"`, `"SEPPOLANT X_MF"`, `"NONE"` (for no radome). The `receivers` health system reports abbreviated names (`"PolaRx5"`, `"NetR9"`). Convert before writing:
@@ -132,4 +183,5 @@ the attribute and join verbs for routine metadata writes.
 
 ## Future Work
 
-- **Join record updates** — Device session start/end dates live in the join record. `patch_entity_connection` is implemented but not yet wired to any reconcile workflow.
+- **Join record updates** — Device session start/end dates live in the join record. `patch_entity_connection` is implemented but not yet wired to any reconcile workflow. `move_device()` now covers the close+open flow for receiver/antenna installs.
+- **CLI verbs** — The `tos` CLI today only exposes read verbs. `move_device` and `add_maintenance_visit` are reached from the `receivers cfg install-device` / `receivers cfg visit` workflow (see `receivers/CLAUDE.md`). A standalone `tos device move` / `tos visit add` is open work.

@@ -961,6 +961,32 @@ class TOSWriter:
                 kwargs[key] = self._tos_date(kwargs[key])
         return self._request("PATCH", f"/join/{id_connection}", data=kwargs)
 
+    def delete_entity_connection(self, id_connection: int) -> Any:
+        """Permanently remove a join row from TOS.
+
+        .. warning::
+
+           Destructive admin endpoint. Use only for cleaning up known
+           bad rows (e.g. zero-duration orphans created by historical
+           bugs in add-device flows). The default :meth:`move_device`
+           workflow closes joins via PATCH; deletion erases history.
+
+        Uses ``DELETE /admin_entity_connection_row/{id}``. Requires
+        admin-level TOS access.
+
+        Args:
+            id_connection: The ``id`` of the join row (e.g. from
+                :meth:`get_open_parent_join` or
+                ``/entity/parent_history/{id_child}``).
+
+        Returns:
+            API response (typically empty 204), or
+            :class:`DryRunResult` in dry-run mode.
+        """
+        return self._request(
+            "DELETE", f"/admin_entity_connection_row/{id_connection}"
+        )
+
     def transition_attribute_value(
         self,
         id_entity: int,
@@ -1066,6 +1092,487 @@ class TOSWriter:
             f"/admin_entity_row/{id_entity}",
             data={"id_entity_subtype": int(id_entity_subtype)},
         )
+
+    # ---------------------------------------------------------------------
+    # Station resolution
+    # ---------------------------------------------------------------------
+
+    def find_station_by_marker(
+        self,
+        marker: str,
+        type_filter: str = "stöð",
+    ) -> Optional[int]:
+        """Look up a GPS station entity by its 4-char marker code.
+
+        Wraps ``POST /basic_search/`` looking for hits with
+        ``code='marker'``, ``distance=0``, and an exact case-insensitive
+        match on ``value_varchar``. TOS records markers in lowercase
+        (e.g. ``"hrac"``); we lowercase the needle for comparison so
+        callers can pass either ``"HRAC"`` or ``"hrac"``.
+
+        Args:
+            marker: 4-character RINEX marker.
+            type_filter: Restrict to a TOS ``type_lvl_two`` (default
+                ``"stöð"`` for any station). Empty / ``None`` disables
+                the type filter.
+
+        Returns:
+            The station's ``id_entity`` or ``None`` if no exact match.
+        """
+        if not marker:
+            return None
+        needle = marker.lower()
+        results = self._request(
+            "POST",
+            "/basic_search/",
+            data={"search_term": needle},
+            _force_send=True,
+        )
+        if not isinstance(results, list):
+            return None
+        for hit in results:
+            if hit.get("code") != "marker":
+                continue
+            if hit.get("distance") != 0:
+                continue
+            if (hit.get("value_varchar") or "").lower() != needle:
+                continue
+            if type_filter and hit.get("type_lvl_two") != type_filter:
+                continue
+            entity_id = hit.get("id_entity") or hit.get("id_lvl_two")
+            if entity_id:
+                return int(entity_id)
+        return None
+
+    # ---------------------------------------------------------------------
+    # Entity-connection (join) helpers — Pattern 2 for joins
+    # ---------------------------------------------------------------------
+
+    def get_open_parent_join(self, id_child: int) -> Optional[Dict[str, Any]]:
+        """Return the currently-open parent connection of an entity.
+
+        Queries ``GET /entity/parent_history/{id_child}`` and filters
+        to the join whose ``time_to is None``. The TOS invariant is
+        "at most one open parent join per child" (a receiver is at
+        one location at a time); if multiple are open, the most
+        recent ``time_from`` wins.
+
+        Args:
+            id_child: Child entity id (e.g. a gnss_receiver's
+                id_entity).
+
+        Returns:
+            Dict with keys ``id``, ``id_entity_child``,
+            ``id_entity_parent``, ``time_from``, ``time_to``, or
+            ``None`` if no open join exists.
+        """
+        history = self._request("GET", f"/entity/parent_history/{id_child}")
+        if not isinstance(history, list):
+            return None
+        open_joins = [j for j in history if j.get("time_to") is None]
+        if not open_joins:
+            return None
+        return max(open_joins, key=lambda j: j.get("time_from") or "")
+
+    def move_device(
+        self,
+        id_device: int,
+        to_id_entity: int,
+        transition_date: str,
+        from_id_entity: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Move a device between parents (Pattern 2 for joins).
+
+        Closes the currently-open parent connection at
+        ``transition_date`` and opens a new one to ``to_id_entity``
+        from the same date. Two HTTP calls
+        (``PATCH /join/{id}`` + ``POST /joins``).
+
+        Canonical use cases:
+          - Warehouse → station install
+          - Station A → station B transfer
+          - Station → warehouse retire/decommission
+
+        Args:
+            id_device: The device entity to move.
+            to_id_entity: The destination entity (station, warehouse,
+                …).
+            transition_date: ISO-8601 date or datetime for both close
+                of old and open of new. ``YYYY-MM-DD`` is accepted and
+                promoted to a full datetime by :meth:`_tos_date`.
+            from_id_entity: If given, sanity-check that the open join
+                is from this parent (raises ``ValueError`` otherwise).
+                If ``None``, auto-detect from the open join.
+
+        Returns:
+            ``{"closed": <patch_response>, "opened": <post_response>,
+               "from_id_entity": <int|None>, "to_id_entity": <int>}``.
+            ``closed`` is ``None`` when no pre-existing open parent
+            existed — caller decides whether that's an error.
+        """
+        normalized = self._tos_date(transition_date)
+        assert normalized is not None, "transition_date is required"
+        open_join = self.get_open_parent_join(id_device)
+        closed_resp: Any = None
+        detected_from: Optional[int] = None
+        if open_join is not None:
+            detected_from = open_join.get("id_entity_parent")
+            if from_id_entity is not None and detected_from != from_id_entity:
+                raise ValueError(
+                    f"move_device: device {id_device} is currently under "
+                    f"parent {detected_from}, not the expected "
+                    f"{from_id_entity}"
+                )
+            id_conn = open_join.get("id")
+            if id_conn is not None:
+                closed_resp = self.patch_entity_connection(
+                    int(id_conn), time_to=normalized
+                )
+        opened_resp = self.create_entity_connection(
+            id_parent=to_id_entity,
+            id_child=id_device,
+            time_from=normalized,
+            time_to=None,
+        )
+        return {
+            "closed": closed_resp,
+            "opened": opened_resp,
+            "from_id_entity": detected_from,
+            "to_id_entity": to_id_entity,
+        }
+
+    # ---------------------------------------------------------------------
+    # Maintenance (vitjun)
+    # ---------------------------------------------------------------------
+
+    #: Reason codes accepted by :meth:`add_maintenance_visit`. Each maps
+    #: to a ``reason_*`` boolean attribute on the maintenance record.
+    MAINTENANCE_REASON_CODES = frozenset(
+        {"change", "repairs", "inspection", "improvements", "other"}
+    )
+
+    def list_maintenance_visits(self, id_entity: int) -> List[Dict[str, Any]]:
+        """List all vitjun (maintenance) records for an entity.
+
+        Returns the flat shape used by the TOS web UI (``reason``,
+        ``work``, ``remaining``, ``participants``,
+        ``participants_names``, ``maintenance_type``, ``start_time``,
+        ``end_time``, ``completed``, ``id``).
+
+        Args:
+            id_entity: Entity to query (e.g. a station's id_entity).
+
+        Returns:
+            List of maintenance dicts, oldest first. Empty list if
+            none exist or the entity is unknown.
+        """
+        result = self._request("GET", f"/maintenances/id_entity/{id_entity}")
+        return result if isinstance(result, list) else []
+
+    def get_maintenance_visit(
+        self, id_maintenance: int
+    ) -> Optional[Dict[str, Any]]:
+        """Return full detail for one vitjun, including attribute rows.
+
+        Unlike :meth:`list_maintenance_visits`, this returns the
+        ``maintenance_attribute_values`` array with each row's
+        ``id_maintenance_attribute_value`` — needed to PUT updates.
+
+        Args:
+            id_maintenance: The maintenance record's primary key.
+
+        Returns:
+            Detail dict, or ``None`` if not found. Keys include
+            ``id_maintenance``, ``maintenance_type``, ``start_time``,
+            ``end_time``, ``participants``, ``completed``,
+            ``maintenance_attribute_values``, and ``employees``.
+        """
+        result = self._request(
+            "GET", f"/maintenance/id_maintenance/{id_maintenance}"
+        )
+        return result if isinstance(result, dict) else None
+
+    def add_maintenance_visit(
+        self,
+        id_entity: int,
+        *,
+        start_time: str,
+        end_time: Optional[str] = None,
+        maintenance_type: str = "on_site",
+        participants: str = "",
+        reasons: Optional[List[str]] = None,
+        work: Optional[str] = None,
+        comment: Optional[str] = None,
+        remaining: Optional[str] = None,
+        completed: bool = True,
+    ) -> Dict[str, Any]:
+        """Create a new vitjun (visit/maintenance record) on an entity.
+
+        Three-call flow:
+          1. ``POST /maintenances/id_entity/{id_entity}`` — creates
+             the record and auto-seeds ``maintenance_attribute_value``
+             rows for the applicable maintenance attributes.
+          2. ``GET /maintenance/id_maintenance/{new_id}`` — discover
+             the seeded value-row IDs (TOS does not return them on
+             POST).
+          3. ``PUT /maintenance/id_maintenance/{new_id}`` — fill in
+             the slots requested (reason booleans + work / comment /
+             remaining text).
+
+        Args:
+            id_entity: Target station (id_entity).
+            start_time: ISO-8601 datetime the visit started. Accepts
+                ``YYYY-MM-DD`` (promoted to midnight) or a full ISO
+                datetime.
+            end_time: ISO-8601 datetime the visit ended. Defaults to
+                ``start_time`` (instantaneous visit).
+            maintenance_type: ``"on_site"`` (Staðarvitjun) or
+                ``"remote"`` (Fjarvitjun). Default ``"on_site"``.
+            participants: Comma-separated emails (e.g.
+                ``"bgo@vedur.is,bhb@vedur.is"``). TOS resolves to
+                ``participants_names`` on read.
+            reasons: Subset of
+                :attr:`MAINTENANCE_REASON_CODES`. Each maps to the
+                ``reason_*`` boolean. Default ``None`` = no reasons
+                set true. Unknown codes raise ``ValueError``.
+            work: Free-text "Framkvæmt" / "Vinna" description.
+            comment: Free-text "Athugasemdir".
+            remaining: Free-text "Útistandandi" outstanding work.
+            completed: Whether the visit is closed. Default ``True``.
+
+        Returns:
+            ``{"id_maintenance": <new_id>, "created": <post_response>,
+               "updated": <put_response>}``. In dry-run mode the
+            create step returns a :class:`DryRunResult` and the
+            method short-circuits with ``id_maintenance="<dry-run>"``
+            and ``updated=None`` (we cannot discover seeded IDs
+            without sending the POST).
+        """
+        if reasons:
+            unknown = set(reasons) - self.MAINTENANCE_REASON_CODES
+            if unknown:
+                raise ValueError(
+                    f"add_maintenance_visit: unknown reason codes "
+                    f"{sorted(unknown)} — allowed: "
+                    f"{sorted(self.MAINTENANCE_REASON_CODES)}"
+                )
+        if maintenance_type not in ("on_site", "remote"):
+            raise ValueError(
+                f"add_maintenance_visit: maintenance_type must be "
+                f"'on_site' or 'remote', got {maintenance_type!r}"
+            )
+
+        norm_start = self._tos_date(start_time)
+        norm_end = self._tos_date(end_time or start_time)
+
+        created = self._request(
+            "POST",
+            f"/maintenances/id_entity/{id_entity}",
+            data={
+                "maintenance_type": maintenance_type,
+                "start_time": norm_start,
+                "end_time": norm_end,
+            },
+        )
+
+        if isinstance(created, DryRunResult):
+            return {
+                "id_maintenance": "<dry-run>",
+                "created": created,
+                "updated": None,
+            }
+
+        new_id = created.get("id") if isinstance(created, dict) else None
+        if new_id is None:
+            raise RuntimeError(
+                f"add_maintenance_visit: POST returned no id; got "
+                f"{created!r}"
+            )
+        new_id = int(new_id)
+
+        detail = self.get_maintenance_visit(new_id)
+        if not detail:
+            raise RuntimeError(
+                f"add_maintenance_visit: created maintenance {new_id} "
+                f"but the follow-up GET returned no detail (cannot "
+                f"discover seeded attribute IDs)"
+            )
+
+        by_code: Dict[str, int] = {}
+        for av in detail.get("maintenance_attribute_values") or []:
+            code = av.get("code")
+            av_id = av.get("id_maintenance_attribute_value")
+            if code and av_id is not None and code not in by_code:
+                by_code[code] = int(av_id)
+
+        values: List[Dict[str, Any]] = []
+        reason_set = set(reasons or [])
+        for r in ("change", "repairs", "inspection", "improvements", "other"):
+            attr_code = f"reason_{r}"
+            if attr_code in by_code:
+                values.append(
+                    {
+                        "id_maintenance_attribute_value": by_code[attr_code],
+                        "value": "true" if r in reason_set else "false",
+                    }
+                )
+        for code, value in (
+            ("work", work),
+            ("comment", comment),
+            ("remaining", remaining),
+        ):
+            if value is not None and code in by_code:
+                values.append(
+                    {
+                        "id_maintenance_attribute_value": by_code[code],
+                        "value": value,
+                    }
+                )
+
+        updated = self._request(
+            "PUT",
+            f"/maintenance/id_maintenance/{new_id}",
+            data={
+                "participants": participants,
+                "start_time": norm_start,
+                "end_time": norm_end,
+                "completed": completed,
+                "maintenance_attribute_values": values,
+            },
+        )
+        return {
+            "id_maintenance": new_id,
+            "created": created,
+            "updated": updated,
+        }
+
+    def update_maintenance_visit(
+        self,
+        id_maintenance: int,
+        *,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        participants: Optional[str] = None,
+        completed: Optional[bool] = None,
+        reasons: Optional[List[str]] = None,
+        work: Optional[str] = None,
+        comment: Optional[str] = None,
+        remaining: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Edit an existing vitjun (maintenance) record in place.
+
+        TOS only exposes a full-record PUT, so this method fetches the
+        current state, merges in only the fields the caller supplied,
+        and re-PUTs the result. Fields passed as ``None`` are
+        preserved at their current TOS values; explicit ``""`` is a
+        write (sets the field to empty).
+
+        ``reasons`` is a *replacement* set: passing
+        ``reasons=["change"]`` sets ``reason_change=true`` and all
+        other reason booleans to ``false``. Pass ``None`` (or omit) to
+        preserve the current reason flags entirely.
+
+        Args:
+            id_maintenance: ``id_maintenance`` of the vitjun to edit.
+            start_time / end_time / participants / completed: See
+                :meth:`add_maintenance_visit`.
+            reasons: Replacement reason set or ``None`` to preserve.
+            work / comment / remaining: New text or ``None`` to
+                preserve.
+
+        Returns:
+            ``{"id_maintenance": int, "updated": <put_response>,
+               "before": <prior_state>, "after": <merged_payload>}``.
+            In dry-run mode the PUT step returns a
+            :class:`DryRunResult` but the merge is still computed so
+            callers can review the payload via ``after``.
+
+        Raises:
+            RuntimeError: If the maintenance id is unknown to TOS.
+            ValueError: For unknown reason codes.
+        """
+        if reasons:
+            unknown = set(reasons) - self.MAINTENANCE_REASON_CODES
+            if unknown:
+                raise ValueError(
+                    f"update_maintenance_visit: unknown reason codes "
+                    f"{sorted(unknown)} — allowed: "
+                    f"{sorted(self.MAINTENANCE_REASON_CODES)}"
+                )
+
+        current = self.get_maintenance_visit(id_maintenance)
+        if not current:
+            raise RuntimeError(
+                f"update_maintenance_visit: no maintenance with id "
+                f"{id_maintenance} (GET returned empty)"
+            )
+
+        merged_start = (
+            self._tos_date(start_time) if start_time is not None
+            else current.get("start_time")
+        )
+        merged_end = (
+            self._tos_date(end_time) if end_time is not None
+            else current.get("end_time")
+        )
+        merged_participants = (
+            participants if participants is not None
+            else (current.get("participants") or "")
+        )
+        merged_completed = (
+            completed if completed is not None
+            else bool(current.get("completed", True))
+        )
+
+        # Build the attribute_values list — preserve every current
+        # row's value unless caller overrides via reasons / work /
+        # comment / remaining.
+        reason_set = set(reasons) if reasons is not None else None
+        text_overrides = {"work": work, "comment": comment, "remaining": remaining}
+
+        values: List[Dict[str, Any]] = []
+        for av in current.get("maintenance_attribute_values") or []:
+            code = av.get("code")
+            av_id = av.get("id_maintenance_attribute_value")
+            if code is None or av_id is None:
+                continue
+
+            if code.startswith("reason_") and reason_set is not None:
+                # Replacement mode — set per the new reason set
+                reason_key = code[len("reason_"):]
+                new_val = "true" if reason_key in reason_set else "false"
+            elif code in text_overrides and text_overrides[code] is not None:
+                new_val = text_overrides[code]
+            else:
+                # Preserve current value
+                new_val = av.get("value", "")
+
+            values.append(
+                {
+                    "id_maintenance_attribute_value": int(av_id),
+                    "value": new_val,
+                }
+            )
+
+        payload = {
+            "participants": merged_participants,
+            "start_time": merged_start,
+            "end_time": merged_end,
+            "completed": merged_completed,
+            "maintenance_attribute_values": values,
+        }
+
+        updated = self._request(
+            "PUT",
+            f"/maintenance/id_maintenance/{id_maintenance}",
+            data=payload,
+        )
+        return {
+            "id_maintenance": id_maintenance,
+            "updated": updated,
+            "before": current,
+            "after": payload,
+        }
 
 
 # ---------------------------------------------------------------------------
