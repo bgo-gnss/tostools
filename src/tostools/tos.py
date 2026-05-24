@@ -3068,6 +3068,8 @@ _SUPPORTED_VERBS = (
     "fill-gap",
     "move",
     "patch-attribute-date",
+    "patch-attribute-value",
+    "patch-join-date",
 )
 
 
@@ -3234,6 +3236,32 @@ def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]
                         "<code> <value> <date_from> "
                         "(quote the value if it contains spaces, e.g. "
                         "'GPS stöð')"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        if verb == "patch-attribute-value" and len(tokens) != 6:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "patch-attribute-value requires exactly three "
+                        "arguments: <code> <date_from_match> <new_value> "
+                        "(quote the value if it contains spaces)"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        if verb == "patch-join-date" and len(tokens) != 6:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "patch-join-date requires exactly three arguments: "
+                        "<id_connection> <field> <new_date> "
+                        "(field is time_from or time_to)"
                     ),
                     raw=raw,
                 )
@@ -3736,6 +3764,256 @@ def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
     )
 
 
+def _dispatch_patch_attribute_value(writer, action: ParsedAction) -> ActionResult:
+    """Correct a wrong attribute value in-place (Pattern 1 / Pattern 4).
+
+    Action shape: ``ACTION <id_entity> patch-attribute-value <code>
+    <date_from_match> <new_value>``. Same date-prefix lookup as
+    :func:`_dispatch_patch_attribute_date` (match by ``YYYY-MM-DD``
+    prefix, refuse on 0 or >1 matches), but PATCHes the ``value`` field
+    instead of ``date_from``.
+
+    Use case
+    --------
+    TOS holds a wrong value for a known time period — e.g. a serial
+    recorded as ``"UNKNOWN"`` that the reference source says is
+    ``"3163"``, or a misspelled station name. The time period itself is
+    correct; only the stored value is wrong. PATCH overwrites in place
+    (history-destructive); use a transition verb instead if the value
+    actually changed at a date and the old value should be preserved.
+
+    Pre-flight checks
+    -----------------
+    * **Placeholder rejection** — refuses literal ``<FILL_*>`` markers.
+    * **Date format** — ``date_from_match`` must look like YYYY-MM-DD.
+    * **Idempotence** — if the matched period already holds the requested
+      value, returns ``status="ok"`` with "already present" detail and
+      skips the PATCH.
+    """
+    code = action.args[0]
+    old_date_raw = action.args[1]
+    new_value = action.args[2]
+
+    # Placeholder rejection — same contract as add-attribute.
+    if new_value.startswith("<") and new_value.endswith(">"):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: value placeholder {new_value!r} not "
+                "replaced — fill in the value before applying"
+            ),
+        )
+    if old_date_raw.startswith("<") and old_date_raw.endswith(">"):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: date placeholder {old_date_raw!r} not "
+                "replaced — fill in the date_from_match before applying"
+            ),
+        )
+
+    old_date = old_date_raw[:10]
+    if len(old_date) != 10 or old_date[4] != "-" or old_date[7] != "-":
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: date_from_match must be YYYY-MM-DD "
+                f"(got {old_date_raw!r})"
+            ),
+        )
+
+    try:
+        attrs = writer.get_attribute_values(action.id_entity, code)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"get_attribute_values raised: {exc}",
+        )
+
+    matches: List[Dict[str, Any]] = []
+    for a in attrs:
+        df = a.get("date_from")
+        if not df:
+            continue
+        if str(df)[:10] == old_date:
+            matches.append(a)
+
+    if not matches:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: no period found for "
+                f"id_entity={action.id_entity} code={code!r} "
+                f"date_from={old_date} (re-audit and regenerate triage)"
+            ),
+        )
+    if len(matches) > 1:
+        ids = ", ".join(str(a.get("id_attribute_value")) for a in matches)
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: {len(matches)} periods match "
+                f"id_entity={action.id_entity} code={code!r} "
+                f"date_from={old_date} (id_attribute_value: {ids}); "
+                "refusing to PATCH ambiguously — disambiguate manually"
+            ),
+        )
+
+    target = matches[0]
+    current_value = target.get("value")
+    if str(current_value) == new_value:
+        return ActionResult(
+            action=action,
+            status="ok",
+            detail=(
+                f"already present: period for {code!r} on "
+                f"id_entity={action.id_entity} date_from={old_date} already "
+                f"has value {new_value!r} (no-op)"
+            ),
+        )
+
+    id_av_raw = target.get("id_attribute_value")
+    if id_av_raw is None:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "patch-attribute-value: matching period has no "
+                "id_attribute_value (partial payload); rerun later"
+            ),
+        )
+
+    try:
+        id_av = int(id_av_raw)
+    except (TypeError, ValueError):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: id_attribute_value={id_av_raw!r} "
+                "is not an integer (unexpected TOS payload shape)"
+            ),
+        )
+
+    try:
+        response = writer.patch_attribute_value(id_av, value=new_value)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch_attribute_value raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"PATCH /attribute_value/{id_av} "
+            f"value {current_value!r} → {new_value!r} "
+            f"(code={code!r} date_from={old_date}) — {response!r}"
+        ),
+    )
+
+
+_PATCH_JOIN_DATE_FIELDS = ("time_from", "time_to")
+
+
+def _dispatch_patch_join_date(writer, action: ParsedAction) -> ActionResult:
+    """PATCH a single date field on an existing join row.
+
+    Action shape: ``ACTION <id_device> patch-join-date <id_connection>
+    <field> <new_date>`` where ``field ∈ {time_from, time_to}``. Used
+    for missing-join backfills (extend ``time_from`` back to the real
+    deployment date) and historical join close-out corrections.
+
+    Field whitelist
+    ---------------
+    Only ``time_from`` and ``time_to`` are accepted. The underlying
+    :meth:`TOSWriter.patch_entity_connection` will happily PATCH
+    ``id_entity_parent`` / ``id_entity_child`` too, but that is the
+    semantics of ``move`` (close+open) — refuse it here so this verb
+    can't be misused as a backdoor reparent.
+
+    Trust model
+    -----------
+    ``id_connection`` is trusted without verifying that it belongs to
+    ``id_entity``. Same precedent as :func:`_dispatch_fill_gap`. The
+    pre-flight table + dry-run review is the safety net.
+    """
+    connection_token, field, new_date = (
+        action.args[0],
+        action.args[1],
+        action.args[2],
+    )
+
+    try:
+        id_connection = int(connection_token)
+    except ValueError:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-join-date requires integer id_connection, got "
+                f"{connection_token!r}"
+            ),
+        )
+
+    if field not in _PATCH_JOIN_DATE_FIELDS:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-join-date: field must be one of "
+                f"{', '.join(_PATCH_JOIN_DATE_FIELDS)} (got {field!r}). "
+                "Use the move verb to reparent."
+            ),
+        )
+
+    if new_date.startswith("<") and new_date.endswith(">"):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-join-date: date placeholder {new_date!r} not "
+                "replaced — fill in the new date before applying"
+            ),
+        )
+
+    date_prefix = new_date[:10]
+    if len(date_prefix) != 10 or date_prefix[4] != "-" or date_prefix[7] != "-":
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-join-date: new_date must be YYYY-MM-DD " f"(got {new_date!r})"
+            ),
+        )
+
+    try:
+        response = writer.patch_entity_connection(id_connection, **{field: new_date})
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch_entity_connection raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"PATCH /join/{id_connection} {field}={new_date} "
+            f"(device={action.id_entity}) — {response!r}"
+        ),
+    )
+
+
 def _dispatch_action(
     writer,
     action: ParsedAction,
@@ -3773,6 +4051,10 @@ def _dispatch_action(
         return _dispatch_fill_gap(writer, action)
     if action.verb == "patch-attribute-date":
         return _dispatch_patch_attribute_date(writer, action)
+    if action.verb == "patch-attribute-value":
+        return _dispatch_patch_attribute_value(writer, action)
+    if action.verb == "patch-join-date":
+        return _dispatch_patch_join_date(writer, action)
     if action.verb == "add-attribute":
         return _dispatch_add_attribute(writer, action)
     if action.verb == "change-subtype":

@@ -1009,9 +1009,7 @@ def test_dispatch_add_attribute_happy_path():
 
     result = _dispatch_action(
         writer,
-        _make_action(
-            4257, "add-attribute", "date_start", "2010-06-15", "2010-06-15"
-        ),
+        _make_action(4257, "add-attribute", "date_start", "2010-06-15", "2010-06-15"),
     )
 
     assert result.status == "ok"
@@ -1030,9 +1028,7 @@ def test_dispatch_add_attribute_quoted_value_passes_through():
 
     result = _dispatch_action(
         writer,
-        _make_action(
-            4390, "add-attribute", "subtype", "GPS stöð", "2001-07-19"
-        ),
+        _make_action(4390, "add-attribute", "subtype", "GPS stöð", "2001-07-19"),
     )
 
     assert result.status == "ok"
@@ -1052,9 +1048,7 @@ def test_dispatch_add_attribute_same_value_is_no_op():
 
     result = _dispatch_action(
         writer,
-        _make_action(
-            4257, "add-attribute", "date_start", "2010-06-15", "2010-06-15"
-        ),
+        _make_action(4257, "add-attribute", "date_start", "2010-06-15", "2010-06-15"),
     )
 
     assert result.status == "ok"
@@ -1074,9 +1068,7 @@ def test_dispatch_add_attribute_different_value_refuses():
 
     result = _dispatch_action(
         writer,
-        _make_action(
-            4390, "add-attribute", "subtype", "GPS stöð", "2001-07-19"
-        ),
+        _make_action(4390, "add-attribute", "subtype", "GPS stöð", "2001-07-19"),
     )
 
     assert result.status == "failed"
@@ -1096,9 +1088,7 @@ def test_dispatch_add_attribute_multiple_open_periods_refuses():
 
     result = _dispatch_action(
         writer,
-        _make_action(
-            4390, "add-attribute", "subtype", "GPS stöð", "2001-07-19"
-        ),
+        _make_action(4390, "add-attribute", "subtype", "GPS stöð", "2001-07-19"),
     )
 
     assert result.status == "failed"
@@ -1113,9 +1103,7 @@ def test_dispatch_add_attribute_fill_value_placeholder_refuses():
 
     result = _dispatch_action(
         writer,
-        _make_action(
-            4257, "add-attribute", "note", "<FILL_VALUE>", "2010-01-01"
-        ),
+        _make_action(4257, "add-attribute", "note", "<FILL_VALUE>", "2010-01-01"),
     )
 
     assert result.status == "failed"
@@ -1129,9 +1117,7 @@ def test_dispatch_add_attribute_fill_date_placeholder_refuses():
 
     result = _dispatch_action(
         writer,
-        _make_action(
-            4257, "add-attribute", "date_start", "2010-01-01", "<FILL_DATE>"
-        ),
+        _make_action(4257, "add-attribute", "date_start", "2010-01-01", "<FILL_DATE>"),
     )
 
     assert result.status == "failed"
@@ -1144,9 +1130,7 @@ def test_dispatch_add_attribute_invalid_date_format_refuses():
 
     result = _dispatch_action(
         writer,
-        _make_action(
-            4257, "add-attribute", "date_start", "2010-01-01", "not-a-date"
-        ),
+        _make_action(4257, "add-attribute", "date_start", "2010-01-01", "not-a-date"),
     )
 
     assert result.status == "failed"
@@ -1162,9 +1146,7 @@ def test_dispatch_add_attribute_get_raises_returns_failed():
 
     result = _dispatch_action(
         writer,
-        _make_action(
-            4257, "add-attribute", "date_start", "2010-06-15", "2010-06-15"
-        ),
+        _make_action(4257, "add-attribute", "date_start", "2010-06-15", "2010-06-15"),
     )
 
     assert result.status == "failed"
@@ -1181,9 +1163,7 @@ def test_dispatch_add_attribute_writer_raises_returns_failed():
 
     result = _dispatch_action(
         writer,
-        _make_action(
-            4257, "add-attribute", "date_start", "2010-06-15", "2010-06-15"
-        ),
+        _make_action(4257, "add-attribute", "date_start", "2010-06-15", "2010-06-15"),
     )
 
     assert result.status == "failed"
@@ -1197,11 +1177,17 @@ def test_dispatch_add_attribute_skips_closed_periods_for_conflict_check():
     # All existing periods are closed → still allowed to add a new open one.
     writer.get_attribute_values.return_value = [
         _attr_value(
-            50001, "subtype", "Old", "2001-01-01 00:00:00",
+            50001,
+            "subtype",
+            "Old",
+            "2001-01-01 00:00:00",
             date_to="2005-12-31 00:00:00",
         ),
         _attr_value(
-            50002, "subtype", "Older", "1995-01-01 00:00:00",
+            50002,
+            "subtype",
+            "Older",
+            "1995-01-01 00:00:00",
             date_to="2000-12-31 00:00:00",
         ),
     ]
@@ -1209,12 +1195,534 @@ def test_dispatch_add_attribute_skips_closed_periods_for_conflict_check():
 
     result = _dispatch_action(
         writer,
-        _make_action(
-            4390, "add-attribute", "subtype", "GPS stöð", "2006-01-01"
-        ),
+        _make_action(4390, "add-attribute", "subtype", "GPS stöð", "2006-01-01"),
     )
 
     assert result.status == "ok"
     writer.add_attribute_value.assert_called_once_with(
         4390, "subtype", "GPS stöð", "2006-01-01"
     )
+
+
+# ---------------------------------------------------------------------------
+# _parse_action_file — patch-attribute-value verb
+# ---------------------------------------------------------------------------
+
+
+def test_parse_action_file_patch_attribute_value_three_args():
+    text = "ACTION 4773 patch-attribute-value serial_number 2006-06-29 3163\n"
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert len(actions) == 1
+    assert actions[0].verb == "patch-attribute-value"
+    assert actions[0].args == ["serial_number", "2006-06-29", "3163"]
+
+
+def test_parse_action_file_patch_attribute_value_quoted_value():
+    """Values with spaces must be quoted — same shlex behaviour as add-attribute."""
+    text = "ACTION 4258 patch-attribute-value name 2006-06-29 'Hedinshofdi, IS'\n"
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert actions[0].args == ["name", "2006-06-29", "Hedinshofdi, IS"]
+
+
+def test_parse_action_file_patch_attribute_value_rejects_too_few_args():
+    text = "ACTION 4773 patch-attribute-value serial_number 2006-06-29\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "patch-attribute-value requires exactly three arguments" in (
+        errors[0].message
+    )
+
+
+def test_parse_action_file_patch_attribute_value_rejects_extra_args():
+    text = "ACTION 4773 patch-attribute-value serial_number 2006-06-29 3163 EXTRA\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "patch-attribute-value requires exactly three arguments" in (
+        errors[0].message
+    )
+
+
+# ---------------------------------------------------------------------------
+# _dispatch_action — patch-attribute-value
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_patch_attribute_value_happy_path():
+    """The dispatcher must (a) look up the period via get_attribute_values,
+    (b) match by date-only prefix, (c) PATCH the right id with the new value."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(60001, "serial_number", "UNKNOWN", "2006-06-29 00:00:00"),
+        _attr_value(60002, "model", "ASHTECH UZ-12", "2002-01-01 00:00:00"),
+    ]
+    writer.patch_attribute_value.return_value = {"ok": True}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-value",
+            "serial_number",
+            "2006-06-29",
+            "3163",
+        ),
+    )
+
+    assert result.status == "ok"
+    writer.get_attribute_values.assert_called_once_with(4773, "serial_number")
+    writer.patch_attribute_value.assert_called_once_with(60001, value="3163")
+    assert "PATCH /attribute_value/60001" in result.detail
+    assert "'UNKNOWN' → '3163'" in result.detail
+
+
+def test_dispatch_patch_attribute_value_normalises_tos_datetime():
+    """TOS stores `2006-06-29 00:00:00` but the triage carries `2006-06-29`.
+    The date-prefix match must succeed — regression guard mirroring the
+    patch-attribute-date test of the same name."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(60001, "serial_number", "UNKNOWN", "2006-06-29 00:00:00"),
+    ]
+    writer.patch_attribute_value.return_value = {"ok": True}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-value",
+            "serial_number",
+            "2006-06-29",
+            "3163",
+        ),
+    )
+    assert result.status == "ok"
+    writer.patch_attribute_value.assert_called_once_with(60001, value="3163")
+
+
+def test_dispatch_patch_attribute_value_idempotent_no_op():
+    """If the matched period already holds the requested value, return ok
+    and skip the PATCH — same shape as add-attribute's no-op path."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(60001, "serial_number", "3163", "2006-06-29 00:00:00"),
+    ]
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-value",
+            "serial_number",
+            "2006-06-29",
+            "3163",
+        ),
+    )
+    assert result.status == "ok"
+    assert "already present" in result.detail
+    writer.patch_attribute_value.assert_not_called()
+
+
+def test_dispatch_patch_attribute_value_zero_matches_fails():
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(60001, "serial_number", "UNKNOWN", "2010-01-01 00:00:00"),
+    ]
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-value",
+            "serial_number",
+            "2006-06-29",
+            "3163",
+        ),
+    )
+    assert result.status == "failed"
+    assert "no period found" in result.detail
+    writer.patch_attribute_value.assert_not_called()
+
+
+def test_dispatch_patch_attribute_value_ambiguous_match_fails():
+    """Two periods with the same date_only date_from → refuse to PATCH,
+    same silent-corruption guard as patch-attribute-date."""
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(60001, "serial_number", "OLD", "2006-06-29 00:00:00"),
+        _attr_value(60002, "serial_number", "OTHER", "2006-06-29 12:00:00"),
+    ]
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-value",
+            "serial_number",
+            "2006-06-29",
+            "3163",
+        ),
+    )
+    assert result.status == "failed"
+    assert "2 periods match" in result.detail
+    assert "ambiguously" in result.detail
+    writer.patch_attribute_value.assert_not_called()
+
+
+def test_dispatch_patch_attribute_value_missing_id_attribute_value_fails():
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        {
+            "code": "serial_number",
+            "value": "UNKNOWN",
+            "date_from": "2006-06-29 00:00:00",
+            "date_to": None,
+            # No id_attribute_value
+        },
+    ]
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-value",
+            "serial_number",
+            "2006-06-29",
+            "3163",
+        ),
+    )
+    assert result.status == "failed"
+    assert "id_attribute_value" in result.detail
+    writer.patch_attribute_value.assert_not_called()
+
+
+def test_dispatch_patch_attribute_value_rejects_bad_date_format():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-value",
+            "serial_number",
+            "not-a-date",
+            "3163",
+        ),
+    )
+    assert result.status == "failed"
+    assert "YYYY-MM-DD" in result.detail
+    writer.get_attribute_values.assert_not_called()
+
+
+def test_dispatch_patch_attribute_value_fill_value_placeholder_refuses():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-value",
+            "serial_number",
+            "2006-06-29",
+            "<FILL_VALUE>",
+        ),
+    )
+    assert result.status == "failed"
+    assert "<FILL_VALUE>" in result.detail
+    writer.get_attribute_values.assert_not_called()
+
+
+def test_dispatch_patch_attribute_value_fill_date_placeholder_refuses():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-value",
+            "serial_number",
+            "<FILL_DATE>",
+            "3163",
+        ),
+    )
+    assert result.status == "failed"
+    assert "<FILL_DATE>" in result.detail
+    writer.get_attribute_values.assert_not_called()
+
+
+def test_dispatch_patch_attribute_value_captures_writer_exception():
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(60001, "serial_number", "UNKNOWN", "2006-06-29 00:00:00"),
+    ]
+    writer.patch_attribute_value.side_effect = RuntimeError("simulated 500")
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-value",
+            "serial_number",
+            "2006-06-29",
+            "3163",
+        ),
+    )
+    assert result.status == "failed"
+    assert "patch_attribute_value raised" in result.detail
+    assert "simulated 500" in result.detail
+
+
+def test_dispatch_patch_attribute_value_captures_read_exception():
+    writer = MagicMock()
+    writer.get_attribute_values.side_effect = RuntimeError("simulated 503")
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4773,
+            "patch-attribute-value",
+            "serial_number",
+            "2006-06-29",
+            "3163",
+        ),
+    )
+    assert result.status == "failed"
+    assert "get_attribute_values raised" in result.detail
+    writer.patch_attribute_value.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _parse_action_file — patch-join-date verb
+# ---------------------------------------------------------------------------
+
+
+def test_parse_action_file_patch_join_date_three_args():
+    text = "ACTION 17234 patch-join-date 28104 time_from 2012-06-27\n"
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert len(actions) == 1
+    assert actions[0].verb == "patch-join-date"
+    assert actions[0].args == ["28104", "time_from", "2012-06-27"]
+
+
+def test_parse_action_file_patch_join_date_rejects_too_few_args():
+    text = "ACTION 17234 patch-join-date 28104 time_from\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "patch-join-date requires exactly three arguments" in errors[0].message
+
+
+def test_parse_action_file_patch_join_date_rejects_extra_args():
+    text = "ACTION 17234 patch-join-date 28104 time_from 2012-06-27 EXTRA\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "patch-join-date requires exactly three arguments" in errors[0].message
+
+
+# ---------------------------------------------------------------------------
+# _dispatch_action — patch-join-date
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_patch_join_date_extend_time_from():
+    writer = MagicMock()
+    writer.patch_entity_connection.return_value = {"ok": True}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(17234, "patch-join-date", "28104", "time_from", "2012-06-27"),
+    )
+
+    assert result.status == "ok"
+    writer.patch_entity_connection.assert_called_once_with(
+        28104, time_from="2012-06-27"
+    )
+    assert "PATCH /join/28104" in result.detail
+    assert "time_from=2012-06-27" in result.detail
+
+
+def test_dispatch_patch_join_date_close_time_to():
+    writer = MagicMock()
+    writer.patch_entity_connection.return_value = {"ok": True}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(17234, "patch-join-date", "28104", "time_to", "2014-10-17"),
+    )
+
+    assert result.status == "ok"
+    writer.patch_entity_connection.assert_called_once_with(28104, time_to="2014-10-17")
+
+
+def test_dispatch_patch_join_date_rejects_non_int_connection():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(17234, "patch-join-date", "nope", "time_from", "2012-06-27"),
+    )
+    assert result.status == "failed"
+    assert "integer id_connection" in result.detail
+    writer.patch_entity_connection.assert_not_called()
+
+
+def test_dispatch_patch_join_date_rejects_field_outside_whitelist():
+    """The writer would happily PATCH id_entity_parent — but that's the
+    semantics of `move`. Block it here so this verb can't backdoor a reparent."""
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(17234, "patch-join-date", "28104", "id_entity_parent", "9999"),
+    )
+    assert result.status == "failed"
+    assert "field must be one of" in result.detail
+    assert "move verb to reparent" in result.detail
+    writer.patch_entity_connection.assert_not_called()
+
+
+def test_dispatch_patch_join_date_rejects_bad_date_format():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(17234, "patch-join-date", "28104", "time_from", "not-a-date"),
+    )
+    assert result.status == "failed"
+    assert "YYYY-MM-DD" in result.detail
+    writer.patch_entity_connection.assert_not_called()
+
+
+def test_dispatch_patch_join_date_rejects_placeholder():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(17234, "patch-join-date", "28104", "time_from", "<FILL_DATE>"),
+    )
+    assert result.status == "failed"
+    assert "<FILL_DATE>" in result.detail
+    writer.patch_entity_connection.assert_not_called()
+
+
+def test_dispatch_patch_join_date_captures_writer_exception():
+    writer = MagicMock()
+    writer.patch_entity_connection.side_effect = RuntimeError("simulated 500")
+    result = _dispatch_action(
+        writer,
+        _make_action(17234, "patch-join-date", "28104", "time_from", "2012-06-27"),
+    )
+    assert result.status == "failed"
+    assert "patch_entity_connection raised" in result.detail
+    assert "simulated 500" in result.detail
+
+
+# ---------------------------------------------------------------------------
+# HEDI fixture — the todo #22 scenario end-to-end through the dispatcher
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_hedi_scenario_all_three_correction_verbs():
+    """Cover HEDI todo #22 (2006-180 PolaRX2 wrong serial, missing antenna
+    serial, missing 2012-179 → 2014-290 NETR9 join window) by dispatching
+    one of each new verb against fixture data shaped like the live TOS
+    response. VPN-unreachable substitute for the live dry-run."""
+    writer = MagicMock()
+
+    # (1) patch-attribute-value — fix PolaRX2 serial UNKNOWN → 3163
+    writer.get_attribute_values.return_value = [
+        _attr_value(70001, "serial_number", "UNKNOWN", "2006-06-29 00:00:00"),
+    ]
+    writer.patch_attribute_value.return_value = {"ok": True}
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            16234,  # PolaRX2 device id (fixture)
+            "patch-attribute-value",
+            "serial_number",
+            "2006-06-29",
+            "3163",
+        ),
+    )
+    assert result.status == "ok"
+    writer.patch_attribute_value.assert_called_once_with(70001, value="3163")
+    writer.reset_mock()
+
+    # (2) add-attribute — fill missing antenna serial 5924 (existing verb,
+    # no-open-period path)
+    writer.get_attribute_values.return_value = []
+    writer.add_attribute_value.return_value = {"id_attribute_value": 70010}
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            16235,  # antenna device id (fixture)
+            "add-attribute",
+            "serial_number",
+            "5924",
+            "2006-06-29",
+        ),
+    )
+    assert result.status == "ok"
+    writer.add_attribute_value.assert_called_once_with(
+        16235, "serial_number", "5924", "2006-06-29"
+    )
+    writer.reset_mock()
+
+    # (3) patch-join-date — extend NETR9 join time_from back to 2012-179
+    writer.patch_entity_connection.return_value = {"ok": True}
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            17234,  # NETR9 device id (fixture)
+            "patch-join-date",
+            "28104",  # the join id currently opening at 2014-290
+            "time_from",
+            "2012-06-27",  # day 179 of 2012
+        ),
+    )
+    assert result.status == "ok"
+    writer.patch_entity_connection.assert_called_once_with(
+        28104, time_from="2012-06-27"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Known limitation — chaining two `move`s on the same device in one apply
+# run uses a stale open-joins cache. Pins observed behavior so the eventual
+# dispatcher fix can flip the assertion. Tracking memory:
+# project_dispatch_move_stale_cache.md
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_two_moves_same_device_uses_stale_cache():
+    """`_build_open_joins_lookup` is called once at `_apply_main` startup,
+    not per action. After the first move closes a device's open join and
+    opens a new one, the cached lookup still points at the now-closed
+    join. A second move on the same device therefore re-closes (PATCHes)
+    the already-closed join with a new time_to instead of operating on
+    the new SAVI join.
+
+    This test does not assert correct behavior — it documents the bug.
+    When `_dispatch_move` is fixed to refresh the cache after a
+    successful open, flip the assertion: the second close should target
+    the SAVI join, not the warehouse join.
+    """
+    writer = MagicMock()
+    writer.create_entity_connection.return_value = {"id_entity_connection": 99999}
+    writer.patch_entity_connection.return_value = {"ok": True}
+
+    warehouse_join = _open_join(parent=4, connection=50001)
+    joins_cache = {99001: warehouse_join}
+
+    # First move: warehouse → SAVI (parent=4440).
+    r1 = _dispatch_action(
+        writer,
+        _make_action(99001, "move", "4440", "2007-08-08"),
+        open_joins_by_device=joins_cache,
+    )
+    # Second move on the same device: SAVI → warehouse (parent=4) at session end.
+    r2 = _dispatch_action(
+        writer,
+        _make_action(99001, "move", "4", "2007-09-07"),
+        open_joins_by_device=joins_cache,
+    )
+
+    assert r1.status == "ok"
+    assert r2.status == "ok"
+
+    # Both moves close `id_connection=50001` — that's the bug. The second
+    # close should have targeted the newly-opened SAVI join. Until the
+    # dispatcher refreshes joins_cache after a successful move, this is
+    # the observed (incorrect) behavior.
+    close_calls = [
+        c for c in writer.patch_entity_connection.call_args_list if c.args == (50001,)
+    ]
+    assert len(close_calls) == 2  # XXX: should be 1 once the bug is fixed
