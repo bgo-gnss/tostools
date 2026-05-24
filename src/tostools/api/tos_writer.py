@@ -983,9 +983,7 @@ class TOSWriter:
             API response (typically empty 204), or
             :class:`DryRunResult` in dry-run mode.
         """
-        return self._request(
-            "DELETE", f"/admin_entity_connection_row/{id_connection}"
-        )
+        return self._request("DELETE", f"/admin_entity_connection_row/{id_connection}")
 
     def transition_attribute_value(
         self,
@@ -1269,9 +1267,7 @@ class TOSWriter:
         result = self._request("GET", f"/maintenances/id_entity/{id_entity}")
         return result if isinstance(result, list) else []
 
-    def get_maintenance_visit(
-        self, id_maintenance: int
-    ) -> Optional[Dict[str, Any]]:
+    def get_maintenance_visit(self, id_maintenance: int) -> Optional[Dict[str, Any]]:
         """Return full detail for one vitjun, including attribute rows.
 
         Unlike :meth:`list_maintenance_visits`, this returns the
@@ -1287,9 +1283,7 @@ class TOSWriter:
             ``end_time``, ``participants``, ``completed``,
             ``maintenance_attribute_values``, and ``employees``.
         """
-        result = self._request(
-            "GET", f"/maintenance/id_maintenance/{id_maintenance}"
-        )
+        result = self._request("GET", f"/maintenance/id_maintenance/{id_maintenance}")
         return result if isinstance(result, dict) else None
 
     def add_maintenance_visit(
@@ -1385,8 +1379,7 @@ class TOSWriter:
         new_id = created.get("id") if isinstance(created, dict) else None
         if new_id is None:
             raise RuntimeError(
-                f"add_maintenance_visit: POST returned no id; got "
-                f"{created!r}"
+                f"add_maintenance_visit: POST returned no id; got " f"{created!r}"
             )
         new_id = int(new_id)
 
@@ -1508,20 +1501,22 @@ class TOSWriter:
             )
 
         merged_start = (
-            self._tos_date(start_time) if start_time is not None
+            self._tos_date(start_time)
+            if start_time is not None
             else current.get("start_time")
         )
         merged_end = (
-            self._tos_date(end_time) if end_time is not None
+            self._tos_date(end_time)
+            if end_time is not None
             else current.get("end_time")
         )
         merged_participants = (
-            participants if participants is not None
+            participants
+            if participants is not None
             else (current.get("participants") or "")
         )
         merged_completed = (
-            completed if completed is not None
-            else bool(current.get("completed", True))
+            completed if completed is not None else bool(current.get("completed", True))
         )
 
         # Build the attribute_values list — preserve every current
@@ -1539,7 +1534,7 @@ class TOSWriter:
 
             if code.startswith("reason_") and reason_set is not None:
                 # Replacement mode — set per the new reason set
-                reason_key = code[len("reason_"):]
+                reason_key = code[len("reason_") :]
                 new_val = "true" if reason_key in reason_set else "false"
             elif code in text_overrides and text_overrides[code] is not None:
                 new_val = text_overrides[code]
