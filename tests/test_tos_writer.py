@@ -955,3 +955,642 @@ def test_create_device_raises_with_empty_serial():
                 }
             ],
         )
+
+
+# ---------------------------------------------------------------------------
+# find_station_by_marker
+# ---------------------------------------------------------------------------
+
+
+def _basic_search_marker_hit(
+    marker: str,
+    entity_id: int,
+    type_lvl_two: str = "stöð",
+    distance: int = 0,
+) -> dict:
+    """Mirror the basic_search hit shape for a marker-attribute match."""
+    return {
+        "code": "marker",
+        "value_varchar": marker,
+        "distance": distance,
+        "id_entity": entity_id,
+        "id_lvl_two": entity_id,
+        "id_lvl_three": None,
+        "type_lvl_two": type_lvl_two,
+        "subtype_lvl_two": "geophysical",
+    }
+
+
+def test_find_station_by_marker_returns_id_on_exact_match():
+    w = _logged_in_writer(dry_run=False)
+    hits = [_basic_search_marker_hit("hrac", entity_id=16096)]
+    with patch.object(w, "_request", return_value=hits):
+        assert w.find_station_by_marker("HRAC") == 16096
+
+
+def test_find_station_by_marker_is_case_insensitive():
+    """TOS stores markers lowercase; the helper accepts either case."""
+    w = _logged_in_writer(dry_run=False)
+    hits = [_basic_search_marker_hit("hrac", entity_id=16096)]
+    with patch.object(w, "_request", return_value=hits):
+        assert w.find_station_by_marker("hrac") == 16096
+    with patch.object(w, "_request", return_value=hits):
+        assert w.find_station_by_marker("Hrac") == 16096
+
+
+def test_find_station_by_marker_returns_none_on_no_match():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request", return_value=[]):
+        assert w.find_station_by_marker("XXXX") is None
+
+
+def test_find_station_by_marker_filters_distance_value_and_type():
+    w = _logged_in_writer(dry_run=False)
+    hits = [
+        _basic_search_marker_hit("hraf", entity_id=999, distance=1),
+        _basic_search_marker_hit("save", entity_id=998),
+        _basic_search_marker_hit(
+            "hrac", entity_id=997, type_lvl_two="vöruhús"
+        ),
+        _basic_search_marker_hit("hrac", entity_id=16096),
+    ]
+    with patch.object(w, "_request", return_value=hits):
+        assert w.find_station_by_marker("HRAC") == 16096
+
+
+def test_find_station_by_marker_empty_short_circuits():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request") as mock_req:
+        assert w.find_station_by_marker("") is None
+    mock_req.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# get_open_parent_join / move_device — Pattern 2 for joins
+# ---------------------------------------------------------------------------
+
+
+def test_get_open_parent_join_returns_open_one():
+    w = _logged_in_writer(dry_run=False)
+    history = [
+        {
+            "id": 100,
+            "id_entity_child": 21501,
+            "id_entity_parent": 1,
+            "time_from": "2020-01-01T00:00:00",
+            "time_to": "2026-05-21T00:00:00",
+        },
+        {
+            "id": 200,
+            "id_entity_child": 21501,
+            "id_entity_parent": 4,
+            "time_from": "2026-05-21T00:00:00",
+            "time_to": None,
+        },
+    ]
+    with patch.object(w, "_request", return_value=history):
+        join = w.get_open_parent_join(21501)
+    assert join is not None
+    assert join["id"] == 200
+    assert join["id_entity_parent"] == 4
+
+
+def test_get_open_parent_join_returns_none_when_no_open():
+    w = _logged_in_writer(dry_run=False)
+    history = [
+        {
+            "id": 100,
+            "id_entity_parent": 1,
+            "time_from": "2020-01-01T00:00:00",
+            "time_to": "2026-05-21T00:00:00",
+        },
+    ]
+    with patch.object(w, "_request", return_value=history):
+        assert w.get_open_parent_join(21501) is None
+
+
+def test_get_open_parent_join_handles_multiple_open():
+    """Defensive: if TOS has >1 open join (invariant violation), pick newest."""
+    w = _logged_in_writer(dry_run=False)
+    history = [
+        {
+            "id": 100,
+            "id_entity_parent": 1,
+            "time_from": "2020-01-01T00:00:00",
+            "time_to": None,
+        },
+        {
+            "id": 200,
+            "id_entity_parent": 4,
+            "time_from": "2026-05-21T00:00:00",
+            "time_to": None,
+        },
+    ]
+    with patch.object(w, "_request", return_value=history):
+        join = w.get_open_parent_join(21501)
+    assert join is not None
+    assert join["id"] == 200
+
+
+def test_move_device_closes_old_and_opens_new():
+    w = _logged_in_writer(dry_run=False)
+    open_join = {
+        "id": 28698,
+        "id_entity_child": 21501,
+        "id_entity_parent": 4,
+        "time_from": "2026-05-21T00:00:00",
+        "time_to": None,
+    }
+    with patch.object(w, "_request") as mock_req:
+        mock_req.side_effect = [
+            [open_join],
+            {"id": 28698, "time_to": "2026-05-22T00:00:00"},
+            {"id_connection": 28699},
+        ]
+        result = w.move_device(21501, 16096, "2026-05-22")
+    assert result["from_id_entity"] == 4
+    assert result["to_id_entity"] == 16096
+    methods = [c.args[0] for c in mock_req.call_args_list]
+    assert methods == ["GET", "PATCH", "POST"]
+    patch_call = mock_req.call_args_list[1]
+    assert patch_call.args[1] == "/join/28698"
+    assert patch_call.kwargs["data"]["time_to"] == "2026-05-22T00:00:00"
+    post_call = mock_req.call_args_list[2]
+    assert post_call.args[1] == "/joins"
+    assert post_call.kwargs["data"]["id_entity_parent"] == 16096
+    assert post_call.kwargs["data"]["id_entity_child"] == 21501
+    assert post_call.kwargs["data"]["time_from"] == "2026-05-22T00:00:00"
+    assert post_call.kwargs["data"]["time_to"] is None
+
+
+def test_move_device_when_no_open_join_still_opens_new():
+    """Floating device (no open parent) — move_device just opens new join."""
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request") as mock_req:
+        mock_req.side_effect = [[], {"id_connection": 99}]
+        result = w.move_device(21501, 16096, "2026-05-22")
+    assert result["closed"] is None
+    assert result["from_id_entity"] is None
+    methods = [c.args[0] for c in mock_req.call_args_list]
+    assert methods == ["GET", "POST"]
+
+
+def test_move_device_raises_when_from_mismatch():
+    w = _logged_in_writer(dry_run=False)
+    open_join = {
+        "id": 100,
+        "id_entity_parent": 4,
+        "time_from": "2026-05-21T00:00:00",
+        "time_to": None,
+    }
+    with patch.object(w, "_request", return_value=[open_join]):
+        with pytest.raises(ValueError, match="currently under parent 4"):
+            w.move_device(21501, 16096, "2026-05-22", from_id_entity=999)
+
+
+def test_move_device_promotes_bare_date():
+    """transition_date as YYYY-MM-DD must promote to full datetime."""
+    w = _logged_in_writer(dry_run=False)
+    open_join = {
+        "id": 100,
+        "id_entity_parent": 4,
+        "time_from": "2026-05-21T00:00:00",
+        "time_to": None,
+    }
+    with patch.object(w, "_request") as mock_req:
+        mock_req.side_effect = [[open_join], {}, {"id_connection": 99}]
+        w.move_device(21501, 16096, "2026-05-22")
+    assert mock_req.call_args_list[1].kwargs["data"]["time_to"] == (
+        "2026-05-22T00:00:00"
+    )
+    assert mock_req.call_args_list[2].kwargs["data"]["time_from"] == (
+        "2026-05-22T00:00:00"
+    )
+
+
+def test_move_device_dry_run_returns_dry_run_results():
+    w = _logged_in_writer(dry_run=True)
+    open_join = {
+        "id": 100,
+        "id_entity_parent": 4,
+        "time_from": "2026-05-21T00:00:00",
+        "time_to": None,
+    }
+
+    def side_effect(method, path, *_a, **kw):
+        if method == "GET":
+            return [open_join]
+        return DryRunResult(method=method, endpoint=path, payload=kw.get("data"))
+
+    with patch.object(w, "_request", side_effect=side_effect):
+        result = w.move_device(21501, 16096, "2026-05-22")
+    assert isinstance(result["closed"], DryRunResult)
+    assert isinstance(result["opened"], DryRunResult)
+
+
+# ---------------------------------------------------------------------------
+# Maintenance / vitjun
+# ---------------------------------------------------------------------------
+
+
+def _maintenance_detail_with_seeded_attrs(
+    id_maintenance: int = 9999,
+    base: int = 80000,
+) -> dict:
+    """Realistic detail-GET shape, with auto-seeded attribute_value rows."""
+    return {
+        "id_maintenance": id_maintenance,
+        "maintenance_type": "on_site",
+        "start_time": "2026-05-22T00:00:00",
+        "end_time": "2026-05-22T00:00:00",
+        "participants": "",
+        "completed": False,
+        "maintenance_attribute_values": [
+            {
+                "code": "reason_change",
+                "id_maintenance_attribute_value": base + 1,
+                "value": "false",
+            },
+            {
+                "code": "reason_repairs",
+                "id_maintenance_attribute_value": base + 2,
+                "value": "false",
+            },
+            {
+                "code": "reason_inspection",
+                "id_maintenance_attribute_value": base + 3,
+                "value": "false",
+            },
+            {
+                "code": "reason_improvements",
+                "id_maintenance_attribute_value": base + 4,
+                "value": "false",
+            },
+            {
+                "code": "reason_other",
+                "id_maintenance_attribute_value": base + 5,
+                "value": "false",
+            },
+            {
+                "code": "work",
+                "id_maintenance_attribute_value": base + 6,
+                "value": "",
+            },
+            {
+                "code": "comment",
+                "id_maintenance_attribute_value": base + 7,
+                "value": "",
+            },
+            {
+                "code": "remaining",
+                "id_maintenance_attribute_value": base + 8,
+                "value": "",
+            },
+        ],
+        "employees": [],
+    }
+
+
+def test_list_maintenance_visits_returns_list():
+    w = _logged_in_writer(dry_run=False)
+    sample = [{"id": 5146, "maintenance_type": "on_site", "reason": "Breyting"}]
+    with patch.object(w, "_request", return_value=sample) as mock_req:
+        assert w.list_maintenance_visits(16096) == sample
+    mock_req.assert_called_once_with("GET", "/maintenances/id_entity/16096")
+
+
+def test_list_maintenance_visits_empty_when_not_list():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request", return_value={"error": "404"}):
+        assert w.list_maintenance_visits(99999) == []
+
+
+def test_get_maintenance_visit_returns_dict():
+    w = _logged_in_writer(dry_run=False)
+    sample = {"id_maintenance": 5146, "maintenance_attribute_values": []}
+    with patch.object(w, "_request", return_value=sample) as mock_req:
+        assert w.get_maintenance_visit(5146) == sample
+    mock_req.assert_called_once_with("GET", "/maintenance/id_maintenance/5146")
+
+
+def test_add_maintenance_visit_validates_unknown_reason():
+    w = _logged_in_writer(dry_run=False)
+    with pytest.raises(ValueError, match="unknown reason codes"):
+        w.add_maintenance_visit(
+            16096, start_time="2026-05-22", reasons=["nope", "change"]
+        )
+
+
+def test_add_maintenance_visit_validates_maintenance_type():
+    w = _logged_in_writer(dry_run=False)
+    with pytest.raises(ValueError, match="maintenance_type must be"):
+        w.add_maintenance_visit(
+            16096, start_time="2026-05-22", maintenance_type="onsite"
+        )
+
+
+def test_add_maintenance_visit_three_call_flow():
+    """POST + GET + PUT with discovered attribute IDs."""
+    w = _logged_in_writer(dry_run=False)
+    created = {
+        "id": 9999,
+        "maintenance_type": "on_site",
+        "start_time": "2026-05-22T00:00:00",
+        "end_time": "2026-05-22T00:00:00",
+    }
+    detail = _maintenance_detail_with_seeded_attrs(9999, base=80000)
+    put_resp = {"ok": True}
+    with patch.object(w, "_request") as mock_req:
+        mock_req.side_effect = [created, detail, put_resp]
+        result = w.add_maintenance_visit(
+            16096,
+            start_time="2026-05-22",
+            maintenance_type="on_site",
+            participants="bgo@vedur.is",
+            reasons=["change"],
+            work="Skipt um móttakara",
+            remaining="Athuga loftnet næst",
+        )
+    assert result["id_maintenance"] == 9999
+    methods = [c.args[0] for c in mock_req.call_args_list]
+    assert methods == ["POST", "GET", "PUT"]
+
+    post_call = mock_req.call_args_list[0]
+    assert post_call.args[1] == "/maintenances/id_entity/16096"
+    assert post_call.kwargs["data"] == {
+        "maintenance_type": "on_site",
+        "start_time": "2026-05-22T00:00:00",
+        "end_time": "2026-05-22T00:00:00",
+    }
+
+    put_call = mock_req.call_args_list[2]
+    assert put_call.args[1] == "/maintenance/id_maintenance/9999"
+    put_body = put_call.kwargs["data"]
+    assert put_body["participants"] == "bgo@vedur.is"
+    assert put_body["completed"] is True
+    assert put_body["start_time"] == "2026-05-22T00:00:00"
+    av_by_id = {
+        row["id_maintenance_attribute_value"]: row["value"]
+        for row in put_body["maintenance_attribute_values"]
+    }
+    assert av_by_id[80001] == "true"   # reason_change
+    assert av_by_id[80002] == "false"  # reason_repairs
+    assert av_by_id[80003] == "false"  # reason_inspection
+    assert av_by_id[80004] == "false"  # reason_improvements
+    assert av_by_id[80005] == "false"  # reason_other
+    assert av_by_id[80006] == "Skipt um móttakara"           # work
+    assert av_by_id[80008] == "Athuga loftnet næst"          # remaining
+    # comment was not supplied → should NOT appear in PUT payload
+    assert 80007 not in av_by_id
+
+
+def test_add_maintenance_visit_dry_run_short_circuits():
+    """In dry-run we cannot discover IDs, so GET+PUT must NOT fire."""
+    w = _logged_in_writer(dry_run=True)
+    with patch.object(w, "_request") as mock_req:
+        mock_req.return_value = DryRunResult(
+            method="POST",
+            endpoint="/maintenances/id_entity/16096",
+            payload={},
+        )
+        result = w.add_maintenance_visit(
+            16096,
+            start_time="2026-05-22",
+            reasons=["change"],
+            work="dry-run test",
+        )
+    assert result["id_maintenance"] == "<dry-run>"
+    assert result["updated"] is None
+    assert mock_req.call_count == 1
+    assert mock_req.call_args.args[0] == "POST"
+
+
+def test_add_maintenance_visit_supports_multiple_reasons():
+    w = _logged_in_writer(dry_run=False)
+    created = {"id": 9999}
+    detail = _maintenance_detail_with_seeded_attrs(9999, base=80000)
+    with patch.object(w, "_request") as mock_req:
+        mock_req.side_effect = [created, detail, {"ok": True}]
+        w.add_maintenance_visit(
+            16096,
+            start_time="2026-05-22",
+            reasons=["change", "repairs"],
+            work="Skipt um móttakara og lagaði kapal",
+        )
+    put_body = mock_req.call_args_list[2].kwargs["data"]
+    av_by_id = {
+        r["id_maintenance_attribute_value"]: r["value"]
+        for r in put_body["maintenance_attribute_values"]
+    }
+    assert av_by_id[80001] == "true"   # change
+    assert av_by_id[80002] == "true"   # repairs
+    assert av_by_id[80003] == "false"  # inspection still false
+
+
+def test_add_maintenance_visit_no_reasons_sets_all_false():
+    """remote vitjun with no `reasons` arg — all reason_* booleans = false."""
+    w = _logged_in_writer(dry_run=False)
+    created = {"id": 9999}
+    detail = _maintenance_detail_with_seeded_attrs(9999, base=80000)
+    with patch.object(w, "_request") as mock_req:
+        mock_req.side_effect = [created, detail, {"ok": True}]
+        w.add_maintenance_visit(
+            16096,
+            start_time="2026-05-22",
+            maintenance_type="remote",
+            work="Stillti hluti yfir SSH",
+        )
+    put_body = mock_req.call_args_list[2].kwargs["data"]
+    av_by_id = {
+        r["id_maintenance_attribute_value"]: r["value"]
+        for r in put_body["maintenance_attribute_values"]
+    }
+    for attr_id in (80001, 80002, 80003, 80004, 80005):
+        assert av_by_id[attr_id] == "false"
+
+
+def test_add_maintenance_visit_raises_if_post_returns_no_id():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request", return_value={"unexpected": "response"}):
+        with pytest.raises(RuntimeError, match="POST returned no id"):
+            w.add_maintenance_visit(16096, start_time="2026-05-22")
+
+
+def test_add_maintenance_visit_raises_if_detail_missing():
+    w = _logged_in_writer(dry_run=False)
+    created = {"id": 9999}
+    with patch.object(w, "_request") as mock_req:
+        mock_req.side_effect = [created, None]
+        with pytest.raises(RuntimeError, match="cannot discover seeded"):
+            w.add_maintenance_visit(16096, start_time="2026-05-22")
+
+
+# ---------------------------------------------------------------------------
+# delete_entity_connection
+# ---------------------------------------------------------------------------
+
+
+def test_delete_entity_connection_hits_admin_endpoint():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request", return_value=None) as mock_req:
+        w.delete_entity_connection(27836)
+    mock_req.assert_called_once_with(
+        "DELETE", "/admin_entity_connection_row/27836"
+    )
+
+
+def test_delete_entity_connection_respects_dry_run():
+    w = _logged_in_writer(dry_run=True)
+    with patch.object(w, "_request") as mock_req:
+        mock_req.return_value = DryRunResult(
+            method="DELETE",
+            endpoint="/admin_entity_connection_row/27836",
+            payload=None,
+        )
+        result = w.delete_entity_connection(27836)
+    assert isinstance(result, DryRunResult)
+    assert result.method == "DELETE"
+    assert result.endpoint == "/admin_entity_connection_row/27836"
+
+
+# ---------------------------------------------------------------------------
+# update_maintenance_visit — fetch / merge / PUT
+# ---------------------------------------------------------------------------
+
+
+def test_update_maintenance_visit_preserves_unspecified_fields():
+    """Only the fields the caller passes should change; others preserve."""
+    w = _logged_in_writer(dry_run=False)
+    current = _maintenance_detail_with_seeded_attrs(5147, base=80000)
+    current["start_time"] = "2025-09-23T00:00:00"
+    current["end_time"] = "2025-09-23T00:00:00"
+    current["participants"] = "bhb@vedur.is"
+    current["completed"] = True
+    # Pretend "work" has existing text, reason_change=true:
+    for av in current["maintenance_attribute_values"]:
+        if av["code"] == "work":
+            av["value"] = "Old text"
+        if av["code"] == "reason_change":
+            av["value"] = "true"
+
+    with patch.object(w, "_request") as mock_req:
+        mock_req.side_effect = [current, {"ok": True}]
+        result = w.update_maintenance_visit(5147, remaining="Þarf að mála")
+
+    # Only "remaining" should be the new value; everything else preserved
+    put_call = mock_req.call_args_list[1]
+    assert put_call.args[0] == "PUT"
+    assert put_call.args[1] == "/maintenance/id_maintenance/5147"
+    body = put_call.kwargs["data"]
+    assert body["participants"] == "bhb@vedur.is"
+    assert body["start_time"] == "2025-09-23T00:00:00"
+    assert body["completed"] is True
+    av_by_code = {
+        row["id_maintenance_attribute_value"]: row["value"]
+        for row in body["maintenance_attribute_values"]
+    }
+    # work preserved
+    assert av_by_code[80006] == "Old text"
+    # remaining set
+    assert av_by_code[80008] == "Þarf að mála"
+    # reason_change preserved
+    assert av_by_code[80001] == "true"
+    assert result["id_maintenance"] == 5147
+
+
+def test_update_maintenance_visit_reasons_replaces_full_set():
+    """Passing `reasons` replaces all reason booleans, not just one."""
+    w = _logged_in_writer(dry_run=False)
+    current = _maintenance_detail_with_seeded_attrs(5147, base=80000)
+    for av in current["maintenance_attribute_values"]:
+        if av["code"] == "reason_change":
+            av["value"] = "true"
+        if av["code"] == "reason_repairs":
+            av["value"] = "false"
+
+    with patch.object(w, "_request") as mock_req:
+        mock_req.side_effect = [current, {"ok": True}]
+        w.update_maintenance_visit(5147, reasons=["repairs", "inspection"])
+
+    body = mock_req.call_args_list[1].kwargs["data"]
+    av_by_code = {
+        row["id_maintenance_attribute_value"]: row["value"]
+        for row in body["maintenance_attribute_values"]
+    }
+    assert av_by_code[80001] == "false"  # change — was true, replaced
+    assert av_by_code[80002] == "true"   # repairs — set
+    assert av_by_code[80003] == "true"   # inspection — set
+    assert av_by_code[80004] == "false"  # improvements
+    assert av_by_code[80005] == "false"  # other
+
+
+def test_update_maintenance_visit_empty_string_writes_empty():
+    """Caller passing '' should clear the field (not be treated as None)."""
+    w = _logged_in_writer(dry_run=False)
+    current = _maintenance_detail_with_seeded_attrs(5147, base=80000)
+    for av in current["maintenance_attribute_values"]:
+        if av["code"] == "remaining":
+            av["value"] = "old outstanding text"
+
+    with patch.object(w, "_request") as mock_req:
+        mock_req.side_effect = [current, {"ok": True}]
+        w.update_maintenance_visit(5147, remaining="")
+
+    body = mock_req.call_args_list[1].kwargs["data"]
+    av_by_code = {
+        row["id_maintenance_attribute_value"]: row["value"]
+        for row in body["maintenance_attribute_values"]
+    }
+    assert av_by_code[80008] == ""
+
+
+def test_update_maintenance_visit_validates_reason_codes():
+    w = _logged_in_writer(dry_run=False)
+    with pytest.raises(ValueError, match="unknown reason codes"):
+        w.update_maintenance_visit(5147, reasons=["bogus"])
+
+
+def test_update_maintenance_visit_raises_when_not_found():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request", return_value=None):
+        with pytest.raises(RuntimeError, match="no maintenance with id"):
+            w.update_maintenance_visit(99999, work="x")
+
+
+def test_update_maintenance_visit_returns_before_after():
+    """The result includes pre-edit state + the payload sent."""
+    w = _logged_in_writer(dry_run=False)
+    current = _maintenance_detail_with_seeded_attrs(5147, base=80000)
+    current["participants"] = "old@vedur.is"
+
+    with patch.object(w, "_request") as mock_req:
+        mock_req.side_effect = [current, {"ok": True}]
+        result = w.update_maintenance_visit(5147, participants="bgo@vedur.is")
+
+    assert result["before"] is current
+    assert result["after"]["participants"] == "bgo@vedur.is"
+
+
+def test_update_maintenance_visit_dry_run_still_returns_merge():
+    """Dry-run: PUT short-circuits but merge is still computed."""
+    w = _logged_in_writer(dry_run=True)
+    current = _maintenance_detail_with_seeded_attrs(5147, base=80000)
+
+    def side_effect(method, path, *_a, **kw):
+        if method == "GET":
+            return current
+        return DryRunResult(method=method, endpoint=path, payload=kw.get("data"))
+
+    with patch.object(w, "_request", side_effect=side_effect):
+        result = w.update_maintenance_visit(
+            5147, work="test edit", reasons=["change"]
+        )
+    assert isinstance(result["updated"], DryRunResult)
+    # Merge still computed
+    body = result["after"]
+    av_by_code = {
+        r["id_maintenance_attribute_value"]: r["value"]
+        for r in body["maintenance_attribute_values"]
+    }
+    assert av_by_code[80001] == "true"   # reason_change
+    assert av_by_code[80006] == "test edit"
