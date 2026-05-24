@@ -8,18 +8,17 @@ authors = [
 description = "Python toolkit for GPS/GNSS station management and TOS API integration"
 readme = "README.md"
 classifiers = [
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 maintainers = [{ name = "Benedikt Gunnar Ófeigsson", email = "bgo@vedur.is" }]
-# Python 3.8 dropped 2026-05-12: the gtimes dependency no longer imports on
-# 3.8 (newer-Python syntax in gtimes/exceptions.py).
-requires-python = ">=3.9"
+# 3.9-3.11 dropped 2026-05-24: ecosystem-wide alignment on 3.12+
+# (root gpslibrary_new/CLAUDE.md targets 3.13; 3.12 is the floor for
+# Debian stable). 3.8 was dropped earlier (2026-05-12) when gtimes
+# moved to newer-Python syntax.
+requires-python = ">=3.12"
 dependencies = [
     "requests>=2.31.0",
     "pandas>=2.0.3",

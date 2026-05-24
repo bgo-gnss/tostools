@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # Python 3.8 dropped 2026-05-12: the gtimes dependency no longer
-        # imports on 3.8 (uses newer-Python syntax in gtimes/exceptions.py).
-        # Project minimum is now 3.9.
-        python-version: [3.9, "3.10", "3.11", "3.12", "3.13"]
+        # 3.9-3.11 dropped 2026-05-24: ecosystem-wide alignment on 3.12+
+        # (root gpslibrary_new/CLAUDE.md targets 3.13; 3.12 is the floor
+        # for Debian stable). See pyproject.toml requires-python.
+        python-version: ["3.12", "3.13"]
 
     steps:
     - uses: actions/checkout@v4
