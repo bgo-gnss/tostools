@@ -1787,6 +1787,123 @@ def _owners_main(argv):
     return 0
 
 
+def _device_show_main(args) -> int:
+    """Handle ``tos device show`` — read-only device inspection.
+
+    Resolves a device by ``id_entity`` or ``(--serial, --subtype)``,
+    then prints three sections:
+
+    1. **Header + current attributes** — id, subtype, currently-open
+       serial / model / status. Reuses :func:`display_device_record`
+       with ``with_joins=False`` (skips the ~110s global join-index
+       build).
+    2. **Attribute history** — every code's full date_from → date_to
+       periods. Same renderer as section 1, no extra cost.
+    3. **Parent (location/station) history** — every join, open and
+       closed, sorted by ``time_from``. Uses
+       :meth:`TOSClient.get_parent_history` which hits
+       ``/entity/parent_history/{id}`` directly — one HTTP call, no
+       fleet-wide index build. Parent names are looked up on-demand
+       via :meth:`get_entity_history` (cached per id to avoid
+       duplicate fetches across joins with the same parent).
+
+    ``--json`` emits the raw entity history + parent_history payload
+    as a single JSON object, bypassing the pretty-print path.
+    """
+    import json as _json
+
+    from .api.tos_client import TOSClient
+    from .devices import find_device
+
+    if args.serial is None and args.id_entity is None:
+        print(
+            "tos device show requires either id_entity or --serial",
+            file=sys.stderr,
+        )
+        return 2
+    if args.serial is not None and args.subtype is None:
+        print(
+            "tos device show --serial requires --subtype to disambiguate",
+            file=sys.stderr,
+        )
+        return 2
+
+    scheme = "https" if args.port == 443 else "http"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    client = TOSClient(base_url=base_url)
+
+    try:
+        history = find_device(
+            client,
+            serial=args.serial,
+            id_entity=args.id_entity,
+            subtype=args.subtype,
+        )
+    except (LookupError, ValueError) as e:
+        print(f"Device lookup failed: {e}", file=sys.stderr)
+        return 1
+
+    did = int(history["id_entity"])
+    parent_history = client.get_parent_history(did)
+
+    if args.json:
+        payload = {
+            "id_entity": did,
+            "history": history,
+            "parent_history": parent_history,
+        }
+        print(_json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    # Sections 1 + 2 via the existing renderer.
+    display_device_record(client=client, id_entity=did, with_joins=False)
+
+    # Section 3 — parent history, resolved through one fast endpoint.
+    print()
+    if not parent_history:
+        print(
+            "Parent history: (no parent connections — device is orphan or "
+            "never joined to a parent)"
+        )
+        return 0
+
+    # Resolve parent names on demand, cached. One get_entity_history per
+    # unique parent id; lighter than building the global join index.
+    parent_names: Dict[int, str] = {}
+
+    def _parent_name(pid: int) -> str:
+        cached = parent_names.get(pid)
+        if cached is not None:
+            return cached
+        try:
+            parent_entity = client.get_entity_history(pid)
+        except Exception:  # noqa: BLE001
+            parent_entity = None
+        name: Optional[str] = None
+        if parent_entity:
+            for a in parent_entity.get("attributes") or []:
+                if a.get("code") in ("name", "marker") and a.get("date_to") is None:
+                    name = a.get("value")
+                    break
+        resolved = name or "?"
+        parent_names[pid] = resolved
+        return resolved
+
+    print(f"Parent history ({len(parent_history)} join(s)):")
+    for i, j in enumerate(parent_history, 1):
+        kind = "open  " if j.get("time_to") is None else "closed"
+        pid = j.get("id_entity_parent")
+        pname = _parent_name(int(pid)) if pid is not None else "?"
+        end = j.get("time_to") or "—"
+        time_from = j.get("time_from") or "?"
+        conn_id = j.get("id")
+        print(
+            f"  {i:2d}. [{kind}] {time_from} → {end:24s} "
+            f"parent={pid} ({pname})  id_connection={conn_id}"
+        )
+    return 0
+
+
 def _device_main(argv):
     """Handle ``tos device ...`` subcommands.
 
@@ -1862,7 +1979,49 @@ def _device_main(argv):
         help="Emit a structured JSON summary instead of plain text.",
     )
 
+    p_show = sub.add_parser(
+        "show",
+        help=(
+            "Display everything TOS knows about one device: current "
+            "attribute values, full attribute history, full parent "
+            "(location/station) history."
+        ),
+    )
+    p_show.add_argument(
+        "id_entity",
+        nargs="?",
+        type=int,
+        help="Device id_entity. Mutually exclusive with --serial.",
+    )
+    p_show.add_argument(
+        "--serial",
+        help=(
+            "Look up by serial_number instead of id_entity. Requires "
+            "--subtype to disambiguate."
+        ),
+    )
+    p_show.add_argument(
+        "--subtype",
+        help=(
+            "Required with --serial. TOS subtype code (gnss_receiver, "
+            "antenna, radome, monument, ...)."
+        ),
+    )
+    p_show.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_show.add_argument("--port", type=int, default=443)
+    p_show.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the raw entity history + parent_history as JSON.",
+    )
+
     args = p.parse_args(argv)
+    if args.action == "show":
+        return _device_show_main(args)
     if args.action != "add":
         p.error(f"unknown action: {args.action}")
         return 2

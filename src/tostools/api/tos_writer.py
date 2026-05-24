@@ -1155,6 +1155,12 @@ class TOSWriter:
         one location at a time); if multiple are open, the most
         recent ``time_from`` wins.
 
+        For the full open+closed timeline use
+        :meth:`TOSClient.get_parent_history` — same endpoint, lives on
+        the read-only client to avoid duplicating read methods across
+        both clients. See the "TOSWriter→TOSClient composition for
+        reads" follow-up in receivers todos.
+
         Args:
             id_child: Child entity id (e.g. a gnss_receiver's
                 id_entity).
