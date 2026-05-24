@@ -111,6 +111,32 @@ sections both filter through this helper). Future candidates:
 `tos audit attribute-dates`, `tos audit missing-attributes`, any new
 fleet-wide attribute-inspection verb.
 
+### Archive verification — `tos audit verify-from-rinex`
+
+`tos audit verify-from-rinex --station X` cross-checks TOS state against
+the cold RINEX archive. Walks
+``<archive>/<YYYY>/<mon>/<STATION>/15s_24hr/{raw,rinex}/``, classifies
+each file by receiver-brand family (`.sbf` → septentrio, `.T02` →
+trimble_netr9, etc.), reports brand transitions + data gaps, and
+cross-references against TOS's child-device joins. Deterministic,
+primary-source-anchored — operators don't have to take anyone's word on
+historical install dates.
+
+**Archive root resolution** (`src/tostools/archive.py::cold_archive_prepath`):
+
+  1. `--archive-root` CLI override
+  2. Env var `TOSTOOLS_ARCHIVE_ROOT`
+  3. `[archive_paths] cold_archive_prepath` in the shared
+     `~/.config/gpsconfig/receivers.cfg` (same cfg the receivers package
+     uses — single source of truth, no duplication)
+  4. Probe `/mnt/rawgpsdata` then `/mnt_data/rawgpsdata`
+  5. `FileNotFoundError` with a candidate list
+
+Reusable helpers in `tostools.archive`: `cold_archive_prepath()`,
+`classify_file_format()`, `walk_station_timeline()`,
+`detect_brand_transitions()`, `detect_data_gaps()`. Pinned by
+`tests/test_archive.py`.
+
 ## Quick Start
 
 ### Environment Setup

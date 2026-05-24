@@ -1,0 +1,393 @@
+"""Tests for `tostools.archive` — the cold-archive helper module.
+
+Each filter helper is pinned independently so future audit verbs that
+adopt them can trust the contract. The walker is mocked at the
+filesystem level — no real archive access required.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+from tostools.archive import (
+    ArchiveDay,
+    classify_file_format,
+    cold_archive_prepath,
+    detect_brand_transitions,
+    detect_data_gaps,
+    walk_station_timeline,
+)
+
+# ---------------------------------------------------------------------------
+# classify_file_format
+# ---------------------------------------------------------------------------
+
+
+def test_classify_septentrio_raw():
+    """`.sbf` filename pattern (Septentrio raw) carries explicit YYYY-MM-DD."""
+    c = classify_file_format("SAVI201407080000a.sbf")
+    assert c.family == "septentrio"
+    assert c.is_raw is True
+    assert c.date == date(2014, 7, 8)
+    assert c.extension == "sbf"
+
+
+def test_classify_trimble_netr9_raw():
+    """`.T02` → trimble_netr9 family."""
+    c = classify_file_format("SAVI201607020000a.T02")
+    assert c.family == "trimble_netr9"
+    assert c.is_raw is True
+    assert c.date == date(2016, 7, 2)
+    assert c.extension == "T02"
+
+
+def test_classify_trimble_other_raw():
+    """`.T01` and `.T00` map to NetRS / generic Trimble — distinct from NetR9."""
+    assert classify_file_format("ARHO200501010000a.T01").family == "trimble_netrs"
+    assert classify_file_format("ARHO200501010000a.T00").family == "trimble_other"
+    assert classify_file_format("ARHO199901010000a.dat").family == "trimble_4000"
+
+
+def test_classify_hatanaka_rinex_brand_neutral():
+    """Hatanaka `<sta><doy>0.<yy>D[.Z|.gz]` is brand-neutral (post-conversion)."""
+    c = classify_file_format("SAVI1840.16D.Z")
+    assert c.family == "rinex"
+    assert c.is_raw is False
+    # YY=16 → year 2016; DOY=184 → 2016-07-02
+    assert c.date == date(2016, 7, 2)
+
+
+def test_classify_rinex_observation_extension():
+    """Lowercase `o` for plain observation also matches the RINEX pattern."""
+    c = classify_file_format("SAVI1840.16o")
+    assert c.family == "rinex"
+    assert c.date == date(2016, 7, 2)
+
+
+def test_classify_unknown_filename_returns_unknown_family_and_no_date():
+    """Filename that matches neither pattern → family='unknown', date=None."""
+    c = classify_file_format("random_file.bin")
+    assert c.family == "unknown"
+    assert c.date is None
+    assert c.is_raw is False
+
+
+def test_classify_century_pivot_for_two_digit_year():
+    """YY<80 → 2000s, YY>=80 → 1900s. Pivot 80 chosen because civilian
+    GPS observations don't exist before 1980 — anything YY>=80 must be
+    a 19xx file (e.g. 1990s data). YY<80 maps into 2000-2079."""
+    # 2000s side
+    assert classify_file_format("ARHO1230.00D.Z").date == date(2000, 5, 2)
+    assert classify_file_format("ARHO1230.16D.Z").date == date(2016, 5, 2)
+    # 1900s side (pivot fires at YY>=80)
+    assert classify_file_format("ARHO1230.85D.Z").date == date(1985, 5, 3)
+    assert classify_file_format("ARHO1230.99D.Z").date == date(1999, 5, 3)
+
+
+# ---------------------------------------------------------------------------
+# walk_station_timeline (mocked filesystem)
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_archive(tmp_path: Path, marker: str, files_per_month: dict) -> Path:
+    """Build a fake archive under tmp_path matching the real layout.
+
+    files_per_month: {(year, month_short, leaf): [filename, ...]}
+    """
+    for (year, mon, leaf), files in files_per_month.items():
+        d = tmp_path / str(year) / mon / marker / "15s_24hr" / leaf
+        d.mkdir(parents=True, exist_ok=True)
+        for fname in files:
+            (d / fname).write_text("dummy")
+    return tmp_path
+
+
+def test_walk_station_timeline_chronological_order(tmp_path):
+    root = _make_fake_archive(
+        tmp_path,
+        "SAVI",
+        {
+            (2007, "sep", "raw"): ["SAVI200709010000a.sbf"],
+            (2007, "aug", "raw"): ["SAVI200708150000a.sbf"],
+            (2008, "jan", "raw"): ["SAVI200801010000a.sbf"],
+        },
+    )
+    timeline = list(walk_station_timeline("SAVI", root))
+    assert [d.obs_date for d in timeline] == [
+        date(2007, 8, 15),
+        date(2007, 9, 1),
+        date(2008, 1, 1),
+    ]
+
+
+def test_walk_station_timeline_prefers_raw_over_rinex_per_day(tmp_path):
+    """When both raw and rinex exist for the same day, raw wins so we keep
+    the brand signal (rinex is brand-neutral)."""
+    root = _make_fake_archive(
+        tmp_path,
+        "SAVI",
+        {
+            (2014, "jul", "raw"): ["SAVI201407080000a.sbf"],
+            (2014, "jul", "rinex"): ["SAVI1890.14D.Z"],
+        },
+    )
+    timeline = list(walk_station_timeline("SAVI", root))
+    assert len(timeline) == 1
+    assert timeline[0].family == "septentrio"
+    assert timeline[0].is_raw is True
+
+
+def test_walk_station_timeline_falls_back_to_rinex_when_raw_missing(tmp_path):
+    """If raw/ is empty for a day but rinex/ has it, surface the rinex
+    entry — date is known even if brand isn't."""
+    root = _make_fake_archive(
+        tmp_path,
+        "SAVI",
+        {(2014, "jul", "rinex"): ["SAVI1890.14D.Z"]},
+    )
+    timeline = list(walk_station_timeline("SAVI", root))
+    assert len(timeline) == 1
+    assert timeline[0].family == "rinex"
+
+
+def test_walk_station_timeline_empty_root_yields_nothing(tmp_path):
+    root = _make_fake_archive(tmp_path, "SAVI", {})
+    assert list(walk_station_timeline("SAVI", root)) == []
+
+
+def test_walk_station_timeline_handles_missing_root_directory(tmp_path):
+    """A root that doesn't exist returns an empty iterator (not an exception)."""
+    nonexistent = tmp_path / "does_not_exist"
+    assert list(walk_station_timeline("SAVI", nonexistent)) == []
+
+
+def test_walk_station_timeline_marker_uppercased(tmp_path):
+    """Lowercased marker arg should still find the uppercase directory."""
+    root = _make_fake_archive(
+        tmp_path,
+        "SAVI",
+        {(2020, "jan", "raw"): ["SAVI202001010000a.T02"]},
+    )
+    timeline = list(walk_station_timeline("savi", root))
+    assert len(timeline) == 1
+
+
+# ---------------------------------------------------------------------------
+# detect_brand_transitions
+# ---------------------------------------------------------------------------
+
+
+def _day(d: str, family: str) -> ArchiveDay:
+    y, m, dd = d.split("-")
+    return ArchiveDay(
+        obs_date=date(int(y), int(m), int(dd)),
+        family=family,
+        file_path=Path(f"/fake/{family}.bin"),
+    )
+
+
+def test_detect_brand_transitions_returns_real_brand_changes():
+    """Septentrio → Trimble NetR9 is a real transition; surface it."""
+    timeline = [
+        _day("2014-07-08", "septentrio"),
+        _day("2016-07-02", "trimble_netr9"),
+    ]
+    transitions = detect_brand_transitions(timeline)
+    assert len(transitions) == 1
+    t = transitions[0]
+    assert t.date_before == date(2014, 7, 8)
+    assert t.date_after == date(2016, 7, 2)
+    assert t.family_before == "septentrio"
+    assert t.family_after == "trimble_netr9"
+
+
+def test_detect_brand_transitions_ignores_rinex_neighbours():
+    """A rinex-family entry between two raw entries should NOT register as a
+    'transition' — rinex is brand-neutral (just a format conversion)."""
+    timeline = [
+        _day("2007-09-01", "septentrio"),
+        _day("2007-12-15", "rinex"),  # brand-neutral, must not split the run
+        _day("2008-01-05", "septentrio"),
+    ]
+    assert detect_brand_transitions(timeline) == []
+
+
+def test_detect_brand_transitions_no_change_returns_empty():
+    timeline = [
+        _day("2007-09-01", "septentrio"),
+        _day("2007-10-01", "septentrio"),
+        _day("2007-11-01", "septentrio"),
+    ]
+    assert detect_brand_transitions(timeline) == []
+
+
+def test_detect_brand_transitions_handles_short_timelines():
+    assert detect_brand_transitions([]) == []
+    assert detect_brand_transitions([_day("2007-09-01", "septentrio")]) == []
+
+
+# ---------------------------------------------------------------------------
+# detect_data_gaps
+# ---------------------------------------------------------------------------
+
+
+def test_detect_data_gaps_surfaces_gaps_above_threshold():
+    """The 2014-07-08 → 2016-07-02 SAVI gap (724 days) must be reported with
+    correct delta math."""
+    timeline = [
+        _day("2014-07-08", "septentrio"),
+        _day("2016-07-02", "trimble_netr9"),
+    ]
+    gaps = detect_data_gaps(timeline, min_days=30)
+    assert len(gaps) == 1
+    g = gaps[0]
+    assert g.last_day_with_data == date(2014, 7, 8)
+    assert g.next_day_with_data == date(2016, 7, 2)
+    # Gap duration: next - last - 1 (days where no data was collected)
+    assert g.duration_days == 724
+
+
+def test_detect_data_gaps_ignores_gaps_below_threshold():
+    """Default min_days=30 — a 25-day gap should NOT be reported."""
+    timeline = [
+        _day("2020-01-01", "septentrio"),
+        _day("2020-01-26", "septentrio"),  # 24-day gap
+    ]
+    assert detect_data_gaps(timeline) == []
+
+
+def test_detect_data_gaps_threshold_is_strict():
+    """min_days is strict-greater-than (not >=). 30-day gap stays silent;
+    31-day gap surfaces."""
+    timeline = [
+        _day("2020-01-01", "septentrio"),
+        _day("2020-01-31", "septentrio"),  # 29-day gap (delta=30 days incl.)
+    ]
+    assert detect_data_gaps(timeline, min_days=30) == []
+
+
+# ---------------------------------------------------------------------------
+# cold_archive_prepath
+# ---------------------------------------------------------------------------
+
+
+def test_cold_archive_prepath_override_wins():
+    """Explicit override beats env/cfg/probe."""
+    p = cold_archive_prepath(override="/tmp/explicit_path")
+    assert p == Path("/tmp/explicit_path")
+
+
+def test_cold_archive_prepath_env_var_used(monkeypatch):
+    """TOSTOOLS_ARCHIVE_ROOT env var is the next-highest priority."""
+    monkeypatch.setenv("TOSTOOLS_ARCHIVE_ROOT", "/tmp/from_env")
+    with patch("tostools.archive._find_receivers_cfg", return_value=None):
+        with patch("tostools.archive.Path.is_dir", return_value=False):  # disable probe
+            assert cold_archive_prepath() == Path("/tmp/from_env")
+
+
+def test_cold_archive_prepath_reads_from_receivers_cfg(monkeypatch, tmp_path):
+    """When no override or env, read [archive_paths] cold_archive_prepath
+    from the shared receivers.cfg."""
+    monkeypatch.delenv("TOSTOOLS_ARCHIVE_ROOT", raising=False)
+    cfg_file = tmp_path / "receivers.cfg"
+    cfg_file.write_text(
+        "[archive_paths]\ncold_archive_prepath = /custom/archive/path\n"
+    )
+    with patch("tostools.archive._find_receivers_cfg", return_value=cfg_file):
+        assert cold_archive_prepath() == Path("/custom/archive/path")
+
+
+def test_cold_archive_prepath_falls_back_to_probe_when_cfg_missing(
+    monkeypatch, tmp_path
+):
+    """No override, no env, no cfg → probe known mount points."""
+    monkeypatch.delenv("TOSTOOLS_ARCHIVE_ROOT", raising=False)
+    fake_probe = tmp_path / "fake_mount"
+    fake_probe.mkdir()
+    with patch("tostools.archive._find_receivers_cfg", return_value=None):
+        with patch("tostools.archive._PROBE_PATHS", (str(fake_probe),)):
+            assert cold_archive_prepath() == Path(str(fake_probe))
+
+
+def test_cold_archive_prepath_raises_when_all_resolution_steps_fail(
+    monkeypatch,
+):
+    """When override/env/cfg/probe all miss, raise with a helpful message
+    listing every candidate that was checked."""
+    monkeypatch.delenv("TOSTOOLS_ARCHIVE_ROOT", raising=False)
+    with patch("tostools.archive._find_receivers_cfg", return_value=None):
+        with patch("tostools.archive._PROBE_PATHS", ("/does/not/exist",)):
+            with pytest.raises(FileNotFoundError) as exc_info:
+                cold_archive_prepath()
+    msg = str(exc_info.value)
+    assert "cold_archive_prepath unresolved" in msg
+    assert "receivers.cfg" in msg
+
+
+def test_cold_archive_prepath_malformed_cfg_falls_through_to_probe(
+    monkeypatch, tmp_path
+):
+    """Don't surface ConfigParser errors as fatal — fall through to probing."""
+    monkeypatch.delenv("TOSTOOLS_ARCHIVE_ROOT", raising=False)
+    cfg_file = tmp_path / "receivers.cfg"
+    cfg_file.write_text("[archive_paths\nbroken = format")  # unclosed section
+    fake_probe = tmp_path / "fallback_mount"
+    fake_probe.mkdir()
+    with patch("tostools.archive._find_receivers_cfg", return_value=cfg_file):
+        with patch("tostools.archive._PROBE_PATHS", (str(fake_probe),)):
+            assert cold_archive_prepath() == Path(str(fake_probe))
+
+
+# ---------------------------------------------------------------------------
+# Integration — full SAVI-shape archive walk + analysis
+# ---------------------------------------------------------------------------
+
+
+def test_savi_shape_integration(tmp_path):
+    """End-to-end: fake archive shaped like SAVI's actual state
+    (POLARX2 era → 2-year gap → NETR9 era) produces the expected
+    transitions + gaps. This is the verb's main use case in one test."""
+    files = {
+        # POLARX2 era (Septentrio .sbf)
+        (2010, "jun", "raw"): ["SAVI201006010000a.sbf"],
+        (2014, "jul", "raw"): ["SAVI201407080000a.sbf"],
+        # 2-year gap — no SAVI dirs at all
+        # NETR9 era (Trimble .T02)
+        (2016, "jul", "raw"): ["SAVI201607020000a.T02"],
+        (2020, "jan", "raw"): ["SAVI202001010000a.T02"],
+    }
+    root = _make_fake_archive(tmp_path, "SAVI", files)
+
+    timeline = list(walk_station_timeline("SAVI", root))
+    assert [d.obs_date for d in timeline] == [
+        date(2010, 6, 1),
+        date(2014, 7, 8),
+        date(2016, 7, 2),
+        date(2020, 1, 1),
+    ]
+    assert [d.family for d in timeline] == [
+        "septentrio",
+        "septentrio",
+        "trimble_netr9",
+        "trimble_netr9",
+    ]
+
+    transitions = detect_brand_transitions(timeline)
+    assert len(transitions) == 1
+    assert transitions[0].family_before == "septentrio"
+    assert transitions[0].family_after == "trimble_netr9"
+    assert transitions[0].date_before == date(2014, 7, 8)
+    assert transitions[0].date_after == date(2016, 7, 2)
+
+    gaps = detect_data_gaps(timeline, min_days=30)
+    # Three gaps surface from the sparse fixture (every consecutive pair
+    # has >30 days between them). The cross-brand gap is the SAVI-style
+    # marker we care about most.
+    assert len(gaps) == 3
+    big_gap = next(g for g in gaps if g.last_day_with_data == date(2014, 7, 8))
+    assert big_gap.next_day_with_data == date(2016, 7, 2)
+    assert big_gap.duration_days == 724

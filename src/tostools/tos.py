@@ -2872,6 +2872,277 @@ def _device_main(argv):
     return 0
 
 
+def _audit_verify_from_rinex_main(args, client) -> int:
+    """Handle ``tos audit verify-from-rinex --station X``.
+
+    Reproduces the deterministic-investigation pattern from the SAVI
+    reconstruction (2026-05-24) as a one-shot verb:
+
+    1. Resolve archive root via :func:`archive.cold_archive_prepath`
+       (CLI override → env → ``receivers.cfg`` → mount probe → error).
+    2. Walk the station's timeline in the archive
+       (:func:`archive.walk_station_timeline`).
+    3. Detect brand transitions
+       (:func:`archive.detect_brand_transitions`) — these are real
+       receiver-hardware changes per the file-extension signal.
+    4. Detect multi-day data gaps
+       (:func:`archive.detect_data_gaps`) — surfaces dormant periods.
+    5. Fetch TOS state via :func:`_resolve_parent_id` + the parent's
+       ``children_connections`` (same primitives as ``tos device list``)
+       and cross-reference against the archive timeline.
+    6. Print a rich-formatted report (or ``--json``).
+
+    Exit codes: 0 = clean (archive and TOS aligned or empty), 1 =
+    discrepancies surfaced (caller should review), 2 = lookup / usage
+    error.
+    """
+    import json as _json
+
+    from rich.console import Console
+    from rich.table import Table
+
+    from . import archive as archive_mod
+    from .devices import open_attribute
+
+    # Resolve archive root with the documented fallback chain.
+    try:
+        archive_root = archive_mod.cold_archive_prepath(override=args.archive_root)
+    except FileNotFoundError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
+    # Walk the station timeline.
+    timeline = list(archive_mod.walk_station_timeline(args.station, archive_root))
+    if not timeline:
+        print(
+            f"No archived data for station {args.station!r} under " f"{archive_root}",
+            file=sys.stderr,
+        )
+        return 2
+
+    transitions = archive_mod.detect_brand_transitions(timeline)
+    gaps = archive_mod.detect_data_gaps(timeline, min_days=args.min_gap_days)
+
+    # Family runs — contiguous spans of the same family across the
+    # timeline. Useful for the "what was the receiver brand during X
+    # year?" question that the transitions list alone doesn't answer.
+    runs: List[Dict[str, Any]] = []
+    if timeline:
+        run_start = timeline[0]
+        prev = timeline[0]
+        for cur in timeline[1:]:
+            if cur.family != prev.family:
+                runs.append(
+                    {
+                        "family": run_start.family,
+                        "from": run_start.obs_date,
+                        "to": prev.obs_date,
+                        "days": (prev.obs_date - run_start.obs_date).days + 1,
+                    }
+                )
+                run_start = cur
+            prev = cur
+        runs.append(
+            {
+                "family": run_start.family,
+                "from": run_start.obs_date,
+                "to": prev.obs_date,
+                "days": (prev.obs_date - run_start.obs_date).days + 1,
+            }
+        )
+
+    # Fetch TOS state — reuse the same primitives as `tos device list`
+    # for parent resolution + child enumeration.
+    parent_id = _resolve_parent_id(client, station_marker=args.station)
+    tos_devices: List[Dict[str, Any]] = []
+    if parent_id is not None:
+        parent = client.get_entity_history(parent_id)
+        if parent:
+            for conn in parent.get("children_connections") or []:
+                child_id_raw = conn.get("id_entity_child")
+                if child_id_raw is None:
+                    continue
+                try:
+                    child_id = int(child_id_raw)
+                except (TypeError, ValueError):
+                    continue
+                child = client.get_entity_history(child_id) or {}
+                subtype = child.get("code_entity_subtype")
+                # Only receivers contribute to brand-transition reasoning
+                # (antennas / monuments / sim cards don't show up in the
+                # raw-file extension signal). Keep them in the JSON
+                # payload for completeness but only cross-reference
+                # gnss_receiver entries against the archive timeline.
+                tos_devices.append(
+                    {
+                        "id_entity": child_id,
+                        "subtype": subtype,
+                        "serial": open_attribute(child, "serial_number"),
+                        "model": open_attribute(child, "model"),
+                        "time_from": conn.get("time_from"),
+                        "time_to": conn.get("time_to"),
+                        "id_connection": (
+                            conn.get("id_entity_connection") or conn.get("id")
+                        ),
+                    }
+                )
+
+    tos_receivers = [d for d in tos_devices if d["subtype"] == "gnss_receiver"]
+    tos_receivers.sort(key=lambda d: d.get("time_from") or "")
+
+    if args.json:
+        payload = {
+            "station": args.station,
+            "archive_root": str(archive_root),
+            "timeline_count": len(timeline),
+            "first": timeline[0].obs_date.isoformat() if timeline else None,
+            "last": timeline[-1].obs_date.isoformat() if timeline else None,
+            "family_runs": [
+                {
+                    "family": r["family"],
+                    "from": r["from"].isoformat(),
+                    "to": r["to"].isoformat(),
+                    "days": r["days"],
+                }
+                for r in runs
+            ],
+            "brand_transitions": [
+                {
+                    "date_before": t.date_before.isoformat(),
+                    "date_after": t.date_after.isoformat(),
+                    "family_before": t.family_before,
+                    "family_after": t.family_after,
+                }
+                for t in transitions
+            ],
+            "data_gaps": [
+                {
+                    "from": g.last_day_with_data.isoformat(),
+                    "to": g.next_day_with_data.isoformat(),
+                    "duration_days": g.duration_days,
+                }
+                for g in gaps
+            ],
+            "tos_receivers": [
+                {**d, "time_from": d["time_from"], "time_to": d["time_to"]}
+                for d in tos_receivers
+            ],
+        }
+        print(_json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+        return 1 if (transitions or gaps) else 0
+
+    # ---- Pretty text output ----
+    console = Console()
+    console.print(
+        f"Station [bold]{args.station}[/bold] vs archive at "
+        f"[cyan]{archive_root}[/cyan]"
+    )
+    console.print(
+        f"  archived days: [bold]{len(timeline)}[/bold]  |  "
+        f"first: {timeline[0].obs_date}  |  last: {timeline[-1].obs_date}"
+    )
+
+    if runs:
+        console.print()
+        t_runs = Table(title="Archive family runs (contiguous brand spans)")
+        t_runs.add_column("family")
+        t_runs.add_column("from")
+        t_runs.add_column("to")
+        t_runs.add_column("days", justify="right")
+        for r in runs:
+            t_runs.add_row(r["family"], str(r["from"]), str(r["to"]), str(r["days"]))
+        console.print(t_runs)
+
+    if transitions:
+        console.print()
+        t_trans = Table(title="Brand transitions (real receiver swaps per archive)")
+        t_trans.add_column("date_before")
+        t_trans.add_column("family_before")
+        t_trans.add_column("date_after")
+        t_trans.add_column("family_after")
+        for t in transitions:
+            t_trans.add_row(
+                str(t.date_before),
+                t.family_before,
+                f"[yellow]{t.date_after}[/yellow]",
+                f"[yellow]{t.family_after}[/yellow]",
+            )
+        console.print(t_trans)
+
+    if gaps:
+        console.print()
+        t_gaps = Table(title=f"Data gaps ≥{args.min_gap_days} days")
+        t_gaps.add_column("last day with data")
+        t_gaps.add_column("next day with data")
+        t_gaps.add_column("duration (days)", justify="right")
+        for g in gaps:
+            t_gaps.add_row(
+                str(g.last_day_with_data),
+                str(g.next_day_with_data),
+                str(g.duration_days),
+            )
+        console.print(t_gaps)
+
+    # TOS-vs-archive cross-reference for the receiver timeline.
+    if tos_receivers:
+        console.print()
+        t_tos = Table(title="TOS receiver joins (all, incl. closed)")
+        t_tos.add_column("id_entity", justify="right")
+        t_tos.add_column("serial")
+        t_tos.add_column("model")
+        t_tos.add_column("time_from")
+        t_tos.add_column("time_to")
+        t_tos.add_column("verdict")
+        for d in tos_receivers:
+            tf = (d.get("time_from") or "")[:10]
+            tt_raw = d.get("time_to")
+            tt = tt_raw[:10] if tt_raw else None
+
+            # Walk archive timeline within the TOS-claimed window and
+            # see which families appear there.
+            covered = [
+                day
+                for day in timeline
+                if (not tf or str(day.obs_date) >= tf)
+                and (tt is None or str(day.obs_date) < tt)
+            ]
+            archive_families = sorted({day.family for day in covered if day.is_raw})
+            verdict_parts = []
+            if not covered:
+                verdict_parts.append("[red]no archive coverage[/red]")
+            elif archive_families and d.get("model"):
+                # Crude family-vs-model heuristic for the verdict.
+                model_lower = (d.get("model") or "").lower()
+                expected_family = None
+                if "netr9" in model_lower:
+                    expected_family = "trimble_netr9"
+                elif "polarx" in model_lower or "sept" in model_lower:
+                    expected_family = "septentrio"
+                if expected_family and expected_family in archive_families:
+                    verdict_parts.append(
+                        f"[green]ok[/green] (archive {','.join(archive_families)})"
+                    )
+                elif expected_family:
+                    verdict_parts.append(
+                        f"[red]mismatch[/red] (TOS expects "
+                        f"{expected_family}; archive shows "
+                        f"{','.join(archive_families)})"
+                    )
+                else:
+                    verdict_parts.append(f"archive: {','.join(archive_families)}")
+            t_tos.add_row(
+                str(d["id_entity"]),
+                str(d.get("serial") or "?"),
+                str(d.get("model") or "?"),
+                tf or "?",
+                tt or "—",
+                " ".join(verdict_parts) or "—",
+            )
+        console.print(t_tos)
+
+    return 1 if (transitions or gaps) else 0
+
+
 def _audit_main(argv):
     """Handle ``tos audit <kind>`` subcommands.
 
@@ -3615,6 +3886,69 @@ def _audit_main(argv):
     )
     p_missing.add_argument("--port", type=int, default=443)
 
+    p_verify = sub.add_parser(
+        "verify-from-rinex",
+        help=(
+            "Cross-check TOS state against the cold RINEX archive. Detects "
+            "data gaps, receiver-brand transitions, and TOS-claimed dates "
+            "that don't match what's archived."
+        ),
+        description=(
+            "Walks ``<archive>/<YYYY>/<mon>/<STATION>/15s_24hr/{raw,rinex}/`` "
+            "for a station, classifies each archived file by receiver-brand "
+            "family (`.sbf` → septentrio, `.T02` → trimble_netr9, etc.), and "
+            "compares the resulting timeline against TOS's child-device "
+            "joins. Surfaces brand transitions, multi-day gaps, and "
+            "discrepancies between TOS-claimed join start dates and the "
+            "earliest archived day for each brand.\n\n"
+            "Archive root is resolved in order: --archive-root → env "
+            "TOSTOOLS_ARCHIVE_ROOT → ``receivers.cfg [archive_paths] "
+            "cold_archive_prepath`` (shared with the receivers package) → "
+            "probe ``/mnt/rawgpsdata`` then ``/mnt_data/rawgpsdata``. Pin "
+            "the path by adding ``cold_archive_prepath`` to the shared cfg."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos audit verify-from-rinex --station SAVI\n"
+            "  tos audit verify-from-rinex --station SAVI --json\n"
+            "  tos audit verify-from-rinex --station SAVI "
+            "--archive-root /mnt_data/rawgpsdata\n"
+            "  tos audit verify-from-rinex --station SAVI --min-gap-days 90\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_verify.add_argument(
+        "--station",
+        required=True,
+        help="Station marker (e.g. SAVI). Case-insensitive.",
+    )
+    p_verify.add_argument(
+        "--archive-root",
+        type=Path,
+        default=None,
+        help=(
+            "Override the resolved archive root. Default: env "
+            "TOSTOOLS_ARCHIVE_ROOT, then receivers.cfg, then probed mount."
+        ),
+    )
+    p_verify.add_argument(
+        "--min-gap-days",
+        type=int,
+        default=30,
+        help="Minimum gap to surface in the report (default: 30 days).",
+    )
+    p_verify.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON instead of pretty text.",
+    )
+    p_verify.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_verify.add_argument("--port", type=int, default=443)
+
     args = p.parse_args(argv)
 
     scheme = "https" if args.port == 443 else "http"
@@ -3897,6 +4231,9 @@ def _audit_main(argv):
         else:
             _print_missing_attributes_report(report, verbose=args.verbose)
         return 1 if report.has_violations else 0
+
+    if args.kind == "verify-from-rinex":
+        return _audit_verify_from_rinex_main(args, client)
 
     p.error(f"unknown kind: {args.kind}")
     return 2
