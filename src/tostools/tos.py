@@ -35,7 +35,7 @@ import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import requests
 from tabulate import tabulate
@@ -1787,30 +1787,690 @@ def _owners_main(argv):
     return 0
 
 
+def add_device_filter_arguments(parser, *, with_date: bool = True) -> None:
+    """Add the standard device-filter argument set to a subparser.
+
+    Reusable across `tos device list`, future `tos device search`, audit
+    verbs that produce device tables, etc. Match semantics are documented
+    on :func:`apply_device_filters`.
+
+    Adds: ``--subtype``, ``--model``, ``--status``, ``--serial``. When
+    ``with_date=True`` (default), also adds ``--date`` for point-in-time
+    membership filtering — callers that have no time-bounded data
+    (pure-attribute listings) can opt out.
+    """
+    parser.add_argument(
+        "--subtype",
+        help=(
+            "Filter to a single TOS subtype (gnss_receiver, antenna, "
+            "radome, monument, modem_gsm, sim_card, ...). Exact match."
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        help=(
+            "Filter by device model — case-insensitive substring "
+            "(e.g. 'NETR9' matches 'TRIMBLE NETR9')."
+        ),
+    )
+    parser.add_argument(
+        "--status",
+        help=(
+            "Filter by current status — exact match against the open "
+            "status attribute value (e.g. virkt, bilað, óvirkt)."
+        ),
+    )
+    parser.add_argument(
+        "--serial",
+        help="Filter by serial — substring match, case-sensitive.",
+    )
+    if with_date:
+        parser.add_argument(
+            "--date",
+            help=(
+                "Filter to devices present at the parent on this date "
+                "(YYYY-MM-DD). Match rule: time_from <= date "
+                "AND (time_to IS NULL OR time_to > date). For listing "
+                "verbs that default to open-only joins, --date implicitly "
+                "enables --all scanning."
+            ),
+        )
+
+
+def add_attribute_filter_arguments(parser) -> None:
+    """Add the standard attribute-filter argument set to a subparser.
+
+    Reusable across `tos device show`, future fleet-wide attribute
+    inspection verbs (`tos audit attribute-dates`, ...). Match semantics
+    are documented on :func:`apply_attribute_filters`.
+
+    Adds: ``--code`` (repeatable), ``--value``, ``--on-date``,
+    ``--suspicious``.
+    """
+    parser.add_argument(
+        "--code",
+        action="append",
+        dest="codes",
+        help=(
+            "Filter to one or more attribute codes (e.g. --code "
+            "serial_number --code model). Repeatable; OR'd. Exact match."
+        ),
+    )
+    parser.add_argument(
+        "--value",
+        help=(
+            "Filter by attribute value — case-insensitive substring "
+            "(e.g. '--value NETR9' matches 'TRIMBLE NETR9')."
+        ),
+    )
+    parser.add_argument(
+        "--on-date",
+        dest="on_date",
+        help=(
+            "Filter to attribute periods active on this date "
+            "(YYYY-MM-DD). Match rule: date_from <= date "
+            "AND (date_to IS NULL OR date_to > date)."
+        ),
+    )
+    parser.add_argument(
+        "--suspicious",
+        action="store_true",
+        help=(
+            "Filter to attribute periods opening on 2014-10-17 — the "
+            "fleet-wide metadata-cleanup-artifact pattern (model / "
+            "serial / etc. silently dated to the bulk-load date). See "
+            "memory project_2014_10_17_metadata_cleanup_artifacts."
+        ),
+    )
+
+
+def apply_attribute_filters(
+    periods: List[Dict[str, Any]],
+    args,
+) -> List[Dict[str, Any]]:
+    """Filter attribute-period rows by the standard CLI attribute-filter set.
+
+    Reads ``args.codes`` (list), ``args.value``, ``args.on_date``,
+    ``args.suspicious`` (any missing attribute is treated as "no
+    constraint"). Filters are AND'd; preserves input order.
+
+    Expected period shape: TOS attribute-value dict with ``code``,
+    ``value``, ``date_from``, ``date_to`` (the rows from
+    ``writer.get_attribute_values`` / ``client.get_entity_history``).
+
+    Match semantics:
+      - ``codes``: exact match against ``period['code']`` (any one of the
+        listed codes — OR'd within the filter, AND'd with others)
+      - ``value``: case-insensitive substring against
+        ``str(period['value'])``
+      - ``on_date``: period active on date —
+        ``date_from <= date < date_to`` (or ``date_to`` is None). Same
+        date-prefix lex compare as :func:`apply_device_filters`.
+      - ``suspicious``: period's ``date_from[:10] == '2014-10-17'``
+    """
+    codes = getattr(args, "codes", None) or None
+    value_needle = getattr(args, "value", None)
+    on_date_raw = getattr(args, "on_date", None)
+    on_date = on_date_raw[:10] if on_date_raw else None
+    suspicious_only = bool(getattr(args, "suspicious", False))
+
+    code_set = set(codes) if codes else None
+    value_lower = value_needle.lower() if value_needle else None
+
+    out: List[Dict[str, Any]] = []
+    for p in periods:
+        if code_set and p.get("code") not in code_set:
+            continue
+        if value_lower is not None:
+            value = p.get("value")
+            if value is None or value_lower not in str(value).lower():
+                continue
+        if on_date:
+            df = (p.get("date_from") or "")[:10]
+            dt_raw = p.get("date_to")
+            dt = dt_raw[:10] if dt_raw else None
+            if df and df > on_date:
+                continue
+            if dt is not None and dt <= on_date:
+                continue
+        if suspicious_only:
+            if (p.get("date_from") or "")[:10] != _CLEANUP_ARTIFACT_DATE:
+                continue
+        out.append(p)
+    return out
+
+
+def apply_device_filters(
+    rows: List[Dict[str, Any]],
+    args,
+) -> List[Dict[str, Any]]:
+    """Filter enriched device rows by the standard CLI filter set.
+
+    Reads ``args.subtype``, ``args.model``, ``args.status``, ``args.serial``,
+    ``args.date`` (any missing attribute is treated as "no constraint").
+    Filters are AND'd; preserves input order.
+
+    Expected row shape: ``subtype``, ``model``, ``status``, ``serial``,
+    ``time_from``, ``time_to`` (the row dicts emitted by
+    :func:`_device_list_main` and similar producers).
+
+    Match semantics:
+      - ``subtype``: exact match against ``row['subtype']``
+      - ``model``: case-insensitive substring against ``row['model']``
+      - ``status``: exact match against ``row['status']``
+      - ``serial``: case-sensitive substring against ``row['serial']``
+      - ``date``: row's join straddles the date —
+        ``row['time_from'] <= date < row['time_to']`` (or
+        ``time_to`` is None). Date-only prefixes (YYYY-MM-DD) are
+        compared lexicographically; TOS's full-datetime values compare
+        correctly because year-first.
+    """
+    subtype = getattr(args, "subtype", None)
+    model = getattr(args, "model", None)
+    status = getattr(args, "status", None)
+    serial = getattr(args, "serial", None)
+    date_raw = getattr(args, "date", None)
+    on_date = date_raw[:10] if date_raw else None
+
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        if subtype and row.get("subtype") != subtype:
+            continue
+        if model and model.lower() not in (row.get("model") or "").lower():
+            continue
+        if status and row.get("status") != status:
+            continue
+        if serial and serial not in (row.get("serial") or ""):
+            continue
+        if on_date:
+            tf = (row.get("time_from") or "")[:10]
+            tt_raw = row.get("time_to")
+            tt = tt_raw[:10] if tt_raw else None
+            if tf and tf > on_date:
+                continue
+            if tt is not None and tt <= on_date:
+                continue
+        out.append(row)
+    return out
+
+
+def _resolve_parent_id(
+    client,
+    *,
+    station_marker: Optional[str] = None,
+    location_name: Optional[str] = None,
+) -> Optional[int]:
+    """Resolve a parent entity id from a station marker or a location name.
+
+    Read-only helper used by ``tos device list``. Uses
+    :meth:`TOSClient.basic_search` directly (rather than the
+    TOSWriter wrappers ``find_station_by_marker`` /
+    ``find_location_by_name``) to keep the read CLI off the writer
+    surface — same convention as ``tos device show``. See memory note
+    ``project_tos_client_writer_read_duplication`` for the eventual
+    consolidation plan.
+
+    Returns the parent's ``id_entity`` or ``None`` if no exact match.
+    """
+    if station_marker:
+        needle = station_marker.lower()
+        for hit in client.basic_search(needle):
+            if hit.get("code") != "marker":
+                continue
+            if hit.get("distance") != 0:
+                continue
+            if (hit.get("value_varchar") or "").lower() != needle:
+                continue
+            if hit.get("type_lvl_two") != "stöð":
+                continue
+            entity_id = hit.get("id_entity") or hit.get("id_lvl_two")
+            if entity_id:
+                return int(entity_id)
+        return None
+    if location_name:
+        for hit in client.basic_search(location_name):
+            if hit.get("code") != "name":
+                continue
+            if hit.get("distance") != 0:
+                continue
+            if hit.get("value_varchar") != location_name:
+                continue
+            entity_id = hit.get("id_entity") or hit.get("id_lvl_two")
+            if entity_id:
+                return int(entity_id)
+        return None
+    return None
+
+
+def _device_list_main(args) -> int:
+    """Handle ``tos device list`` — list devices joined to a parent.
+
+    Resolves the parent entity from ``--station`` (marker) or
+    ``--location`` (name), reads its ``children_connections``, and
+    prints a table of currently-joined devices. Mirrors the TOS web UI's
+    per-station device panel: ``id_entity, serial, model, subtype,
+    status, since`` plus ``id_connection`` for use in subsequent ACTION
+    lines.
+
+    Defaults to **open** joins only (devices presently at the parent).
+    ``--all`` includes closed joins for full-history inspection.
+
+    Each child's serial / model / subtype / status comes from a
+    follow-up ``get_entity_history(child_id)`` call. One HTTP per
+    distinct device; cheap for a station with <10 children.
+    """
+    import json as _json
+
+    from .api.tos_client import TOSClient
+    from .devices import open_attribute
+
+    scheme = "https" if args.port == 443 else "http"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    client = TOSClient(base_url=base_url)
+
+    parent_id = _resolve_parent_id(
+        client,
+        station_marker=args.station,
+        location_name=args.location,
+    )
+    if parent_id is None:
+        needle = args.station or args.location
+        kind = "station marker" if args.station else "location name"
+        print(f"No parent entity found for {kind} {needle!r}", file=sys.stderr)
+        return 1
+
+    parent = client.get_entity_history(parent_id)
+    if not parent:
+        print(
+            f"Parent id_entity={parent_id} returned no history payload",
+            file=sys.stderr,
+        )
+        return 1
+
+    parent_name = open_attribute(parent, "name") or open_attribute(parent, "marker")
+    children = parent.get("children_connections") or []
+
+    # --date implies --all: closed joins must be scanned to know what was
+    # at the parent on a past date. Open-vs-all filtering happens here
+    # (no child fetch needed); all other filters happen after enrichment
+    # via apply_device_filters.
+    include_closed = args.all or args.date is not None
+    if not include_closed:
+        children = [c for c in children if c.get("time_to") is None]
+
+    rows: List[Dict[str, Any]] = []
+    for conn in children:
+        child_id_raw = conn.get("id_entity_child")
+        if child_id_raw is None:
+            continue
+        try:
+            child_id = int(child_id_raw)
+        except (TypeError, ValueError):
+            continue
+        child = client.get_entity_history(child_id) or {}
+        rows.append(
+            {
+                "id_entity": child_id,
+                "serial": open_attribute(child, "serial_number") or "?",
+                "model": open_attribute(child, "model") or "?",
+                "subtype": child.get("code_entity_subtype") or "?",
+                "status": open_attribute(child, "status") or "—",
+                "time_from": conn.get("time_from") or "?",
+                "time_to": conn.get("time_to"),
+                "id_connection": conn.get("id_entity_connection") or conn.get("id"),
+            }
+        )
+
+    rows = apply_device_filters(rows, args)
+
+    active_filters = {
+        "subtype": args.subtype,
+        "model": args.model,
+        "status": args.status,
+        "serial": args.serial,
+        "on_date": args.date,
+    }
+    active_filters = {k: v for k, v in active_filters.items() if v}
+
+    if args.json:
+        payload = {
+            "parent_id_entity": parent_id,
+            "parent_name": parent_name,
+            "include_closed": include_closed,
+            "filters": active_filters,
+            "devices": rows,
+        }
+        print(_json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    parent_label = parent_name or f"id_entity={parent_id}"
+    if args.date:
+        scope = f"as-of {args.date}"
+    elif include_closed:
+        scope = "all"
+    else:
+        scope = "open"
+    filter_suffix = ""
+    if active_filters:
+        bits = [f"{k}={v!r}" for k, v in active_filters.items()]
+        filter_suffix = f"  [filters: {', '.join(bits)}]"
+    print(
+        f"Devices at {parent_label} (id_entity={parent_id}) — {len(rows)} {scope} "
+        f"join(s):{filter_suffix}"
+    )
+    if not rows:
+        print("  (no matching children_connections)")
+        return 0
+
+    headers = ("id", "serial", "model", "subtype", "status", "since", "until", "conn")
+
+    def _fmt_row(r: Dict[str, Any]) -> tuple:
+        return (
+            str(r["id_entity"]),
+            str(r["serial"]),
+            str(r["model"]),
+            str(r["subtype"]),
+            str(r["status"]),
+            str(r["time_from"])[:19],
+            str(r["time_to"])[:19] if r["time_to"] else "—",
+            str(r["id_connection"]) if r["id_connection"] is not None else "?",
+        )
+
+    formatted = [_fmt_row(r) for r in rows]
+    widths = [
+        max(len(h), max((len(row[i]) for row in formatted), default=0))
+        for i, h in enumerate(headers)
+    ]
+    print("  " + "  ".join(h.ljust(widths[i]) for i, h in enumerate(headers)))
+    for row in formatted:
+        print("  " + "  ".join(c.ljust(widths[i]) for i, c in enumerate(row)))
+    return 0
+
+
+# ----------------------------------------------------------------------
+# `tos device show` rendering helpers
+# ----------------------------------------------------------------------
+#
+# Suspicion-coloring rules surface known TOS data-quality smells without
+# requiring the operator to re-derive them:
+#
+#  - "2014-10-17" date_from on any attribute / join is the fleet-wide
+#    metadata-cleanup-artifact pattern (see memory
+#    project_2014_10_17_metadata_cleanup_artifacts). Yellow.
+#  - status == bilað / óvirkt is operationally relevant. Red.
+#  - closed periods (date_to set) are dimmed so the open / current
+#    periods stand out at a glance.
+#  - id_attribute_value and id_connection are cyan — they're what the
+#    operator copies into the next ACTION line in a triage file.
+
+_CLEANUP_ARTIFACT_DATE = "2014-10-17"
+_SUSPICIOUS_STATUSES = ("bilað", "óvirkt")
+
+
+def _color_date(date_str: Optional[str]) -> str:
+    """Wrap a date in rich markup; yellow if it's the cleanup-artifact date."""
+    if not date_str:
+        return "—"
+    if str(date_str)[:10] == _CLEANUP_ARTIFACT_DATE:
+        return f"[yellow]{date_str}[/yellow]"
+    return str(date_str)
+
+
+def _color_status(value: Optional[str]) -> str:
+    """Wrap a status value in red if it's bilað/óvirkt."""
+    if value is None:
+        return "—"
+    if str(value) in _SUSPICIOUS_STATUSES:
+        return f"[red]{value}[/red]"
+    return str(value)
+
+
+def _color_id(value: Any) -> str:
+    """Wrap an id in cyan — visually distinguishes copy-into-ACTION-line values."""
+    if value is None:
+        return "?"
+    return f"[cyan]{value}[/cyan]"
+
+
+def _render_show_header(console, history: Dict[str, Any]) -> None:
+    """One-line device summary: id, subtype, open serial/model/status."""
+    from .devices import open_attribute
+
+    did = history.get("id_entity")
+    subtype = history.get("code_entity_subtype") or "?"
+    serial = open_attribute(history, "serial_number") or "?"
+    model = open_attribute(history, "model") or "?"
+    status = open_attribute(history, "status")
+    console.print(
+        f"Device id={_color_id(did)}  subtype={subtype}  "
+        f"SN [bold]{serial}[/bold]  model [bold]{model}[/bold]  "
+        f"status {_color_status(status)}"
+    )
+
+
+def _render_show_open_attributes(
+    console,
+    history: Dict[str, Any],
+    args=None,
+) -> None:
+    """Render the currently-open attribute periods only (--attributes view).
+
+    Mirrors the TOS web UI 'Eiginleikar' panel. Highlights yellow when an
+    open period's date_from is the cleanup-artifact date 2014-10-17.
+
+    When ``args`` carries attribute filters (see
+    :func:`add_attribute_filter_arguments`), only matching periods are
+    shown. Filters AND'd with the implicit "open only" constraint.
+    """
+    from rich.table import Table
+
+    from .devices import attribute_periods
+
+    by_code = attribute_periods(history)
+    open_rows = []
+    for code in sorted(by_code):
+        for p in by_code[code]:
+            if p.get("date_to") is None:
+                open_rows.append((code, p))
+
+    if args is not None:
+        filtered = apply_attribute_filters([p for _, p in open_rows], args)
+        keep_ids = {id(p) for p in filtered}
+        open_rows = [(code, p) for code, p in open_rows if id(p) in keep_ids]
+
+    table = Table(title="Current attributes (open periods only)")
+    table.add_column("code")
+    table.add_column("value")
+    table.add_column("date_from")
+    table.add_column("id_attribute_value", justify="right")
+    for code, p in open_rows:
+        value = p.get("value")
+        rendered_value = (
+            _color_status(value)
+            if code == "status"
+            else (str(value) if value is not None else "—")
+        )
+        table.add_row(
+            code,
+            rendered_value,
+            _color_date(p.get("date_from")),
+            _color_id(p.get("id_attribute_value")),
+        )
+    console.print(table)
+
+
+def _render_show_attribute_history(
+    console,
+    history: Dict[str, Any],
+    args=None,
+) -> None:
+    """Render the full attribute history (--attributes-history view).
+
+    Mirrors the TOS web UI 'Saga eiginda tækis' panel: open + closed
+    periods, with date_to and datatype columns. Closed rows dimmed so
+    the currently-open ones stand out.
+
+    When ``args`` carries attribute filters (see
+    :func:`add_attribute_filter_arguments`), only matching periods are
+    shown.
+    """
+    from rich.table import Table
+
+    from .devices import attribute_periods
+
+    by_code = attribute_periods(history)
+    if args is not None:
+        # Per-code filter, preserving the chronological sort
+        # attribute_periods built. Drop codes that lose all periods so
+        # the table doesn't show empty per-code groupings.
+        filtered_by_code: Dict[str, List[Dict[str, Any]]] = {}
+        for code, periods in by_code.items():
+            kept = apply_attribute_filters(periods, args)
+            if kept:
+                filtered_by_code[code] = kept
+        by_code = filtered_by_code
+    table = Table(title="Attribute history (all periods)")
+    table.add_column("code")
+    table.add_column("value")
+    table.add_column("date_from")
+    table.add_column("date_to")
+    table.add_column("type")
+    table.add_column("id_attribute_value", justify="right")
+
+    for code in sorted(by_code):
+        for p in by_code[code]:
+            is_closed = p.get("date_to") is not None
+            value = p.get("value")
+            rendered_value = (
+                _color_status(value)
+                if code == "status"
+                else (str(value) if value is not None else "—")
+            )
+            datatype = p.get("attribute_datatype_code") or "?"
+
+            cells = [
+                code,
+                rendered_value,
+                _color_date(p.get("date_from")),
+                _color_date(p.get("date_to")) if p.get("date_to") else "open",
+                datatype,
+                _color_id(p.get("id_attribute_value")),
+            ]
+            if is_closed:
+                # Dim the whole row by wrapping each cell. Keep the
+                # color markup intact (rich nests styles cleanly).
+                cells = [f"[dim]{c}[/dim]" for c in cells]
+            table.add_row(*cells)
+    console.print(table)
+
+
+def _render_show_parent_history(
+    console,
+    client,
+    parent_history: List[Dict[str, Any]],
+) -> None:
+    """Render the parent (location/station) history (--list view).
+
+    Mirrors the TOS web UI 'Saga staðsetningar tækis' panel. Resolves
+    parent names via on-demand get_entity_history, cached per id.
+    Highlights cleanup-artifact dates yellow; dims closed joins.
+    """
+    from rich.table import Table
+
+    if not parent_history:
+        console.print(
+            "[dim]Parent history: (no parent connections — device is orphan or "
+            "never joined to a parent)[/dim]"
+        )
+        return
+
+    parent_names: Dict[int, str] = {}
+
+    def _parent_name(pid: int) -> str:
+        cached = parent_names.get(pid)
+        if cached is not None:
+            return cached
+        try:
+            parent_entity = client.get_entity_history(pid)
+        except Exception:  # noqa: BLE001
+            parent_entity = None
+        name: Optional[str] = None
+        if parent_entity:
+            for a in parent_entity.get("attributes") or []:
+                if a.get("code") in ("name", "marker") and a.get("date_to") is None:
+                    name = a.get("value")
+                    break
+        resolved = name or "?"
+        parent_names[pid] = resolved
+        return resolved
+
+    table = Table(title=f"Parent history ({len(parent_history)} join(s))")
+    table.add_column("#", justify="right")
+    table.add_column("state")
+    table.add_column("time_from")
+    table.add_column("time_to")
+    table.add_column("parent")
+    table.add_column("name")
+    table.add_column("id_connection", justify="right")
+
+    for i, j in enumerate(parent_history, 1):
+        is_open = j.get("time_to") is None
+        pid = j.get("id_entity_parent")
+        pname = _parent_name(int(pid)) if pid is not None else "?"
+        conn_id = j.get("id")
+
+        cells = [
+            str(i),
+            "[green]open[/green]" if is_open else "closed",
+            _color_date(j.get("time_from")),
+            _color_date(j.get("time_to")) if j.get("time_to") else "—",
+            str(pid) if pid is not None else "?",
+            pname,
+            _color_id(conn_id),
+        ]
+        if not is_open:
+            cells = [f"[dim]{c}[/dim]" for c in cells]
+        table.add_row(*cells)
+    console.print(table)
+
+
 def _device_show_main(args) -> int:
     """Handle ``tos device show`` — read-only device inspection.
 
-    Resolves a device by ``id_entity`` or ``(--serial, --subtype)``,
-    then prints three sections:
+    Resolves a device by ``id_entity`` or ``(--serial, --subtype)`` and
+    renders one or more sections. Defaults to all three; flag-restricted
+    via ``--list``, ``--attributes``, ``--attributes-history`` (mutually
+    exclusive).
 
-    1. **Header + current attributes** — id, subtype, currently-open
-       serial / model / status. Reuses :func:`display_device_record`
-       with ``with_joins=False`` (skips the ~110s global join-index
-       build).
-    2. **Attribute history** — every code's full date_from → date_to
-       periods. Same renderer as section 1, no extra cost.
-    3. **Parent (location/station) history** — every join, open and
-       closed, sorted by ``time_from``. Uses
-       :meth:`TOSClient.get_parent_history` which hits
-       ``/entity/parent_history/{id}`` directly — one HTTP call, no
-       fleet-wide index build. Parent names are looked up on-demand
-       via :meth:`get_entity_history` (cached per id to avoid
-       duplicate fetches across joins with the same parent).
+    Sections:
+      - **Header** — id, subtype, currently-open serial / model / status.
+        Always printed in pretty mode (unless a flag suppresses it; see
+        below).
+      - **Current attributes** (``--attributes``) — currently-open
+        attribute periods. Mirrors the TOS web UI 'Eiginleikar' panel.
+      - **Attribute history** (``--attributes-history``) — full open +
+        closed periods. Mirrors 'Saga eiginda tækis'.
+      - **Parent history** (``--list``) — every join, open and closed,
+        with parent names resolved via on-demand
+        :meth:`TOSClient.get_entity_history` (cached per parent id).
+        Mirrors 'Saga staðsetningar tækis'.
 
-    ``--json`` emits the raw entity history + parent_history payload
-    as a single JSON object, bypassing the pretty-print path.
+    Suspicion coloring:
+      - **yellow** date_from / date_to matching ``2014-10-17`` (the
+        fleet-wide metadata-cleanup-artifact pattern)
+      - **red** status value ``bilað`` / ``óvirkt``
+      - **dim** closed periods (date_to set) so open / current periods
+        stand out
+      - **cyan** id_attribute_value / id_connection — the values the
+        operator copies into ACTION lines
+
+    ``--json`` emits the raw entity history + parent_history payload as
+    a single JSON object, bypassing the pretty-print path. Section flags
+    are ignored when ``--json`` is set.
     """
     import json as _json
+
+    from rich.console import Console
 
     from .api.tos_client import TOSClient
     from .devices import find_device
@@ -1855,52 +2515,26 @@ def _device_show_main(args) -> int:
         print(_json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
 
-    # Sections 1 + 2 via the existing renderer.
-    display_device_record(client=client, id_entity=did, with_joins=False)
+    console = Console()
+    show_all = not (
+        args.section_list or args.section_attributes or args.section_attributes_history
+    )
 
-    # Section 3 — parent history, resolved through one fast endpoint.
-    print()
-    if not parent_history:
-        print(
-            "Parent history: (no parent connections — device is orphan or "
-            "never joined to a parent)"
-        )
-        return 0
+    if show_all or args.section_list or args.section_attributes:
+        _render_show_header(console, history)
 
-    # Resolve parent names on demand, cached. One get_entity_history per
-    # unique parent id; lighter than building the global join index.
-    parent_names: Dict[int, str] = {}
+    if show_all or args.section_attributes:
+        console.print()
+        _render_show_open_attributes(console, history, args)
 
-    def _parent_name(pid: int) -> str:
-        cached = parent_names.get(pid)
-        if cached is not None:
-            return cached
-        try:
-            parent_entity = client.get_entity_history(pid)
-        except Exception:  # noqa: BLE001
-            parent_entity = None
-        name: Optional[str] = None
-        if parent_entity:
-            for a in parent_entity.get("attributes") or []:
-                if a.get("code") in ("name", "marker") and a.get("date_to") is None:
-                    name = a.get("value")
-                    break
-        resolved = name or "?"
-        parent_names[pid] = resolved
-        return resolved
+    if show_all or args.section_attributes_history:
+        console.print()
+        _render_show_attribute_history(console, history, args)
 
-    print(f"Parent history ({len(parent_history)} join(s)):")
-    for i, j in enumerate(parent_history, 1):
-        kind = "open  " if j.get("time_to") is None else "closed"
-        pid = j.get("id_entity_parent")
-        pname = _parent_name(int(pid)) if pid is not None else "?"
-        end = j.get("time_to") or "—"
-        time_from = j.get("time_from") or "?"
-        conn_id = j.get("id")
-        print(
-            f"  {i:2d}. [{kind}] {time_from} → {end:24s} "
-            f"parent={pid} ({pname})  id_connection={conn_id}"
-        )
+    if show_all or args.section_list:
+        console.print()
+        _render_show_parent_history(console, client, parent_history)
+
     return 0
 
 
@@ -2018,10 +2652,84 @@ def _device_main(argv):
         action="store_true",
         help="Emit the raw entity history + parent_history as JSON.",
     )
+    section_group = p_show.add_mutually_exclusive_group()
+    section_group.add_argument(
+        "--list",
+        dest="section_list",
+        action="store_true",
+        help=(
+            "Print only the parent (location/station) history section. "
+            "Mirrors the TOS web UI 'Saga staðsetningar tækis' panel."
+        ),
+    )
+    section_group.add_argument(
+        "--attributes",
+        dest="section_attributes",
+        action="store_true",
+        help=(
+            "Print only the currently-open attributes table. Mirrors the "
+            "TOS web UI 'Eiginleikar' panel."
+        ),
+    )
+    section_group.add_argument(
+        "--attributes-history",
+        dest="section_attributes_history",
+        action="store_true",
+        help=(
+            "Print only the full attribute history (open + closed periods, "
+            "with date_to and datatype columns). Mirrors the TOS web UI "
+            "'Saga eiginda tækis' panel."
+        ),
+    )
+    add_attribute_filter_arguments(p_show)
+
+    p_list = sub.add_parser(
+        "list",
+        help=(
+            "List devices currently joined to a station (by marker) or "
+            "to a location (by name, e.g. warehouse). Mirrors the TOS web "
+            "UI's per-station device panel."
+        ),
+    )
+    parent_group = p_list.add_mutually_exclusive_group(required=True)
+    parent_group.add_argument(
+        "--station",
+        help="Station marker (e.g. SAVI). Case-insensitive.",
+    )
+    parent_group.add_argument(
+        "--location",
+        help=(
+            "Location name (e.g. 'B9 - Kjallari - Jörð' for the bench "
+            "warehouse). Exact match, case-sensitive."
+        ),
+    )
+    p_list.add_argument(
+        "--all",
+        action="store_true",
+        help=(
+            "Include closed (historical) joins. Default shows only "
+            "currently-open joins (devices presently at the parent). "
+            "Implicitly enabled by --date."
+        ),
+    )
+    add_device_filter_arguments(p_list)
+    p_list.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_list.add_argument("--port", type=int, default=443)
+    p_list.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the device rows as JSON instead of a rendered table.",
+    )
 
     args = p.parse_args(argv)
     if args.action == "show":
         return _device_show_main(args)
+    if args.action == "list":
+        return _device_list_main(args)
     if args.action != "add":
         p.error(f"unknown action: {args.action}")
         return 2

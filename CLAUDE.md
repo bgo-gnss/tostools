@@ -24,6 +24,93 @@ This is **tostools**, a Python3 command-line toolkit for GPS/GNSS station metada
 - **RINEX Processing**: Validation, brary
   correction, and format compliance
 
+## Tool boundaries — `tos` vs `tosGPS`
+
+The package ships **two CLI entry points** with a layered split. New verbs
+land via this rule:
+
+- **`tos` — the entity layer.** Any verb that takes an `id_entity` /
+  `serial` / `marker` / location-name and returns TOS state in its
+  **native shape** (raw attribute periods, joins, `id_attribute_value`,
+  `id_entity_connection`) belongs here. Subtype-agnostic — the same
+  verb works for `gnss_receiver`, `antenna`, `seismometer`, `monument`.
+  Includes audits (`tos audit *`), writes (`tos audit apply`), and
+  entity inspection (`tos device show / list`).
+
+- **`tosGPS` — the GPS interpretation layer.** Any verb that **synthesizes
+  TOS entities into a GPS-domain object** — a station "session"
+  (receiver+antenna+radome tuple), a GAMIT `station.info` row, an IGS
+  sitelog block, a RINEX-vs-TOS diff — belongs here. Calls *into* `tos`
+  primitives and reshapes their output. Opinionated by what GPS
+  processing pipelines expect.
+
+The split is **layer-based, not domain-based**. A seismic-network verb
+that returns raw entities still belongs in `tos`; a GPS-only verb that
+returns raw entities also belongs in `tos`. The split is about
+*output shape*, not the entity types involved.
+
+Practical examples:
+
+| Verb | Lives in | Why |
+|------|----------|-----|
+| `tos device show <id>` | `tos` | Raw attribute periods + raw joins |
+| `tos device list --station SAVI` | `tos` | Raw entity table with `id_entity` column |
+| `tos audit fleet` | `tos` | Invariants over raw TOS state |
+| `tos audit apply file.txt` | `tos` | Writes raw entities |
+| `tosGPS PrintTOS SAVI` | `tosGPS` | GAMIT-formatted station sessions |
+| `tosGPS sitelog SAVI` | `tosGPS` | IGS v2.0 site log synthesis |
+| `tosGPS syncMeta` | `tosGPS` | TOS ↔ GAMIT station.info diff |
+
+When a `tosGPS` verb needs to fetch an entity, it should *call into*
+`tos` primitives (or the underlying `tostools.api.tos_client` /
+`tostools.devices` helpers) rather than re-implement them.
+
+### Shared filter set for entity-listing verbs
+
+Any `tos` verb that produces a list of device entities should use the
+standard filter helpers in `tostools.tos`:
+
+- `add_device_filter_arguments(parser, with_date=True)` — adds
+  `--subtype`, `--model`, `--status`, `--serial`, `--date` to a
+  subparser. Pass `with_date=False` for verbs operating on data without
+  time bounds.
+- `apply_device_filters(rows, args)` — applies all five filters to
+  enriched rows (shape: `subtype`, `model`, `status`, `serial`,
+  `time_from`, `time_to`). AND'd; order preserved. Tolerates missing
+  arg attributes (each treated as "no constraint").
+
+Match semantics: `subtype` exact, `model` case-insensitive substring,
+`status` exact, `serial` case-sensitive substring, `date` "device
+present on date" (time_from ≤ date < time_to). See
+`tests/test_tos_client.py::apply_device_filters` for the full pinning.
+
+Verbs that should adopt these (and don't yet): the audit reporters that
+emit device tables — `tos audit fleet`, `tos audit orphans`,
+`tos audit timelines`, plus any future `tos device search` /
+`tos station list`.
+
+### Shared filter set for attribute-period verbs
+
+Verbs that show TOS attribute periods (open or historical) should use:
+
+- `add_attribute_filter_arguments(parser)` — adds `--code` (repeatable),
+  `--value`, `--on-date`, `--suspicious` to a subparser.
+- `apply_attribute_filters(periods, args)` — filters TOS attribute-value
+  dicts (`code`, `value`, `date_from`, `date_to`). AND'd; order
+  preserved; tolerates missing arg attributes.
+
+Match semantics: `code` exact (any of listed values OR'd), `value`
+case-insensitive substring, `on_date` "period active on date"
+(date_from ≤ date < date_to), `suspicious` "date_from is the
+fleet-wide cleanup-artifact date 2014-10-17" (see memory
+`project_2014_10_17_metadata_cleanup_artifacts`). Pinning in
+`tests/test_tos_client.py::apply_attribute_filters`.
+
+Adopted by `tos device show` (--attributes and --attributes-history
+sections both filter through this helper). Future candidates:
+`tos audit attribute-dates`, `tos audit missing-attributes`, any new
+fleet-wide attribute-inspection verb.
+
 ## Quick Start
 
 ### Environment Setup
