@@ -344,6 +344,56 @@ def test_patch_entity_connection_raises_with_no_kwargs():
         w.patch_entity_connection(7)
 
 
+def test_create_entity_connection_normalizes_bare_date_to_datetime():
+    """Regression for the SAVI live-apply failure (2026-05-25): TOS rejects
+    bare YYYY-MM-DD on the /joins endpoint with HTTP 400. The writer must
+    promote bare dates to full datetimes via _tos_date, same as
+    patch_entity_connection already does. Without this, _dispatch_move's
+    `open new join` step fails after `close old join` succeeds — leaving
+    the device parent-less and needing manual recovery."""
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request") as mock_req:
+        mock_req.return_value = {"id": 99999}
+        w.create_entity_connection(
+            id_parent=4440, id_child=21510, time_from="2007-09-07"
+        )
+    payload = mock_req.call_args.kwargs["data"]
+    # Must be the full-datetime form TOS accepts; the bare date is rejected.
+    assert payload["time_from"] == "2007-09-07T00:00:00"
+    assert payload["time_to"] is None
+
+
+def test_create_entity_connection_normalizes_both_dates_when_closed_join():
+    """When backfilling a closed historical join (fill-gap), both
+    time_from and time_to are bare dates that need promotion."""
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request") as mock_req:
+        mock_req.return_value = {"id": 99999}
+        w.create_entity_connection(
+            id_parent=4440,
+            id_child=21510,
+            time_from="2007-09-07",
+            time_to="2016-07-02",
+        )
+    payload = mock_req.call_args.kwargs["data"]
+    assert payload["time_from"] == "2007-09-07T00:00:00"
+    assert payload["time_to"] == "2016-07-02T00:00:00"
+
+
+def test_create_entity_connection_passes_full_datetime_through():
+    """If the caller already supplies a full datetime, don't double-normalize."""
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request") as mock_req:
+        mock_req.return_value = {"id": 99999}
+        w.create_entity_connection(
+            id_parent=4440,
+            id_child=21510,
+            time_from="2007-09-07T12:30:00",
+        )
+    payload = mock_req.call_args.kwargs["data"]
+    assert payload["time_from"] == "2007-09-07T12:30:00"
+
+
 def test_update_entity_subtype_uses_admin_endpoint_with_put():
     """Reclassifying a device sends PUT /admin_entity_row/<id>/ with the
     integer id_entity_subtype (not the string code) — the public
@@ -807,10 +857,7 @@ def test_find_location_by_name_filters_type():
         assert w.find_location_by_name("B9 - Kjallari - Jörð") is None
     # Disabling the type filter recovers the match.
     with patch.object(w, "_request", return_value=hits):
-        assert (
-            w.find_location_by_name("B9 - Kjallari - Jörð", type_filter="")
-            == 999
-        )
+        assert w.find_location_by_name("B9 - Kjallari - Jörð", type_filter="") == 999
 
 
 def test_find_location_by_name_empty_short_circuits():
@@ -1009,9 +1056,7 @@ def test_find_station_by_marker_filters_distance_value_and_type():
     hits = [
         _basic_search_marker_hit("hraf", entity_id=999, distance=1),
         _basic_search_marker_hit("save", entity_id=998),
-        _basic_search_marker_hit(
-            "hrac", entity_id=997, type_lvl_two="vöruhús"
-        ),
+        _basic_search_marker_hit("hrac", entity_id=997, type_lvl_two="vöruhús"),
         _basic_search_marker_hit("hrac", entity_id=16096),
     ]
     with patch.object(w, "_request", return_value=hits):
@@ -1333,13 +1378,13 @@ def test_add_maintenance_visit_three_call_flow():
         row["id_maintenance_attribute_value"]: row["value"]
         for row in put_body["maintenance_attribute_values"]
     }
-    assert av_by_id[80001] == "true"   # reason_change
+    assert av_by_id[80001] == "true"  # reason_change
     assert av_by_id[80002] == "false"  # reason_repairs
     assert av_by_id[80003] == "false"  # reason_inspection
     assert av_by_id[80004] == "false"  # reason_improvements
     assert av_by_id[80005] == "false"  # reason_other
-    assert av_by_id[80006] == "Skipt um móttakara"           # work
-    assert av_by_id[80008] == "Athuga loftnet næst"          # remaining
+    assert av_by_id[80006] == "Skipt um móttakara"  # work
+    assert av_by_id[80008] == "Athuga loftnet næst"  # remaining
     # comment was not supplied → should NOT appear in PUT payload
     assert 80007 not in av_by_id
 
@@ -1382,8 +1427,8 @@ def test_add_maintenance_visit_supports_multiple_reasons():
         r["id_maintenance_attribute_value"]: r["value"]
         for r in put_body["maintenance_attribute_values"]
     }
-    assert av_by_id[80001] == "true"   # change
-    assert av_by_id[80002] == "true"   # repairs
+    assert av_by_id[80001] == "true"  # change
+    assert av_by_id[80002] == "true"  # repairs
     assert av_by_id[80003] == "false"  # inspection still false
 
 
@@ -1434,9 +1479,7 @@ def test_delete_entity_connection_hits_admin_endpoint():
     w = _logged_in_writer(dry_run=False)
     with patch.object(w, "_request", return_value=None) as mock_req:
         w.delete_entity_connection(27836)
-    mock_req.assert_called_once_with(
-        "DELETE", "/admin_entity_connection_row/27836"
-    )
+    mock_req.assert_called_once_with("DELETE", "/admin_entity_connection_row/27836")
 
 
 def test_delete_entity_connection_respects_dry_run():
@@ -1518,8 +1561,8 @@ def test_update_maintenance_visit_reasons_replaces_full_set():
         for row in body["maintenance_attribute_values"]
     }
     assert av_by_code[80001] == "false"  # change — was true, replaced
-    assert av_by_code[80002] == "true"   # repairs — set
-    assert av_by_code[80003] == "true"   # inspection — set
+    assert av_by_code[80002] == "true"  # repairs — set
+    assert av_by_code[80003] == "true"  # inspection — set
     assert av_by_code[80004] == "false"  # improvements
     assert av_by_code[80005] == "false"  # other
 
@@ -1582,9 +1625,7 @@ def test_update_maintenance_visit_dry_run_still_returns_merge():
         return DryRunResult(method=method, endpoint=path, payload=kw.get("data"))
 
     with patch.object(w, "_request", side_effect=side_effect):
-        result = w.update_maintenance_visit(
-            5147, work="test edit", reasons=["change"]
-        )
+        result = w.update_maintenance_visit(5147, work="test edit", reasons=["change"])
     assert isinstance(result["updated"], DryRunResult)
     # Merge still computed
     body = result["after"]
@@ -1592,5 +1633,5 @@ def test_update_maintenance_visit_dry_run_still_returns_merge():
         r["id_maintenance_attribute_value"]: r["value"]
         for r in body["maintenance_attribute_values"]
     }
-    assert av_by_code[80001] == "true"   # reason_change
+    assert av_by_code[80001] == "true"  # reason_change
     assert av_by_code[80006] == "test edit"

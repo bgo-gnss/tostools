@@ -925,17 +925,24 @@ class TOSWriter:
         Args:
             id_parent: Parent entity id (e.g. station id_entity).
             id_child: Child entity id (e.g. gnss_receiver id_entity).
-            time_from: ISO-8601 start of the connection.
+            time_from: ISO-8601 start of the connection. Bare
+                ``YYYY-MM-DD`` is accepted and promoted to a full
+                datetime by :meth:`_tos_date` (TOS rejects date-only
+                inputs on the join endpoint with HTTP 400, same as
+                :meth:`patch_entity_connection`).
             time_to: ISO-8601 end, or ``None`` for currently active.
+                Bare ``YYYY-MM-DD`` similarly promoted.
         """
+        normalized_from = self._tos_date(time_from)
+        normalized_to = self._tos_date(time_to) if time_to is not None else None
         return self._request(
             "POST",
             "/joins",
             data={
                 "id_entity_parent": id_parent,
                 "id_entity_child": id_child,
-                "time_from": time_from,
-                "time_to": time_to,
+                "time_from": normalized_from,
+                "time_to": normalized_to,
             },
         )
 
