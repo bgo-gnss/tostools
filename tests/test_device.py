@@ -72,6 +72,25 @@ def test_validate_model_gnss_receiver_identity_for_igs_name() -> None:
     assert validate_model("gnss_receiver", "POLARX5") == "SEPT POLARX5"
 
 
+def test_validate_model_gnss_receiver_polarx2_alias_resolves_to_igs() -> None:
+    # POLARX2 (historical pre-PolaRX5 era) — multiple aliases all
+    # resolve to the canonical IGS name. Added during SAVI history
+    # reconstruction; KVIS/FTEY/GAKE/GAK1/GAK2/HEDI also need this.
+    assert validate_model("gnss_receiver", "PolaRX2") == "SEPT POLARX2"
+    assert validate_model("gnss_receiver", "PolaRx2") == "SEPT POLARX2"
+
+
+def test_validate_model_gnss_receiver_polarx2_canonical_identity() -> None:
+    # Bare "SEPT POLARX2" — should resolve via the case-folded fallback
+    # since "POLARX2" is now in RECEIVER_IGS as a key.
+    assert validate_model("gnss_receiver", "SEPT POLARX2") == "SEPT POLARX2"
+
+
+def test_validate_model_gnss_receiver_polarx2e_alias_resolves_to_igs() -> None:
+    # PolaRX2E (Enhanced variant) — separate model from PolaRX2.
+    assert validate_model("gnss_receiver", "PolaRX2E") == "SEPT POLARX2E"
+
+
 def test_validate_model_antenna_identity() -> None:
     assert validate_model("antenna", "TRM57971.00") == "TRM57971.00"
 
