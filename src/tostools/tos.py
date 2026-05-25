@@ -2872,6 +2872,151 @@ def _device_main(argv):
     return 0
 
 
+# Model-substring → expected brand-family map. Keys are matched
+# case-insensitively against the device's open `model` attribute; first
+# matching rule wins. Add a rule when a new receiver model shows up.
+_MODEL_TO_FAMILY = (
+    ("netr9", "trimble_netr9"),
+    ("netrs", "trimble_netrs"),
+    ("trimble 4000", "trimble_4000"),
+    ("polarx", "septentrio"),
+    ("sept", "septentrio"),
+)
+
+
+def _infer_expected_family(model: Optional[str]) -> Optional[str]:
+    """Map a TOS-stored model string to the archive's brand-family code.
+
+    Returns ``None`` when no rule matches (e.g. ``ASHTECH UZ-12`` — no
+    .sbf-style raw extension is mapped for ASHTECH; verdict logic
+    should treat the model as 'unmapped' rather than 'wrong').
+    """
+    if not model:
+        return None
+    m = model.lower()
+    for needle, family in _MODEL_TO_FAMILY:
+        if needle in m:
+            return family
+    return None
+
+
+def _classify_tos_join_against_archive(
+    time_from: str,
+    time_to: Optional[str],
+    expected_family: Optional[str],
+    timeline,
+) -> Dict[str, Any]:
+    """Compare a TOS join window against the archive's brand timeline.
+
+    Returns a dict with ``status`` and human-readable ``detail``; when
+    the verdict implies a fixable ACTION (``join_too_wide`` is the
+    canonical case — the bulk-load placeholder dates), also includes
+    ``suggested_action_args`` so the caller can render the operator-
+    targeted suggestion.
+
+    Status values:
+      * ``no_archive_coverage`` — no archived days in window
+      * ``unmapped_model`` — TOS model doesn't map to a known family
+      * ``rinex_only`` — only RINEX (format-neutral) days in window
+      * ``ok`` — only the expected family present in the window
+      * ``late_start`` — expected family present, but starts later than
+        ``time_from``; non-expected (or no) days before; suggests
+        narrowing time_from forward
+      * ``early_end`` — expected family present, but stops earlier than
+        ``time_to``; non-expected days after; suggests narrowing
+        time_to backward
+      * ``join_too_wide`` — expected family present **and** a different
+        raw family also present in window; suggests narrowing the join
+        to match the first expected-family day
+      * ``wrong_brand`` — only non-expected raw families in window
+    """
+    tf = time_from[:10] if time_from else ""
+    tt = time_to[:10] if time_to else None
+
+    in_window = [
+        d
+        for d in timeline
+        if (not tf or str(d.obs_date) >= tf) and (tt is None or str(d.obs_date) < tt)
+    ]
+    if not in_window:
+        return {
+            "status": "no_archive_coverage",
+            "detail": "no archived data in window",
+        }
+    if expected_family is None:
+        archive_families = sorted({d.family for d in in_window if d.is_raw})
+        return {
+            "status": "unmapped_model",
+            "detail": (
+                f"model not in MODEL_TO_FAMILY map; archive shows "
+                f"{','.join(archive_families) or 'rinex-only'}"
+            ),
+        }
+    raw_days = [d for d in in_window if d.is_raw]
+    if not raw_days:
+        return {
+            "status": "rinex_only",
+            "detail": "only RINEX days in window; brand undetermined",
+        }
+    expected_days = [d for d in raw_days if d.family == expected_family]
+    other_days = [d for d in raw_days if d.family != expected_family]
+
+    if not expected_days:
+        other_families = sorted({d.family for d in other_days})
+        return {
+            "status": "wrong_brand",
+            "detail": (
+                f"expected {expected_family}; archive shows "
+                f"{','.join(other_families)} throughout"
+            ),
+        }
+    if not other_days:
+        return {
+            "status": "ok",
+            "detail": f"archive {expected_family} throughout",
+        }
+    # Both present — the SAVI-style "join too wide" case.
+    first_expected = expected_days[0].obs_date
+    last_expected = expected_days[-1].obs_date
+    first_other = other_days[0].obs_date
+    last_other = other_days[-1].obs_date
+
+    if first_other < first_expected and last_other < first_expected:
+        # Other brand fully precedes expected — TOS time_from is too early.
+        other_families = sorted({d.family for d in other_days})
+        return {
+            "status": "late_start",
+            "detail": (
+                f"expected {expected_family} starts {first_expected} "
+                f"(archive shows {','.join(other_families)} before that)"
+            ),
+            "suggested_action_args": ("time_from", str(first_expected)),
+        }
+    if first_other > last_expected and last_other > last_expected:
+        # Other brand fully follows expected — TOS time_to is too late.
+        other_families = sorted({d.family for d in other_days})
+        return {
+            "status": "early_end",
+            "detail": (
+                f"expected {expected_family} ends {last_expected} "
+                f"(archive shows {','.join(other_families)} after that)"
+            ),
+            "suggested_action_args": ("time_to", str(last_expected)),
+        }
+    # Interleaved (or other complex pattern) — surface as join_too_wide
+    # with the suggestion to narrow to first_expected_day.
+    other_families = sorted({d.family for d in other_days})
+    return {
+        "status": "join_too_wide",
+        "detail": (
+            f"join window contains both {expected_family} and "
+            f"{','.join(other_families)}; expected family first appears "
+            f"{first_expected}"
+        ),
+        "suggested_action_args": ("time_from", str(first_expected)),
+    }
+
+
 def _audit_verify_from_rinex_main(args, client) -> int:
     """Handle ``tos audit verify-from-rinex --station X``.
 
@@ -3102,6 +3247,7 @@ def _audit_verify_from_rinex_main(args, client) -> int:
         console.print(t_ronly)
 
     # TOS-vs-archive cross-reference for the receiver timeline.
+    suggested_actions: List[str] = []
     if tos_receivers:
         console.print()
         t_tos = Table(title="TOS receiver joins (all, incl. closed)")
@@ -3111,52 +3257,60 @@ def _audit_verify_from_rinex_main(args, client) -> int:
         t_tos.add_column("time_from")
         t_tos.add_column("time_to")
         t_tos.add_column("verdict")
+        # Status → rich-markup styling. Green=clean, yellow=informational,
+        # red=actionable. Keep contractually short so the verdict column
+        # doesn't dominate the table.
+        _VERDICT_STYLE = {
+            "ok": "green",
+            "no_archive_coverage": "yellow",
+            "unmapped_model": "dim",
+            "rinex_only": "yellow",
+            "late_start": "red",
+            "early_end": "red",
+            "join_too_wide": "red",
+            "wrong_brand": "red",
+        }
         for d in tos_receivers:
             tf = (d.get("time_from") or "")[:10]
             tt_raw = d.get("time_to")
             tt = tt_raw[:10] if tt_raw else None
-
-            # Walk archive timeline within the TOS-claimed window and
-            # see which families appear there.
-            covered = [
-                day
-                for day in timeline
-                if (not tf or str(day.obs_date) >= tf)
-                and (tt is None or str(day.obs_date) < tt)
-            ]
-            archive_families = sorted({day.family for day in covered if day.is_raw})
-            verdict_parts = []
-            if not covered:
-                verdict_parts.append("[red]no archive coverage[/red]")
-            elif archive_families and d.get("model"):
-                # Crude family-vs-model heuristic for the verdict.
-                model_lower = (d.get("model") or "").lower()
-                expected_family = None
-                if "netr9" in model_lower:
-                    expected_family = "trimble_netr9"
-                elif "polarx" in model_lower or "sept" in model_lower:
-                    expected_family = "septentrio"
-                if expected_family and expected_family in archive_families:
-                    verdict_parts.append(
-                        f"[green]ok[/green] (archive {','.join(archive_families)})"
-                    )
-                elif expected_family:
-                    verdict_parts.append(
-                        f"[red]mismatch[/red] (TOS expects "
-                        f"{expected_family}; archive shows "
-                        f"{','.join(archive_families)})"
-                    )
-                else:
-                    verdict_parts.append(f"archive: {','.join(archive_families)}")
+            expected_family = _infer_expected_family(d.get("model"))
+            verdict = _classify_tos_join_against_archive(
+                tf, tt, expected_family, timeline
+            )
+            style = _VERDICT_STYLE.get(verdict["status"], "white")
+            verdict_text = (
+                f"[{style}]{verdict['status']}[/{style}]: {verdict['detail']}"
+            )
+            # If the verdict implies a fixable ACTION, also collect a
+            # suggested triage line operators can paste into a triage file.
+            sug = verdict.get("suggested_action_args")
+            id_conn = d.get("id_connection")
+            if sug and id_conn is not None:
+                field, new_date = sug
+                suggested_actions.append(
+                    f"ACTION {d['id_entity']} patch-join-date "
+                    f"{id_conn} {field} {new_date}  "
+                    f"# was {tf if field == 'time_from' else (tt or 'open')}"
+                )
             t_tos.add_row(
                 str(d["id_entity"]),
                 str(d.get("serial") or "?"),
                 str(d.get("model") or "?"),
                 tf or "?",
                 tt or "—",
-                " ".join(verdict_parts) or "—",
+                verdict_text,
             )
         console.print(t_tos)
+
+        if suggested_actions:
+            console.print()
+            console.print(
+                "[bold]Suggested ACTION lines for triage[/bold] "
+                "(paste into a triage file then `tos audit apply`):"
+            )
+            for line in suggested_actions:
+                console.print(f"  {line}")
 
     return 1 if (transitions or gaps) else 0
 
