@@ -383,6 +383,44 @@ def detect_brand_transitions(
 
 
 @dataclass(frozen=True)
+class BrandRun:
+    """A contiguous span of one receiver-brand family in the timeline.
+
+    Produced by :func:`coalesce_brand_runs`. ``rinex_only_days`` counts
+    how many days inside the span carried only RINEX (raw missing); the
+    span itself is attributed to a single brand because the rinex days
+    were absorbed into the surrounding (same-brand) span.
+
+    ``ambiguous=True`` marks spans the coalescer couldn't attribute to a
+    real brand — namely rinex runs at the start/end of the timeline (no
+    bracketing brand) or rinex runs between two *different* brands
+    (operator must resolve manually, e.g. by reading the RINEX header).
+    """
+
+    family: str
+    start: date
+    end: date
+    days: int
+    rinex_only_days: int
+    ambiguous: bool = False
+
+
+@dataclass(frozen=True)
+class RinexOnlySpan:
+    """A contiguous span where the archive holds only RINEX, no raw.
+
+    Operationally important: surfaces "we're losing raw" anomalies (the
+    receiver was running, RINEX was produced via sbf2rin / runpkr00,
+    but the raw file was never archived or was deleted). Two adjacent
+    rinex-only days collapse into one span.
+    """
+
+    start: date
+    end: date
+    days: int
+
+
+@dataclass(frozen=True)
 class DataGap:
     """A multi-day gap with no archived data."""
 
@@ -417,4 +455,152 @@ def detect_data_gaps(
                 )
             )
         prev = cur
+    return out
+
+
+def coalesce_brand_runs(timeline: List[ArchiveDay]) -> List[BrandRun]:
+    """Collapse the per-day timeline into brand-aware contiguous spans.
+
+    The naive run-detector (used in v0 of the verb) shows every
+    family-change as a new run, which puts ``rinex`` rows in the brand
+    timeline. RINEX is format-neutral — those days aren't a brand
+    change, just days where the raw file is missing.
+
+    This coalescer absorbs ``rinex`` runs into their surrounding brand
+    when both neighbours have the SAME real brand (which is the typical
+    pattern — receiver didn't change, raw was just lost for a stretch).
+    The absorbed rinex day count is recorded on the surviving
+    :class:`BrandRun` as ``rinex_only_days``.
+
+    Edge cases marked ``ambiguous=True``:
+
+    * Leading rinex run (no brand before it) — emitted as
+      ``family="rinex"`` so the operator can decide what brand to
+      attribute those days to.
+    * Trailing rinex run (no brand after it) — same.
+    * Rinex sandwiched between two *different* real brands — emitted as
+      its own ambiguous ``family="rinex"`` run; the operator must
+      resolve manually (e.g. by reading a RINEX header from the
+      ambiguous span).
+    """
+    if not timeline:
+        return []
+
+    # First pass: build naive same-family runs (every change → new run).
+    @dataclass
+    class _Naive:
+        family: str
+        start: date
+        end: date
+        days: int
+
+    naive: List[_Naive] = []
+    run_start = timeline[0]
+    prev = timeline[0]
+    for cur in timeline[1:]:
+        if cur.family != prev.family:
+            naive.append(
+                _Naive(
+                    family=run_start.family,
+                    start=run_start.obs_date,
+                    end=prev.obs_date,
+                    days=(prev.obs_date - run_start.obs_date).days + 1,
+                )
+            )
+            run_start = cur
+        prev = cur
+    naive.append(
+        _Naive(
+            family=run_start.family,
+            start=run_start.obs_date,
+            end=prev.obs_date,
+            days=(prev.obs_date - run_start.obs_date).days + 1,
+        )
+    )
+
+    # Second pass: walk the naive runs, fold rinex into surrounding
+    # same-brand neighbours; emit ambiguous spans where unresolvable.
+    out: List[BrandRun] = []
+    i = 0
+    while i < len(naive):
+        cur = naive[i]
+        if cur.family != "rinex":
+            # Look ahead: if the next run is rinex AND the one after
+            # that is the SAME brand as cur, absorb both into cur.
+            absorbed_rinex = 0
+            run_end = cur.end
+            j = i + 1
+            while (
+                j + 1 < len(naive)
+                and naive[j].family == "rinex"
+                and naive[j + 1].family == cur.family
+            ):
+                absorbed_rinex += naive[j].days
+                run_end = naive[j + 1].end
+                j += 2
+            out.append(
+                BrandRun(
+                    family=cur.family,
+                    start=cur.start,
+                    end=run_end,
+                    days=(run_end - cur.start).days + 1,
+                    rinex_only_days=absorbed_rinex,
+                )
+            )
+            i = j
+        else:
+            # Standalone rinex run — at start, at end, or between
+            # different brands. Emit as ambiguous.
+            out.append(
+                BrandRun(
+                    family="rinex",
+                    start=cur.start,
+                    end=cur.end,
+                    days=cur.days,
+                    rinex_only_days=cur.days,
+                    ambiguous=True,
+                )
+            )
+            i += 1
+    return out
+
+
+def detect_rinex_only_spans(timeline: List[ArchiveDay]) -> List[RinexOnlySpan]:
+    """Surface contiguous spans where the archive carries only RINEX.
+
+    Operationally important — RINEX-only days mean the raw receiver
+    file is missing (never archived or deleted). Adjacent rinex days
+    collapse into one span so the operator sees the windows at a glance.
+
+    Decoupled from :func:`coalesce_brand_runs`: that function answers
+    "what brand was here?" by absorbing rinex into surrounding brand;
+    this function answers "where is raw missing?" regardless of brand.
+    """
+    out: List[RinexOnlySpan] = []
+    span_start: Optional[ArchiveDay] = None
+    prev: Optional[ArchiveDay] = None
+    for day in timeline:
+        if day.family == "rinex":
+            if span_start is None:
+                span_start = day
+            prev = day
+        else:
+            if span_start is not None and prev is not None:
+                out.append(
+                    RinexOnlySpan(
+                        start=span_start.obs_date,
+                        end=prev.obs_date,
+                        days=(prev.obs_date - span_start.obs_date).days + 1,
+                    )
+                )
+                span_start = None
+                prev = None
+    if span_start is not None and prev is not None:
+        out.append(
+            RinexOnlySpan(
+                start=span_start.obs_date,
+                end=prev.obs_date,
+                days=(prev.obs_date - span_start.obs_date).days + 1,
+            )
+        )
     return out

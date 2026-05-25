@@ -2651,18 +2651,13 @@ def _display_archive_evidence(station, *, archive_root=None, min_gap_days=30):
 
     transitions = archive_mod.detect_brand_transitions(timeline)
     gaps = archive_mod.detect_data_gaps(timeline, min_days=min_gap_days)
-
-    # Family runs — contiguous brand spans, useful as a quick at-a-glance
-    # of what the archive thinks happened.
-    runs = []
-    run_start = timeline[0]
-    prev = timeline[0]
-    for cur in timeline[1:]:
-        if cur.family != prev.family:
-            runs.append((run_start.family, run_start.obs_date, prev.obs_date))
-            run_start = cur
-        prev = cur
-    runs.append((run_start.family, run_start.obs_date, prev.obs_date))
+    # rinex (format-neutral) days are absorbed into the surrounding
+    # brand when bracketed by the same brand. Standalone rinex runs
+    # (leading/trailing/between-different-brands) survive as ambiguous
+    # spans the operator must resolve. RINEX-only spans (raw missing)
+    # are surfaced separately as an operational signal.
+    brand_runs = archive_mod.coalesce_brand_runs(timeline)
+    rinex_only_spans = archive_mod.detect_rinex_only_spans(timeline)
 
     print(f"\nArchive evidence for {station} ({root}):")
     print(
@@ -2670,10 +2665,18 @@ def _display_archive_evidence(station, *, archive_root=None, min_gap_days=30):
         f"first: {timeline[0].obs_date}  last: {timeline[-1].obs_date}"
     )
 
-    if runs:
-        print("\n  Brand timeline (file-extension classified):")
-        for family, df, dt in runs:
-            print(f"    {df}  →  {dt}     {family}")
+    if brand_runs:
+        print(
+            "\n  Brand timeline (rinex-only days absorbed into surrounding " "brand):"
+        )
+        for r in brand_runs:
+            label = f"{r.family} (ambiguous)" if r.ambiguous else r.family
+            suffix = (
+                f"  [rinex-only inside: {r.rinex_only_days}]"
+                if r.rinex_only_days
+                else ""
+            )
+            print(f"    {r.start}  →  {r.end}     {label}{suffix}")
 
     if transitions:
         print("\n  Real receiver-brand transitions " "(non-RINEX day-to-day changes):")
@@ -2692,6 +2695,11 @@ def _display_archive_evidence(station, *, archive_root=None, min_gap_days=30):
                 f"    {g.last_day_with_data}  →  {g.next_day_with_data}     "
                 f"({g.duration_days} days)"
             )
+
+    if rinex_only_spans:
+        print("\n  RINEX-only spans (raw missing — possible data-loss windows):")
+        for s in rinex_only_spans:
+            print(f"    {s.start}  →  {s.end}     ({s.days} days)")
 
 
 def _lines_are_identical(tos_lines, ref_lines):

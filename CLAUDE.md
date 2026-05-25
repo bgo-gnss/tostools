@@ -134,8 +134,12 @@ historical install dates.
 
 Reusable helpers in `tostools.archive`: `cold_archive_prepath()`,
 `classify_file_format()`, `walk_station_timeline()`,
-`detect_brand_transitions()`, `detect_data_gaps()`. Pinned by
-`tests/test_archive.py`.
+`detect_brand_transitions()`, `detect_data_gaps()`,
+`coalesce_brand_runs()` (rinex-format days absorbed into surrounding
+brand when bracketed by the same brand; ambiguous spans surfaced
+separately), `detect_rinex_only_spans()` (operationally important —
+windows where raw is missing and only RINEX archived; useful "we're
+losing raw" signal). Pinned by `tests/test_archive.py`.
 
 **Cross-tool wiring**: `tosGPS syncMeta --type gamit-station-info ...
 --with-archive` calls the same helpers and appends an "Archive evidence"

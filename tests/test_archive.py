@@ -16,9 +16,11 @@ import pytest
 from tostools.archive import (
     ArchiveDay,
     classify_file_format,
+    coalesce_brand_runs,
     cold_archive_prepath,
     detect_brand_transitions,
     detect_data_gaps,
+    detect_rinex_only_spans,
     walk_station_timeline,
 )
 
@@ -391,3 +393,155 @@ def test_savi_shape_integration(tmp_path):
     big_gap = next(g for g in gaps if g.last_day_with_data == date(2014, 7, 8))
     assert big_gap.next_day_with_data == date(2016, 7, 2)
     assert big_gap.duration_days == 724
+
+
+# ---------------------------------------------------------------------------
+# coalesce_brand_runs — rinex absorbed into surrounding brand
+# ---------------------------------------------------------------------------
+
+
+def test_coalesce_rinex_between_same_brand_is_absorbed():
+    """Septentrio → rinex → septentrio collapses to one septentrio run
+    with the rinex day count preserved on the run."""
+    timeline = [
+        _day("2007-09-01", "septentrio"),
+        _day("2007-12-15", "rinex"),
+        _day("2008-01-05", "septentrio"),
+    ]
+    runs = coalesce_brand_runs(timeline)
+    assert len(runs) == 1
+    r = runs[0]
+    assert r.family == "septentrio"
+    assert r.start == date(2007, 9, 1)
+    assert r.end == date(2008, 1, 5)
+    assert r.rinex_only_days == 1
+    assert r.ambiguous is False
+
+
+def test_coalesce_rinex_between_different_brands_marked_ambiguous():
+    """Septentrio → rinex → trimble: rinex can't be attributed to either
+    side, surfaces as its own ambiguous span."""
+    timeline = [
+        _day("2014-07-08", "septentrio"),
+        _day("2015-01-01", "rinex"),
+        _day("2016-07-02", "trimble_netr9"),
+    ]
+    runs = coalesce_brand_runs(timeline)
+    assert len(runs) == 3
+    assert runs[0].family == "septentrio"
+    assert runs[0].ambiguous is False
+    assert runs[1].family == "rinex"
+    assert runs[1].ambiguous is True
+    assert runs[2].family == "trimble_netr9"
+    assert runs[2].ambiguous is False
+
+
+def test_coalesce_leading_rinex_surfaces_as_ambiguous():
+    """Rinex at the very start (no brand before it) can't be attributed
+    — surface as ambiguous so the operator decides."""
+    timeline = [
+        _day("2007-01-01", "rinex"),
+        _day("2007-09-01", "septentrio"),
+    ]
+    runs = coalesce_brand_runs(timeline)
+    assert len(runs) == 2
+    assert runs[0].family == "rinex"
+    assert runs[0].ambiguous is True
+    assert runs[1].family == "septentrio"
+
+
+def test_coalesce_trailing_rinex_surfaces_as_ambiguous():
+    """Same for rinex at the very end of the timeline."""
+    timeline = [
+        _day("2007-09-01", "septentrio"),
+        _day("2020-01-01", "rinex"),
+    ]
+    runs = coalesce_brand_runs(timeline)
+    assert len(runs) == 2
+    assert runs[0].family == "septentrio"
+    assert runs[1].family == "rinex"
+    assert runs[1].ambiguous is True
+
+
+def test_coalesce_savi_pattern_two_clean_brand_runs():
+    """The SAVI live-archive shape: 3 septentrio segments interleaved
+    with 2 rinex-only gaps, then a brand change to trimble. Coalesces
+    to 2 brand runs (septentrio with 2 rinex stretches absorbed; then
+    trimble)."""
+    timeline = [
+        _day("2007-09-01", "septentrio"),
+        _day("2007-12-15", "rinex"),
+        _day("2008-01-05", "septentrio"),
+        _day("2009-06-01", "rinex"),
+        _day("2010-08-25", "septentrio"),
+        _day("2014-07-08", "septentrio"),
+        _day("2016-07-02", "trimble_netr9"),
+    ]
+    runs = coalesce_brand_runs(timeline)
+    assert [r.family for r in runs] == ["septentrio", "trimble_netr9"]
+    assert runs[0].rinex_only_days == 2
+    assert runs[0].start == date(2007, 9, 1)
+    assert runs[0].end == date(2014, 7, 8)
+    assert runs[1].start == date(2016, 7, 2)
+    assert runs[1].rinex_only_days == 0
+
+
+def test_coalesce_empty_timeline_returns_empty():
+    assert coalesce_brand_runs([]) == []
+
+
+# ---------------------------------------------------------------------------
+# detect_rinex_only_spans
+# ---------------------------------------------------------------------------
+
+
+def test_detect_rinex_only_spans_groups_adjacent_rinex_days():
+    """Two adjacent rinex days collapse into one span."""
+    timeline = [
+        _day("2007-09-01", "septentrio"),
+        _day("2007-12-15", "rinex"),
+        _day("2007-12-16", "rinex"),
+        _day("2007-12-17", "rinex"),
+        _day("2008-01-05", "septentrio"),
+    ]
+    spans = detect_rinex_only_spans(timeline)
+    assert len(spans) == 1
+    assert spans[0].start == date(2007, 12, 15)
+    assert spans[0].end == date(2007, 12, 17)
+    assert spans[0].days == 3
+
+
+def test_detect_rinex_only_spans_handles_multiple_spans():
+    """Separated rinex stretches surface as separate spans."""
+    timeline = [
+        _day("2007-09-01", "septentrio"),
+        _day("2007-12-15", "rinex"),
+        _day("2008-01-05", "septentrio"),
+        _day("2009-06-01", "rinex"),
+        _day("2009-06-02", "rinex"),
+        _day("2010-08-25", "septentrio"),
+    ]
+    spans = detect_rinex_only_spans(timeline)
+    assert len(spans) == 2
+    assert spans[0].days == 1
+    assert spans[1].days == 2
+
+
+def test_detect_rinex_only_spans_no_rinex_returns_empty():
+    timeline = [
+        _day("2007-09-01", "septentrio"),
+        _day("2014-07-08", "septentrio"),
+    ]
+    assert detect_rinex_only_spans(timeline) == []
+
+
+def test_detect_rinex_only_spans_only_rinex_returns_one_span():
+    """A timeline of only rinex days → one span covering the whole range."""
+    timeline = [
+        _day("2007-01-01", "rinex"),
+        _day("2007-01-02", "rinex"),
+        _day("2007-01-03", "rinex"),
+    ]
+    spans = detect_rinex_only_spans(timeline)
+    assert len(spans) == 1
+    assert spans[0].days == 3

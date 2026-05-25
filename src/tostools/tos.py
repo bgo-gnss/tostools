@@ -2922,34 +2922,14 @@ def _audit_verify_from_rinex_main(args, client) -> int:
 
     transitions = archive_mod.detect_brand_transitions(timeline)
     gaps = archive_mod.detect_data_gaps(timeline, min_days=args.min_gap_days)
-
-    # Family runs — contiguous spans of the same family across the
-    # timeline. Useful for the "what was the receiver brand during X
-    # year?" question that the transitions list alone doesn't answer.
-    runs: List[Dict[str, Any]] = []
-    if timeline:
-        run_start = timeline[0]
-        prev = timeline[0]
-        for cur in timeline[1:]:
-            if cur.family != prev.family:
-                runs.append(
-                    {
-                        "family": run_start.family,
-                        "from": run_start.obs_date,
-                        "to": prev.obs_date,
-                        "days": (prev.obs_date - run_start.obs_date).days + 1,
-                    }
-                )
-                run_start = cur
-            prev = cur
-        runs.append(
-            {
-                "family": run_start.family,
-                "from": run_start.obs_date,
-                "to": prev.obs_date,
-                "days": (prev.obs_date - run_start.obs_date).days + 1,
-            }
-        )
+    # Brand-aware runs: rinex (format-neutral) days are absorbed into
+    # the surrounding brand when bracketed by the same brand. Standalone
+    # rinex runs (leading/trailing/between-different-brands) survive as
+    # ambiguous spans the operator must resolve. Absorbed-rinex counts
+    # are preserved on each BrandRun so the "raw missing" signal is
+    # never lost.
+    brand_runs = archive_mod.coalesce_brand_runs(timeline)
+    rinex_only_spans = archive_mod.detect_rinex_only_spans(timeline)
 
     # Fetch TOS state — reuse the same primitives as `tos device list`
     # for parent resolution + child enumeration.
@@ -2997,14 +2977,16 @@ def _audit_verify_from_rinex_main(args, client) -> int:
             "timeline_count": len(timeline),
             "first": timeline[0].obs_date.isoformat() if timeline else None,
             "last": timeline[-1].obs_date.isoformat() if timeline else None,
-            "family_runs": [
+            "brand_runs": [
                 {
-                    "family": r["family"],
-                    "from": r["from"].isoformat(),
-                    "to": r["to"].isoformat(),
-                    "days": r["days"],
+                    "family": r.family,
+                    "from": r.start.isoformat(),
+                    "to": r.end.isoformat(),
+                    "days": r.days,
+                    "rinex_only_days": r.rinex_only_days,
+                    "ambiguous": r.ambiguous,
                 }
-                for r in runs
+                for r in brand_runs
             ],
             "brand_transitions": [
                 {
@@ -3022,6 +3004,14 @@ def _audit_verify_from_rinex_main(args, client) -> int:
                     "duration_days": g.duration_days,
                 }
                 for g in gaps
+            ],
+            "rinex_only_spans": [
+                {
+                    "from": s.start.isoformat(),
+                    "to": s.end.isoformat(),
+                    "days": s.days,
+                }
+                for s in rinex_only_spans
             ],
             "tos_receivers": [
                 {**d, "time_from": d["time_from"], "time_to": d["time_to"]}
@@ -3042,15 +3032,31 @@ def _audit_verify_from_rinex_main(args, client) -> int:
         f"first: {timeline[0].obs_date}  |  last: {timeline[-1].obs_date}"
     )
 
-    if runs:
+    if brand_runs:
         console.print()
-        t_runs = Table(title="Archive family runs (contiguous brand spans)")
+        t_runs = Table(
+            title=(
+                "Archive brand timeline "
+                "(rinex-only days absorbed into surrounding brand)"
+            )
+        )
         t_runs.add_column("family")
         t_runs.add_column("from")
         t_runs.add_column("to")
         t_runs.add_column("days", justify="right")
-        for r in runs:
-            t_runs.add_row(r["family"], str(r["from"]), str(r["to"]), str(r["days"]))
+        t_runs.add_column("rinex-only inside", justify="right")
+        for r in brand_runs:
+            family_label = (
+                f"[yellow]{r.family} (ambiguous)[/yellow]" if r.ambiguous else r.family
+            )
+            rinex_cell = str(r.rinex_only_days) if r.rinex_only_days else ""
+            t_runs.add_row(
+                family_label,
+                str(r.start),
+                str(r.end),
+                str(r.days),
+                rinex_cell,
+            )
         console.print(t_runs)
 
     if transitions:
@@ -3082,6 +3088,18 @@ def _audit_verify_from_rinex_main(args, client) -> int:
                 str(g.duration_days),
             )
         console.print(t_gaps)
+
+    if rinex_only_spans:
+        console.print()
+        t_ronly = Table(
+            title="RINEX-only spans (raw missing — possible data-loss windows)"
+        )
+        t_ronly.add_column("from")
+        t_ronly.add_column("to")
+        t_ronly.add_column("days", justify="right")
+        for s in rinex_only_spans:
+            t_ronly.add_row(str(s.start), str(s.end), str(s.days))
+        console.print(t_ronly)
 
     # TOS-vs-archive cross-reference for the receiver timeline.
     if tos_receivers:
