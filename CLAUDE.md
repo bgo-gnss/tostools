@@ -137,6 +137,15 @@ Reusable helpers in `tostools.archive`: `cold_archive_prepath()`,
 `detect_brand_transitions()`, `detect_data_gaps()`. Pinned by
 `tests/test_archive.py`.
 
+**Cross-tool wiring**: `tosGPS syncMeta --type gamit-station-info ...
+--with-archive` calls the same helpers and appends an "Archive evidence"
+panel below the TOS-vs-REF session diff. Opt-in (off by default — archive
+access is unreliable on offline / no-mount workflows). When set, every
+station's comparison gains brand-timeline + transitions + gaps under the
+existing diff, in one command, so operators get all three sources (TOS,
+REF, ARCHIVE) without leaving the syncMeta flow. Same `--archive-root`
+override applies; `--archive-min-gap-days` controls the gap threshold.
+
 ## Quick Start
 
 ### Environment Setup
