@@ -1726,3 +1726,107 @@ def test_dispatch_two_moves_same_device_uses_stale_cache():
         c for c in writer.patch_entity_connection.call_args_list if c.args == (50001,)
     ]
     assert len(close_calls) == 2  # XXX: should be 1 once the bug is fixed
+
+
+# ---------------------------------------------------------------------------
+# create-join verb — parser
+# ---------------------------------------------------------------------------
+
+
+def test_parse_create_join_open_form_two_args():
+    """Open-join form: ACTION <id> create-join <parent_id> <date_from>.
+    5 tokens total."""
+    text = "ACTION 21510 create-join 4 2016-07-02\n"
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert len(actions) == 1
+    assert actions[0].verb == "create-join"
+    assert actions[0].args == ["4", "2016-07-02"]
+
+
+def test_parse_create_join_closed_form_three_args():
+    """Closed-historical form: ACTION <id> create-join <parent_id>
+    <date_from> <date_to>. Functionally equivalent to fill-gap."""
+    text = "ACTION 21510 create-join 4440 2007-09-07 2016-07-02\n"
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert actions[0].args == ["4440", "2007-09-07", "2016-07-02"]
+
+
+def test_parse_create_join_rejects_too_few_args():
+    text = "ACTION 21510 create-join 4\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "create-join requires 2 or 3 arguments" in errors[0].message
+
+
+def test_parse_create_join_rejects_too_many_args():
+    text = "ACTION 21510 create-join 4 2016-07-02 2017-01-01 EXTRA\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "create-join requires 2 or 3 arguments" in errors[0].message
+
+
+# ---------------------------------------------------------------------------
+# create-join verb — dispatcher
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_create_join_open_calls_create_entity_connection_with_none_time_to():
+    """Open-join form: time_to=None passed to the writer."""
+    writer = MagicMock()
+    writer.create_entity_connection.return_value = {"id_entity_connection": 99999}
+    result = _dispatch_action(
+        writer,
+        _make_action(21510, "create-join", "4", "2016-07-02"),
+    )
+    assert result.status == "ok"
+    writer.create_entity_connection.assert_called_once_with(
+        id_parent=4, id_child=21510, time_from="2016-07-02", time_to=None
+    )
+    assert "open" in result.detail
+    assert "parent=4" in result.detail
+    assert "child=21510" in result.detail
+
+
+def test_dispatch_create_join_closed_passes_time_to():
+    """Closed-historical form: time_to=<date> passed to the writer."""
+    writer = MagicMock()
+    writer.create_entity_connection.return_value = {"id_entity_connection": 99999}
+    result = _dispatch_action(
+        writer,
+        _make_action(21510, "create-join", "4440", "2007-09-07", "2016-07-02"),
+    )
+    assert result.status == "ok"
+    writer.create_entity_connection.assert_called_once_with(
+        id_parent=4440,
+        id_child=21510,
+        time_from="2007-09-07",
+        time_to="2016-07-02",
+    )
+    assert "2007-09-07 → 2016-07-02" in result.detail
+
+
+def test_dispatch_create_join_rejects_non_int_parent():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(21510, "create-join", "nope", "2016-07-02"),
+    )
+    assert result.status == "failed"
+    assert "integer parent_id" in result.detail
+    writer.create_entity_connection.assert_not_called()
+
+
+def test_dispatch_create_join_captures_writer_exception():
+    """A writer-level failure becomes a `status='failed'` result, not a
+    raised exception — so the apply runner continues with later actions."""
+    writer = MagicMock()
+    writer.create_entity_connection.side_effect = RuntimeError("simulated 400")
+    result = _dispatch_action(
+        writer,
+        _make_action(21510, "create-join", "4", "2016-07-02"),
+    )
+    assert result.status == "failed"
+    assert "create_entity_connection raised" in result.detail
+    assert "simulated 400" in result.detail

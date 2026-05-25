@@ -4546,6 +4546,7 @@ class ParseError:
 _SUPPORTED_VERBS = (
     "add-attribute",
     "change-subtype",
+    "create-join",
     "decommission",
     "defer",
     "fill-gap",
@@ -4750,6 +4751,23 @@ def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]
                 )
             )
             continue
+        # create-join accepts either 2 args (open join) or 3 args
+        # (closed historical join). Token count: ACTION <id> <verb>
+        # <parent_id> <date_from> [<date_to>] → 5 or 6 tokens.
+        if verb == "create-join" and len(tokens) not in (5, 6):
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "create-join requires 2 or 3 arguments: "
+                        "<parent_id> <date_from> [<date_to>] "
+                        "(omit date_to for an open join; provide it for "
+                        "a closed historical join — alt to fill-gap)"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
         actions.append(
             ParsedAction(
                 line_no=i,
@@ -4934,6 +4952,64 @@ def _dispatch_move(
         detail=(
             f"close: {close_detail}; "
             f"open: POST /join parent={to_parent_id} date_from={date}"
+        ),
+    )
+
+
+def _dispatch_create_join(writer, action: ParsedAction) -> ActionResult:
+    """Open a fresh parent→child join (or backfill a closed one).
+
+    Action shapes:
+      * ``ACTION <child_id> create-join <parent_id> <date_from>`` — open
+        join (``time_to=None``). Use when the device needs to land at a
+        new parent and there's no existing open join to ``move`` from
+        (e.g. after manually closing the prior join, or for devices
+        that come out of nowhere mid-reconstruction).
+      * ``ACTION <child_id> create-join <parent_id> <date_from>
+        <date_to>`` — closed historical join. Functionally equivalent
+        to ``fill-gap`` but with consistent verb naming; prefer
+        ``fill-gap`` when you specifically mean "backfill a gap".
+
+    Pure single-write verb — no prerequisite reads, no open-joins
+    cache. Dispatcher-safe and order-independent within an apply run.
+    Dates pass through ``writer.create_entity_connection`` which
+    normalises them via ``_tos_date`` (TOS rejects bare YYYY-MM-DD
+    on the /joins endpoint).
+    """
+    parent_token = action.args[0]
+    date_from = action.args[1]
+    date_to = action.args[2] if len(action.args) >= 3 else None
+
+    try:
+        parent_id = int(parent_token)
+    except ValueError:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(f"create-join requires integer parent_id, got {parent_token!r}"),
+        )
+
+    try:
+        response = writer.create_entity_connection(
+            id_parent=parent_id,
+            id_child=action.id_entity,
+            time_from=date_from,
+            time_to=date_to,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"create_entity_connection raised: {exc}",
+        )
+
+    end = date_to if date_to is not None else "open"
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"POST /joins parent={parent_id} child={action.id_entity} "
+            f"{date_from} → {end} — {response!r}"
         ),
     )
 
@@ -5530,6 +5606,8 @@ def _dispatch_action(
         return _dispatch_move(
             writer, action, open_joins_by_device=open_joins_by_device or {}
         )
+    if action.verb == "create-join":
+        return _dispatch_create_join(writer, action)
     if action.verb == "fill-gap":
         return _dispatch_fill_gap(writer, action)
     if action.verb == "patch-attribute-date":
