@@ -35,6 +35,7 @@ import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -2538,6 +2539,39 @@ def _device_show_main(args) -> int:
     return 0
 
 
+def _substitute_id_in_triage(
+    path: Path, placeholder: str, id_entity: int
+) -> Dict[str, Any]:
+    """Substitute ``<placeholder>`` with ``id_entity`` in a triage file in-place.
+
+    Used by ``tos device add --triage PATH --placeholder TOKEN`` to drop a
+    freshly-created entity's id into a waiting triage file, eliminating
+    the copy-paste step between ``device add`` and ``audit apply``.
+
+    Args:
+        path: Triage file to update in-place. Read + write text, UTF-8.
+        placeholder: Token name (without angle brackets). The actual
+            match string is ``<TOKEN>``.
+        id_entity: The new entity's id, substituted as ``str(id_entity)``.
+
+    Returns:
+        Dict with ``token`` (the angle-bracketed match string), ``count``
+        (number of substitutions; 0 if the placeholder wasn't present),
+        and ``written`` (True iff the file was modified — False on
+        count==0, no write performed).
+
+    Raises:
+        OSError on read/write failure — caller surfaces to stderr.
+    """
+    token = f"<{placeholder}>"
+    content = path.read_text(encoding="utf-8")
+    count = content.count(token)
+    if count == 0:
+        return {"token": token, "count": 0, "written": False}
+    path.write_text(content.replace(token, str(id_entity)), encoding="utf-8")
+    return {"token": token, "count": count, "written": True}
+
+
 def _device_main(argv):
     """Handle ``tos device ...`` subcommands.
 
@@ -2611,6 +2645,26 @@ def _device_main(argv):
         "--json",
         action="store_true",
         help="Emit a structured JSON summary instead of plain text.",
+    )
+    p_add.add_argument(
+        "--triage",
+        type=Path,
+        default=None,
+        help=(
+            "After successful device creation, substitute the returned "
+            "id_entity into a triage file in-place. Requires --placeholder. "
+            "No-op in dry-run (no real id_entity returned). Example: "
+            "--triage savi.txt --placeholder POLARX2_3102_ID will replace "
+            "every '<POLARX2_3102_ID>' in savi.txt with the new id."
+        ),
+    )
+    p_add.add_argument(
+        "--placeholder",
+        help=(
+            "Token name to substitute in the --triage file. The actual "
+            "match is the angle-bracketed form '<TOKEN>'. Required when "
+            "--triage is given."
+        ),
     )
 
     p_show = sub.add_parser(
@@ -2869,6 +2923,59 @@ def _device_main(argv):
                     f"Connected to location {args.location!r} "
                     f"(connection id={conn_id})"
                 )
+
+    # ---- Triage-file substitution -------------------------------------------
+    # Operator UX: paste the just-created id_entity into a waiting triage
+    # file in one shot, so the device-add → triage-edit handoff is
+    # deterministic instead of a copy-paste step. Two modes:
+    #   1. --triage PATH --placeholder TOKEN  → auto-substitute in-place
+    #   2. neither flag  → print a sed hint the operator can run themselves
+    if args.triage is not None or args.placeholder is not None:
+        if args.triage is None or args.placeholder is None:
+            print(
+                "--triage and --placeholder must be used together",
+                file=sys.stderr,
+            )
+            return 2
+    if dry_run or id_entity is None:
+        if args.triage is not None and not args.json:
+            print(
+                f"Triage update skipped: dry-run / no real id_entity "
+                f"returned (use --no-dry-run to substitute "
+                f"<{args.placeholder}> in {args.triage}).",
+                file=sys.stderr,
+            )
+    elif args.triage is not None and args.placeholder is not None:
+        try:
+            result = _substitute_id_in_triage(args.triage, args.placeholder, id_entity)
+        except OSError as e:
+            print(
+                f"Could not read triage file {args.triage}: {e}",
+                file=sys.stderr,
+            )
+            return 1
+        if result["count"] == 0:
+            print(
+                f"Triage update: placeholder {result['token']!r} not found "
+                f"in {args.triage} (no changes written).",
+                file=sys.stderr,
+            )
+        elif not args.json:
+            n = result["count"]
+            print(
+                f"Updated {args.triage}: {result['token']} → {id_entity} "
+                f"({n} replacement{'s' if n != 1 else ''})"
+            )
+    elif id_entity is not None and not args.json:
+        # Hint mode (always-on) — operator didn't pass --triage; nudge
+        # them with a sed line they can paste if they're working with a
+        # waiting triage file.
+        print(
+            f"\nTip: to drop this id into a triage file, run:\n"
+            f"  sed -i 's/<TOKEN>/{id_entity}/g' <triage-file>\n"
+            f"(or pass --triage <file> --placeholder TOKEN to do it in one "
+            f"shot next time)"
+        )
     return 0
 
 

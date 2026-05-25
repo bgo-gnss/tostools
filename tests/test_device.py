@@ -91,6 +91,80 @@ def test_validate_model_gnss_receiver_polarx2e_alias_resolves_to_igs() -> None:
     assert validate_model("gnss_receiver", "PolaRX2E") == "SEPT POLARX2E"
 
 
+# ---------------------------------------------------------------------------
+# _substitute_id_in_triage — drop the just-created id into a waiting triage
+# file in-place, eliminating the copy-paste step between `tos device add`
+# and `tos audit apply`.
+# ---------------------------------------------------------------------------
+
+
+def test_substitute_id_in_triage_replaces_all_occurrences(tmp_path) -> None:
+    from tostools.tos import _substitute_id_in_triage
+
+    triage = tmp_path / "savi.txt"
+    triage.write_text(
+        "ACTION <POLARX2_ID> move 4440 2007-09-07\n"
+        "ACTION <POLARX2_ID> patch-attribute-date model 2007-09-07 2016-07-02\n"
+        "# id used twice above\n",
+        encoding="utf-8",
+    )
+    result = _substitute_id_in_triage(triage, "POLARX2_ID", 21510)
+    assert result["count"] == 2
+    assert result["written"] is True
+    assert result["token"] == "<POLARX2_ID>"
+    body = triage.read_text(encoding="utf-8")
+    assert "<POLARX2_ID>" not in body
+    assert body.count("21510") == 2
+
+
+def test_substitute_id_in_triage_no_match_reports_zero_no_write(tmp_path) -> None:
+    """Placeholder not present in file → count=0, written=False,
+    file content untouched."""
+    from tostools.tos import _substitute_id_in_triage
+
+    triage = tmp_path / "savi.txt"
+    original = "ACTION 4830 patch-join-date 5931 time_from 2016-07-02\n"
+    triage.write_text(original, encoding="utf-8")
+    result = _substitute_id_in_triage(triage, "POLARX2_ID", 21510)
+    assert result["count"] == 0
+    assert result["written"] is False
+    # File untouched
+    assert triage.read_text(encoding="utf-8") == original
+
+
+def test_substitute_id_in_triage_only_substitutes_angle_bracketed(tmp_path) -> None:
+    """A bare 'POLARX2_ID' string in the file is NOT substituted — only
+    the angle-bracketed form '<POLARX2_ID>'. Prevents accidental match
+    on comments or attribute names that happen to contain the token."""
+    from tostools.tos import _substitute_id_in_triage
+
+    triage = tmp_path / "savi.txt"
+    triage.write_text(
+        "# POLARX2_ID is the id we want to substitute\n"
+        "ACTION <POLARX2_ID> move 4440 2007-09-07\n",
+        encoding="utf-8",
+    )
+    result = _substitute_id_in_triage(triage, "POLARX2_ID", 21510)
+    assert result["count"] == 1
+    body = triage.read_text(encoding="utf-8")
+    # The bare 'POLARX2_ID' in the comment stays untouched
+    assert "# POLARX2_ID is the id" in body
+    # The angle-bracketed form got replaced
+    assert "<POLARX2_ID>" not in body
+    assert "ACTION 21510 move" in body
+
+
+def test_substitute_id_in_triage_file_missing_raises(tmp_path) -> None:
+    """Missing file → raises OSError (caller surfaces to stderr)."""
+    import pytest as _pytest
+
+    from tostools.tos import _substitute_id_in_triage
+
+    missing = tmp_path / "nonexistent.txt"
+    with _pytest.raises(OSError):
+        _substitute_id_in_triage(missing, "POLARX2_ID", 21510)
+
+
 def test_validate_model_antenna_identity() -> None:
     assert validate_model("antenna", "TRM57971.00") == "TRM57971.00"
 
