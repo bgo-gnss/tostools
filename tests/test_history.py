@@ -1823,6 +1823,7 @@ def test_device_timeline_report_is_frozen():
         gaps=[],
     )
     import dataclasses
+
     import pytest
 
     with pytest.raises(dataclasses.FrozenInstanceError):

@@ -1,0 +1,46 @@
+# === HEDI follow-up #2: 5107 date_start value + station continuity ===
+# Drafted: 2026-05-26
+#
+# # Why this exists
+#
+# Two small residuals after the prior two apply rounds:
+#
+# 1. Monument 5107's `date_start` attribute has BOTH a stale value
+#    ('2012-06-27 00:00:00') and a stale date_from (2012-06-27). The
+#    monument's join is now backdated to 2006-06-29, so date_start
+#    should reflect that — both VALUE and date_from need updating.
+#    patch-attribute-date can only move date_from; patch-attribute-value
+#    moves the value. Both run, matched against the current date_from.
+#
+# 2. Station 4316 is missing `continuity` (catalog: 'continuous' |
+#    'campaign'). HEDI is a permanent continuously-operating reference
+#    station — `continuous`. Date_from = station's earliest_known
+#    (2006-06-29, via the `start` token).
+#
+# # Run
+#
+#   tos audit apply data/triage/hedi/hedi_date_start_continuity_20260526.txt
+#   tos audit apply data/triage/hedi/hedi_date_start_continuity_20260526.txt --apply
+#
+# # Verify
+#
+#   tos audit attribute-dates HEDI       # should be clean
+#   tos audit missing-attributes HEDI    # one fewer station-level violation
+
+# ──────────────────────────────────────────────────────────────────
+# Part 1 — Align monument 5107 date_start with backdated join
+# ──────────────────────────────────────────────────────────────────
+# Order matters: change value first (matches by date_from=2012-06-27),
+# then move date_from to 2006-06-29.
+
+ACTION 5107 patch-attribute-value date_start 2012-06-27 '2006-06-29 00:00:00'
+ACTION 5107 patch-attribute-date date_start 2012-06-27 start
+
+# ──────────────────────────────────────────────────────────────────
+# Part 2 — Add `continuity` = continuous on station 4316
+# ──────────────────────────────────────────────────────────────────
+# HEDI is a permanent continuously-operating GNSS reference station
+# (not a campaign survey site). `start` resolves to 2006-06-29 (station
+# earliest_known).
+
+ACTION 4316 add-attribute continuity continuous start

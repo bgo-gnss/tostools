@@ -111,6 +111,45 @@ sections both filter through this helper). Future candidates:
 `tos audit attribute-dates`, `tos audit missing-attributes`, any new
 fleet-wide attribute-inspection verb.
 
+### Station triage orchestrator — `tos station triage`
+
+`tos station triage <STATION>` is the single-command entry point for
+the SAVI-style reconstruction workflow. It runs every available audit
+against the station, aggregates findings into one ACTION-style file
+consumable by `tos audit apply`, and writes it to
+`data/triage/<station>/<station>_audit_<YYYYMMDD>.txt` by default
+(configurable via `--out PATH`, or `--stdout` to skip disk).
+
+All suggested ACTION lines are **commented out by default** — operator
+opts IN by uncommenting + filling `<FILL_VALUE>` / `<FILL_DATE>`
+placeholders. Sections are ordered by confidence:
+
+  * **HIGH** — cleanup-artifact backdates (the fleet-wide 2014-10-17
+    pattern, well-documented)
+  * **MEDIUM** — missing required attributes with catalog defaults
+  * **LOW** — missing required attributes with `<FILL>` placeholders
+    (operator MUST replace before apply)
+
+Implementation in `src/tostools/station_triage.py` —
+`generate_station_triage()` calls the existing audit
+entry points (`audit_station_missing_attributes`,
+`audit_station_attribute_dates`) directly rather than re-implementing.
+Each section's body is delegated to the originating audit module's
+`format_triage_file()` so format-stability of those audits is
+preserved.
+
+Happy-path workflow (no AI required for routine stations):
+
+```
+tos station triage HEDI                        # generate triage file
+$EDITOR data/triage/hedi/hedi_audit_*.txt      # uncomment / fill
+tos audit apply <file>                         # dry-run
+tos audit apply <file> --apply                 # commit
+git add <file> && git commit                   # provenance
+```
+
+Pinned by `tests/test_station_triage.py`.
+
 ### Archive verification — `tos audit verify-from-rinex`
 
 `tos audit verify-from-rinex --station X` cross-checks TOS state against
@@ -235,6 +274,32 @@ The `api/tos_writer.py` module provides authenticated write access to TOS. Key d
 - **IGS names**: TOS stores IGS rcvr_ant.tab format names (`"SEPT POLARX5"`, `"NONE"` for no radome). `tostools.standards.igs_equipment` converts from health-reported short names.
 
 See `docs/architecture/tos-write-api.md` for the complete API reference, write patterns, and gotchas.
+
+### Retrospective writes — triage files in git as canonical provenance
+
+TOS exposes only `date_from` / `date_to` on attribute_value rows — there
+is **no `created_at` / `modified_at`** field. A back-fill written today
+but dated to 2007 is indistinguishable in TOS from a 2007-contemporaneous
+record. The `id_attribute_value` sequence is a soft signal (higher =
+newer, with the 2014-10-17 fleet bulk-load at id_av ≈ 32000–35000 as a
+historical inflection point), but not authoritative.
+
+**Convention**: every retrospective TOS write goes through a committed
+triage file at the repo root (`<station>_*.txt`), processed by
+`tos audit apply`. The triage file format (Header / Known ids / STEP +
+Run/adjust / Verification — see `savi.txt` as reference) is
+self-documenting, and the commit log gives the apply date. Triage
+files are the canonical audit trail for back-fills, since TOS itself
+doesn't track this.
+
+When investigating "was this value contemporaneous or back-filled?":
+1. Check `id_attribute_value` against the rough threshold for that era
+2. `git log -- <station>_*.txt` for triage files touching the entity
+3. The ACTION lines in matching triage files show exactly what was
+   written and the cited evidence
+
+Future tooling (project-todo): `tos device show --highlight-since
+<id_av>` will surface this visually.
 
 ## Development Workflow
 
