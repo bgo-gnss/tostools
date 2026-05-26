@@ -15,6 +15,7 @@ from tostools.tos import (
     _dispatch_action,
     _fetch_action_meta,
     _parse_action_file,
+    _resolve_date_token,
 )
 
 # ---------------------------------------------------------------------------
@@ -1830,3 +1831,303 @@ def test_dispatch_create_join_captures_writer_exception():
     assert result.status == "failed"
     assert "create_entity_connection raised" in result.detail
     assert "simulated 400" in result.detail
+
+
+# ---------------------------------------------------------------------------
+# delete-join — parsing + dispatch
+# ---------------------------------------------------------------------------
+#
+# Destructive admin verb. Erases a join row entirely (DELETE
+# /admin_entity_connection_row/<id>). Intended for SOPAC-convention
+# split-monument workarounds and zero-duration orphan cleanup — NOT
+# the default close-out workflow (use `decommission` / `move` for that).
+
+
+def test_parse_action_file_delete_join_one_arg():
+    text = "ACTION 5244 delete-join 6429\n"
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert len(actions) == 1
+    assert actions[0].verb == "delete-join"
+    assert actions[0].args == ["6429"]
+
+
+def test_parse_action_file_delete_join_rejects_no_args():
+    text = "ACTION 5244 delete-join\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "delete-join requires exactly one argument" in errors[0].message
+
+
+def test_parse_action_file_delete_join_rejects_extra_args():
+    text = "ACTION 5244 delete-join 6429 EXTRA\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "delete-join requires exactly one argument" in errors[0].message
+
+
+def test_dispatch_delete_join_calls_writer():
+    """Successful path: writer.delete_entity_connection is called with the
+    parsed id_connection and result.status == 'ok'."""
+    writer = MagicMock()
+    writer.delete_entity_connection.return_value = {"deleted": True}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(5244, "delete-join", "6429"),
+    )
+
+    assert result.status == "ok"
+    writer.delete_entity_connection.assert_called_once_with(6429)
+    assert "DELETE /join/6429" in result.detail
+    assert "device=5244" in result.detail
+
+
+def test_dispatch_delete_join_rejects_non_int_connection():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(5244, "delete-join", "nope"),
+    )
+    assert result.status == "failed"
+    assert "integer id_connection" in result.detail
+    writer.delete_entity_connection.assert_not_called()
+
+
+def test_dispatch_delete_join_captures_writer_exception():
+    """A writer-level failure (e.g. 403 from non-admin token, or 404 if
+    the row was already deleted) becomes status='failed' rather than
+    propagating — so the apply runner moves on to the next action."""
+    writer = MagicMock()
+    writer.delete_entity_connection.side_effect = RuntimeError(
+        "simulated 403 Forbidden"
+    )
+    result = _dispatch_action(
+        writer,
+        _make_action(5244, "delete-join", "6429"),
+    )
+    assert result.status == "failed"
+    assert "delete_entity_connection raised" in result.detail
+    assert "simulated 403" in result.detail
+
+
+# ---------------------------------------------------------------------------
+# delete-attribute-value — parsing + dispatch
+# ---------------------------------------------------------------------------
+#
+# Sibling of delete-join. Destructive admin verb that removes an
+# attribute_value row entirely. Intended use cases:
+#   * wrong-scope id_attribute FKs (the _resolve_id_attribute bug fixed
+#     2026-05-25 sent some monument attributes to station-scoped
+#     schema rows; cleaning requires DELETE + re-write)
+#   * duplicate values from idempotency mistakes
+#   * orphan rows from historical bugs
+
+
+def test_parse_action_file_delete_attribute_value_one_arg():
+    text = "ACTION 5245 delete-attribute-value 152926\n"
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert len(actions) == 1
+    assert actions[0].verb == "delete-attribute-value"
+    assert actions[0].args == ["152926"]
+
+
+def test_parse_action_file_delete_attribute_value_rejects_no_args():
+    text = "ACTION 5245 delete-attribute-value\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "delete-attribute-value requires exactly one argument" in errors[0].message
+
+
+def test_parse_action_file_delete_attribute_value_rejects_extra_args():
+    text = "ACTION 5245 delete-attribute-value 152926 EXTRA\n"
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert "delete-attribute-value requires exactly one argument" in errors[0].message
+
+
+def test_dispatch_delete_attribute_value_calls_writer():
+    """Successful path: writer.delete_attribute_value is called with the
+    parsed id_attribute_value and result.status == 'ok'."""
+    writer = MagicMock()
+    writer.delete_attribute_value.return_value = {"deleted": True}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(5245, "delete-attribute-value", "152926"),
+    )
+
+    assert result.status == "ok"
+    writer.delete_attribute_value.assert_called_once_with(152926)
+    assert "DELETE /attribute_value/152926" in result.detail
+    assert "device=5245" in result.detail
+
+
+def test_dispatch_delete_attribute_value_rejects_non_int_id():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(5245, "delete-attribute-value", "nope"),
+    )
+    assert result.status == "failed"
+    assert "integer id_attribute_value" in result.detail
+    writer.delete_attribute_value.assert_not_called()
+
+
+def test_dispatch_delete_attribute_value_captures_writer_exception():
+    """A writer-level failure (e.g. 403 non-admin, 404 already-deleted)
+    becomes status='failed' rather than propagating — apply runner
+    moves on to the next action."""
+    writer = MagicMock()
+    writer.delete_attribute_value.side_effect = RuntimeError("simulated 403 Forbidden")
+    result = _dispatch_action(
+        writer,
+        _make_action(5245, "delete-attribute-value", "152926"),
+    )
+    assert result.status == "failed"
+    assert "delete_attribute_value raised" in result.detail
+    assert "simulated 403" in result.detail
+
+
+# ---------------------------------------------------------------------------
+# _resolve_date_token — `now` and `start` symbolic dates
+# ---------------------------------------------------------------------------
+#
+# `now` = today UTC. `start` = entity's earliest_known anchor (earliest
+# non-2014-10-17 open attribute date_from, fallback to open parent join
+# time_from). Anything else passes through unchanged. See memory
+# project_layer6_followup_date_shortcuts.
+
+
+def test_resolve_date_token_passes_through_non_tokens():
+    """Bare YYYY-MM-DD dates and unknown strings are returned as-is."""
+    writer = MagicMock()
+    assert _resolve_date_token("2007-09-07", 5245, writer) == ("2007-09-07", None)
+    assert _resolve_date_token("anything-else", 5245, writer) == (
+        "anything-else",
+        None,
+    )
+    writer._get_earliest_known.assert_not_called()
+
+
+def test_resolve_date_token_now_returns_today_utc():
+    """`now` resolves to today's YYYY-MM-DD in UTC."""
+    import re
+
+    writer = MagicMock()
+    resolved, err = _resolve_date_token("now", 5245, writer)
+    assert err is None
+    assert resolved is not None
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", resolved)
+    writer._get_earliest_known.assert_not_called()
+
+
+def test_resolve_date_token_start_calls_writer_get_earliest_known():
+    """`start` delegates to writer._get_earliest_known(id_entity)."""
+    writer = MagicMock()
+    writer._get_earliest_known.return_value = "2006-06-29"
+    resolved, err = _resolve_date_token("start", 5106, writer)
+    assert resolved == "2006-06-29"
+    assert err is None
+    writer._get_earliest_known.assert_called_once_with(5106)
+
+
+def test_resolve_date_token_start_errors_when_writer_returns_none():
+    """If the writer can't compute earliest_known, surface a clear
+    error so the apply dispatcher refuses rather than POSTing None."""
+    writer = MagicMock()
+    writer._get_earliest_known.return_value = None
+    resolved, err = _resolve_date_token("start", 99999, writer)
+    assert resolved is None
+    assert err is not None
+    assert "start" in err
+    assert "id_entity=99999" in err
+
+
+def test_resolve_date_token_start_errors_when_writer_raises():
+    """Writer-side exceptions become a failed status — never propagate."""
+    writer = MagicMock()
+    writer._get_earliest_known.side_effect = RuntimeError("simulated 500")
+    resolved, err = _resolve_date_token("start", 5245, writer)
+    assert resolved is None
+    assert err is not None
+    assert "start" in err
+    assert "simulated 500" in err
+
+
+# ---------------------------------------------------------------------------
+# Token resolution wired into dispatchers — end-to-end smoke tests
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_add_attribute_resolves_start_to_earliest_known():
+    """add-attribute should resolve `start` against
+    writer._get_earliest_known before posting."""
+    writer = MagicMock()
+    writer._get_earliest_known.return_value = "2006-06-29"
+    writer.get_attribute_values.return_value = []  # no existing periods
+    writer.add_attribute_value.return_value = {"id_attribute_value": 9999}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "add-attribute", "visit_class", "B", "start"),
+    )
+
+    assert result.status == "ok", result.detail
+    writer._get_earliest_known.assert_called_once_with(4316)
+    # Dispatcher uses positional args:
+    # writer.add_attribute_value(id_entity, code, value, date_from)
+    writer.add_attribute_value.assert_called_once_with(
+        4316, "visit_class", "B", "2006-06-29"
+    )
+
+
+def test_dispatch_add_attribute_now_resolves_to_today():
+    """add-attribute with `now` resolves to today YYYY-MM-DD."""
+    import re
+
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = []
+    writer.add_attribute_value.return_value = {"id_attribute_value": 9999}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "add-attribute", "in_network_epos", "nei", "now"),
+    )
+    assert result.status == "ok", result.detail
+    # 4th positional arg is date_from.
+    call_args = writer.add_attribute_value.call_args.args
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", call_args[3])
+
+
+def test_dispatch_patch_join_date_resolves_start():
+    """patch-join-date also accepts `start` for new_date."""
+    writer = MagicMock()
+    writer._get_earliest_known.return_value = "2006-06-29"
+    writer.patch_entity_connection.return_value = {"ok": True}
+
+    result = _dispatch_action(
+        writer,
+        _make_action(5107, "patch-join-date", "6264", "time_from", "start"),
+    )
+
+    assert result.status == "ok", result.detail
+    writer._get_earliest_known.assert_called_once_with(5107)
+    writer.patch_entity_connection.assert_called_once_with(6264, time_from="2006-06-29")
+
+
+def test_dispatch_add_attribute_fails_when_start_unresolvable():
+    """If `start` can't be resolved (entity has no anchor), the
+    dispatcher returns failed without calling the POST."""
+    writer = MagicMock()
+    writer._get_earliest_known.return_value = None
+
+    result = _dispatch_action(
+        writer,
+        _make_action(99999, "add-attribute", "visit_class", "B", "start"),
+    )
+
+    assert result.status == "failed"
+    assert "start" in result.detail
+    writer.add_attribute_value.assert_not_called()
