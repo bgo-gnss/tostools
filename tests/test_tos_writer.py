@@ -190,8 +190,12 @@ def _logged_in_writer(**kwargs: object) -> TOSWriter:
 def test_dry_run_returns_dry_run_result_for_post():
     w = _logged_in_writer(dry_run=True)
     # Pre-populate the id_attribute cache so the writer doesn't try to
-    # GET /admin_attribute_rows during the dry-run smoke test.
-    w._id_attribute_cache = {"marker": 1, "name": 2}
+    # GET /admin_attribute_rows during the dry-run smoke test. Cache is
+    # keyed by (code, id_entity_type) — None scope works as fallback.
+    w._id_attribute_cache = {("marker", None): 1, ("name", None): 2}
+    # Pre-populate the entity-type cache so the writer doesn't issue a
+    # GET /admin_entity_rows/<id> probe during the dry-run smoke test.
+    w._entity_type_cache = {1: None}
     result = w.add_attribute_value(
         id_entity=1,
         code="marker",
@@ -221,6 +225,7 @@ def test_resolve_id_attribute_caches_admin_attribute_rows():
         {"id": 30, "code": "visit_class"},
     ]
     with patch.object(w, "_request", return_value=rows) as mock_req:
+        # No scope passed — single-variant codes resolve via Rule 2/3 fallback.
         assert w._resolve_id_attribute("marker") == 1
         assert w._resolve_id_attribute("visit_class") == 30
         assert w._resolve_id_attribute("name") == 2
@@ -232,7 +237,7 @@ def test_resolve_id_attribute_caches_admin_attribute_rows():
 def test_resolve_id_attribute_unknown_code_raises_value_error():
     """Surfacing typos at the boundary beats sending an unresolvable POST."""
     w = _logged_in_writer(dry_run=True)
-    w._id_attribute_cache = {"marker": 1}
+    w._id_attribute_cache = {("marker", None): 1}
     with pytest.raises(ValueError, match="unknown attribute code"):
         w._resolve_id_attribute("not_a_real_code")
 
@@ -249,19 +254,272 @@ def test_resolve_id_attribute_skips_rows_missing_id_or_code():
     ]
     with patch.object(w, "_request", return_value=rows):
         assert w._resolve_id_attribute("marker") == 1
-    assert w._id_attribute_cache == {"marker": 1}
+    assert w._id_attribute_cache == {("marker", None): 1}
+
+
+def test_resolve_id_attribute_filters_by_entity_type_when_multiple_variants():
+    """Critical bugfix coverage: TOS schema has multiple id_attribute
+    rows per code (one per entity_type). E.g. ``model`` has id=27 for
+    devices (entity_type=4) and id=59 for monuments (entity_type=3).
+    Passing the target entity's id_entity_type picks the scope-matching
+    row.
+
+    Reason this matters: SAVI monument 5245 had its ``subtype`` value
+    written to id=114 (station scope) instead of id=65 (monument
+    scope) on 2026-05-25 because the pre-fix resolver overwrote the
+    cache entry for ``subtype`` with whatever row appeared last in the
+    /admin_attribute_rows response."""
+    w = _logged_in_writer(dry_run=True)
+    rows = [
+        {"id": 27, "code": "model", "id_entity_type": 4},  # device
+        {"id": 59, "code": "model", "id_entity_type": 3},  # monument
+        {"id": 65, "code": "subtype", "id_entity_type": 3},  # monument
+        {"id": 114, "code": "subtype", "id_entity_type": 2},  # station
+    ]
+    with patch.object(w, "_request", return_value=rows):
+        # Monument scope (entity_type=3) picks the monument-scoped row.
+        assert w._resolve_id_attribute("model", id_entity_type=3) == 59
+        assert w._resolve_id_attribute("subtype", id_entity_type=3) == 65
+        # Device / station scopes pick their own rows.
+        assert w._resolve_id_attribute("model", id_entity_type=4) == 27
+        assert w._resolve_id_attribute("subtype", id_entity_type=2) == 114
+
+
+def test_resolve_id_attribute_ambiguous_code_without_scope_raises():
+    """When a code has multiple entity_type variants and no scope is
+    provided, refuse to guess — the original bug picked arbitrarily."""
+    w = _logged_in_writer(dry_run=True)
+    rows = [
+        {"id": 65, "code": "subtype", "id_entity_type": 3},
+        {"id": 114, "code": "subtype", "id_entity_type": 2},
+    ]
+    with patch.object(w, "_request", return_value=rows):
+        with pytest.raises(ValueError, match="ambiguous attribute code"):
+            w._resolve_id_attribute("subtype")
+
+
+def test_resolve_id_attribute_single_variant_works_without_scope():
+    """Single-variant codes (e.g. ``monument_height`` only exists for
+    monuments) should keep working when callers don't bother to plumb
+    entity_type — Rule 3 fallback."""
+    w = _logged_in_writer(dry_run=True)
+    rows = [{"id": 175, "code": "monument_height", "id_entity_type": 3}]
+    with patch.object(w, "_request", return_value=rows):
+        # Without scope: only one variant, take it.
+        assert w._resolve_id_attribute("monument_height") == 175
+        # With matching scope: same answer.
+        assert w._resolve_id_attribute("monument_height", id_entity_type=3) == 175
+        # With non-matching scope: falls through to single-variant rule.
+        assert w._resolve_id_attribute("monument_height", id_entity_type=999) == 175
+
+
+def test_resolve_id_attribute_prefers_none_scope_row_when_present():
+    """If a row exists with id_entity_type=None (cross-scope catalog
+    entry, rare) and no exact-scope match, prefer the None-scope row
+    over the single-variant fallback."""
+    w = _logged_in_writer(dry_run=True)
+    rows = [
+        {"id": 10, "code": "shared", "id_entity_type": None},
+        {"id": 11, "code": "shared", "id_entity_type": 4},
+    ]
+    with patch.object(w, "_request", return_value=rows):
+        # Exact scope match still wins.
+        assert w._resolve_id_attribute("shared", id_entity_type=4) == 11
+        # No match → None-scope row wins.
+        assert w._resolve_id_attribute("shared", id_entity_type=99) == 10
+        # No scope passed → None-scope row wins.
+        assert w._resolve_id_attribute("shared") == 10
+
+
+def test_get_entity_type_caches_per_id():
+    """Two-step lookup (history endpoint for subtype code, then
+    entity_subtypes for the type FK), both cached per writer instance.
+    Subsequent calls for the same id hit the cache — keeps the per-
+    action POST cost at one round-trip total when many attributes
+    target the same entity.
+
+    Why two-step: TOS doesn't surface ``id_entity_type`` directly on
+    entity rows — it surfaces ``code_entity_subtype`` (e.g.
+    'monument'), and the subtype → entity_type mapping lives in
+    /entity_subtypes/."""
+    w = _logged_in_writer(dry_run=True)
+    history_response = {"code_entity_subtype": "monument"}
+    subtypes_response = [
+        {"code": "monument", "id_entity_type": 3},
+        {"code": "gnss_receiver", "id_entity_type": 4},
+    ]
+    with patch.object(
+        w, "_request", side_effect=[history_response, subtypes_response]
+    ) as mock_req:
+        assert w._get_entity_type(5245) == 3
+        # Subsequent calls don't re-fetch — per-entity cache hits.
+        assert w._get_entity_type(5245) == 3
+        assert w._get_entity_type(5245) == 3
+    # Only two GETs total — one per endpoint.
+    assert mock_req.call_count == 2
+    urls = [c.args[1] for c in mock_req.call_args_list]
+    assert urls == ["/history/entity/5245/", "/entity_subtypes/"]
+
+
+def test_get_entity_type_caches_subtype_map_across_entities():
+    """The /entity_subtypes/ lookup is fetched once per writer and
+    reused for all subsequent entity lookups, even for different
+    entities."""
+    w = _logged_in_writer(dry_run=True)
+    monument_history = {"code_entity_subtype": "monument"}
+    receiver_history = {"code_entity_subtype": "gnss_receiver"}
+    subtypes_response = [
+        {"code": "monument", "id_entity_type": 3},
+        {"code": "gnss_receiver", "id_entity_type": 4},
+    ]
+    with patch.object(
+        w,
+        "_request",
+        side_effect=[monument_history, subtypes_response, receiver_history],
+    ) as mock_req:
+        assert w._get_entity_type(5245) == 3  # monument
+        assert w._get_entity_type(21197) == 4  # gnss_receiver
+    # 3 GETs: history(5245), entity_subtypes, history(21197). No
+    # second /entity_subtypes/ fetch despite covering two entities.
+    assert mock_req.call_count == 3
+    urls = [c.args[1] for c in mock_req.call_args_list]
+    assert urls == [
+        "/history/entity/5245/",
+        "/entity_subtypes/",
+        "/history/entity/21197/",
+    ]
+
+
+def test_get_entity_type_returns_none_on_lookup_failure():
+    """If the history endpoint 404s or any step is malformed, fall back
+    to None — :meth:`_resolve_id_attribute` then uses scope=None rules
+    (cross-scope row preferred, single-variant fallback) and raises
+    only for genuine multi-scope ambiguity."""
+    w = _logged_in_writer(dry_run=True)
+    with patch.object(w, "_request", side_effect=RuntimeError("404")):
+        assert w._get_entity_type(99999) is None
+    # Cached as None so we don't retry on every call.
+    assert 99999 in w._entity_type_cache
+    assert w._entity_type_cache[99999] is None
+
+
+def test_get_earliest_known_picks_earliest_open_attribute_date():
+    """Earliest non-cleanup-artifact open attribute date_from wins.
+    Skips 2014-10-17 bulk-load artifacts even when they're the
+    chronologically earliest entry."""
+    w = _logged_in_writer(dry_run=True)
+    history = {
+        "attributes": [
+            {"date_from": "2014-10-17T00:00:00", "date_to": None},  # artifact, skip
+            {
+                "date_from": "2007-09-07T00:00:00",
+                "date_to": None,
+            },  # earliest non-artifact
+            {"date_from": "2010-01-15T00:00:00", "date_to": None},
+            {
+                "date_from": "2005-01-01T00:00:00",
+                "date_to": "2007-09-07T00:00:00",
+            },  # closed — skip
+        ]
+    }
+    with patch.object(w, "_request", return_value=history):
+        assert w._get_earliest_known(5245) == "2007-09-07"
+
+
+def test_get_earliest_known_falls_back_to_open_join_time_from():
+    """When the entity has no non-artifact open attributes, fall back
+    to the open parent-join's time_from. Required for freshly-created
+    entities that haven't had attributes filled yet."""
+    w = _logged_in_writer(dry_run=True)
+    # First _request: entity history (only artifact attribute).
+    # Second _request: parent_history (one open join from 2016).
+    history = {
+        "attributes": [
+            {"date_from": "2014-10-17T00:00:00", "date_to": None},  # artifact — skipped
+        ]
+    }
+    joins = [
+        {"time_from": "2016-07-02T00:00:00", "time_to": None},
+    ]
+    with patch.object(w, "_request", side_effect=[history, joins]):
+        assert w._get_earliest_known(21511) == "2016-07-02"
+
+
+def test_get_earliest_known_returns_none_when_nothing_resolves():
+    """No non-artifact attributes AND no open join → None. The token
+    resolver then surfaces this as a failed ActionResult."""
+    w = _logged_in_writer(dry_run=True)
+    history = {"attributes": []}
+    joins: list = []
+    with patch.object(w, "_request", side_effect=[history, joins]):
+        assert w._get_earliest_known(99999) is None
+
+
+def test_get_earliest_known_is_cached_per_id():
+    """Subsequent calls for the same id_entity served from cache —
+    one history GET per entity, even with many `start` references in
+    a single apply run."""
+    w = _logged_in_writer(dry_run=True)
+    history = {"attributes": [{"date_from": "2007-09-07T00:00:00", "date_to": None}]}
+    with patch.object(w, "_request", return_value=history) as mock_req:
+        assert w._get_earliest_known(5245) == "2007-09-07"
+        assert w._get_earliest_known(5245) == "2007-09-07"
+        assert w._get_earliest_known(5245) == "2007-09-07"
+    assert mock_req.call_count == 1
+
+
+def test_get_earliest_known_caches_negative_result():
+    """Negative result (None) is also cached — don't keep retrying
+    failed lookups across many ACTIONs."""
+    w = _logged_in_writer(dry_run=True)
+    with patch.object(w, "_request", side_effect=[{"attributes": []}, []]) as mock_req:
+        assert w._get_earliest_known(99999) is None
+        # Second call: cache hit, no network.
+        assert w._get_earliest_known(99999) is None
+    # First call: 2 GETs (history + parent_history fallback). Second
+    # call: 0 GETs.
+    assert mock_req.call_count == 2
+
+
+def test_get_entity_type_returns_none_for_unknown_subtype():
+    """Defensive: if /entity_subtypes/ doesn't list the entity's
+    subtype code (e.g. a freshly-added subtype not yet in the static
+    table), fall back to None rather than crashing."""
+    w = _logged_in_writer(dry_run=True)
+    with patch.object(
+        w,
+        "_request",
+        side_effect=[
+            {"code_entity_subtype": "brand_new_subtype"},
+            [{"code": "monument", "id_entity_type": 3}],
+        ],
+    ):
+        assert w._get_entity_type(77777) is None
 
 
 def test_add_attribute_value_resolves_id_then_posts_admin_endpoint():
-    """End-to-end: add_attribute_value performs the lookup, then POSTs
-    to the admin endpoint with id_attribute (int) and value_varchar."""
+    """End-to-end: add_attribute_value performs the lookup chain, then
+    POSTs to the admin endpoint with id_attribute (int) and
+    value_varchar.
+
+    Four GETs amortised across the apply run (then served from cache):
+    history-of-entity (subtype code) + entity_subtypes (type FK) +
+    admin_attribute_rows (schema catalog) + the POST itself."""
     w = _logged_in_writer(dry_run=False)
-    rows = [{"id": 30, "code": "visit_class"}]
+    rows = [{"id": 30, "code": "visit_class", "id_entity_type": 2}]
+    history = {"code_entity_subtype": "geophysical"}
+    subtypes = [{"code": "geophysical", "id_entity_type": 2}]
 
     with patch.object(w, "_request") as mock_req:
-        # First call (GET /admin_attribute_rows) returns the rows;
-        # second call (POST) returns the create response.
-        mock_req.side_effect = [rows, {"id_attribute_value": 99001}]
+        # Calls in order: history (for subtype code), entity_subtypes
+        # (subtype→type FK), admin_attribute_rows (id_attribute lookup),
+        # POST attribute_value (the actual write).
+        mock_req.side_effect = [
+            history,
+            subtypes,
+            rows,
+            {"id_attribute_value": 99001},
+        ]
         result = w.add_attribute_value(
             id_entity=4257,
             code="visit_class",
@@ -270,9 +528,9 @@ def test_add_attribute_value_resolves_id_then_posts_admin_endpoint():
         )
 
     assert result == {"id_attribute_value": 99001}
-    assert mock_req.call_count == 2
-    # Second call is the POST — assert URL + body.
-    post_call = mock_req.call_args_list[1]
+    assert mock_req.call_count == 4
+    # Fourth call is the POST — assert URL + body.
+    post_call = mock_req.call_args_list[3]
     assert post_call.args[0] == "POST"
     assert post_call.args[1] == "/admin_attribute_value_rows"
     body = post_call.kwargs["data"]
@@ -474,9 +732,11 @@ def test_upsert_noop_when_value_already_matches():
 
 def test_upsert_posts_when_no_open_value():
     w = _logged_in_writer(dry_run=False)
-    # Pre-populate the id_attribute cache so the POST path doesn't
-    # need to fetch /admin_attribute_rows during the test.
-    w._id_attribute_cache = {"marker": 1}
+    # Pre-populate the id_attribute + entity_type caches so the POST
+    # path doesn't fetch /admin_attribute_rows or /admin_entity_rows
+    # during the test. Cache is keyed by (code, id_entity_type).
+    w._id_attribute_cache = {("marker", None): 1}
+    w._entity_type_cache = {1: None}
     closed = [{"id": 10, "code": "marker", "value": "old", "date_to": "2021-12-31"}]
 
     with patch.object(w, "get_attribute_values", return_value=closed):
@@ -562,9 +822,11 @@ def test_upsert_with_date_hint_targets_open_period():
 def test_upsert_with_date_hint_no_match_posts():
     """date_hint that falls in no period falls back to POST."""
     w = _logged_in_writer(dry_run=False)
-    # Pre-populate the id_attribute cache; the POST path goes through
-    # add_attribute_value → admin endpoint with id_attribute (int FK).
-    w._id_attribute_cache = {"firmware_version": 7}
+    # Pre-populate the id_attribute + entity_type caches; the POST path
+    # goes through add_attribute_value → admin endpoint with
+    # id_attribute (int FK). Cache is keyed by (code, id_entity_type).
+    w._id_attribute_cache = {("firmware_version", None): 7}
+    w._entity_type_cache = {1: None}
     existing = [
         {
             "id_attribute_value": 10,
