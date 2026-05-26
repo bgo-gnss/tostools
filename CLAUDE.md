@@ -150,6 +150,12 @@ git add <file> && git commit                   # provenance
 
 Pinned by `tests/test_station_triage.py`.
 
+**For first-time operators**: see
+`docs/tutorials/station-triage-tutorial.md` for a step-by-step
+walkthrough including the catalog-ghost remapping table, the
+split-monument Section 0 template, double-apply hazard recovery, and
+a worked example using HEDI's committed triage files.
+
 ### Archive verification — `tos audit verify-from-rinex`
 
 `tos audit verify-from-rinex --station X` cross-checks TOS state against
