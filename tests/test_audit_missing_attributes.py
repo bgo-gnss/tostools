@@ -21,7 +21,6 @@ from tostools.audit_missing_attributes import (
     load_missing_suppressions,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures + helpers
 # ---------------------------------------------------------------------------

@@ -386,6 +386,22 @@ class TOSClient:
         """
         return self._make_request(f"/history/entity/{id_entity}/")
 
+    def get_parent_history(self, id_child: int) -> List[Dict[str, Any]]:
+        """Return every parent connection of an entity, open + closed.
+
+        Wraps ``GET /entity/parent_history/{id_child}``. Sorted by
+        ``time_from`` ascending so a "where has this device been?"
+        timeline reads top-to-bottom. Read-only, no auth.
+
+        Returns an empty list when the endpoint yields no joins or an
+        unexpected payload shape — read-only inspection callers can
+        treat "no parent ever" and "endpoint failure" alike.
+        """
+        history = self._make_request(f"/entity/parent_history/{id_child}")
+        if not isinstance(history, list):
+            return []
+        return sorted(history, key=lambda j: j.get("time_from") or "")
+
     def basic_search(self, search_term: str) -> List[Dict[str, Any]]:
         """
         Substring search across TOS attribute values.

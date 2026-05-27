@@ -24,6 +24,177 @@ This is **tostools**, a Python3 command-line toolkit for GPS/GNSS station metada
 - **RINEX Processing**: Validation, brary
   correction, and format compliance
 
+## Tool boundaries — `tos` vs `tosGPS`
+
+The package ships **two CLI entry points** with a layered split. New verbs
+land via this rule:
+
+- **`tos` — the entity layer.** Any verb that takes an `id_entity` /
+  `serial` / `marker` / location-name and returns TOS state in its
+  **native shape** (raw attribute periods, joins, `id_attribute_value`,
+  `id_entity_connection`) belongs here. Subtype-agnostic — the same
+  verb works for `gnss_receiver`, `antenna`, `seismometer`, `monument`.
+  Includes audits (`tos audit *`), writes (`tos audit apply`), and
+  entity inspection (`tos device show / list`).
+
+- **`tosGPS` — the GPS interpretation layer.** Any verb that **synthesizes
+  TOS entities into a GPS-domain object** — a station "session"
+  (receiver+antenna+radome tuple), a GAMIT `station.info` row, an IGS
+  sitelog block, a RINEX-vs-TOS diff — belongs here. Calls *into* `tos`
+  primitives and reshapes their output. Opinionated by what GPS
+  processing pipelines expect.
+
+The split is **layer-based, not domain-based**. A seismic-network verb
+that returns raw entities still belongs in `tos`; a GPS-only verb that
+returns raw entities also belongs in `tos`. The split is about
+*output shape*, not the entity types involved.
+
+Practical examples:
+
+| Verb | Lives in | Why |
+|------|----------|-----|
+| `tos device show <id>` | `tos` | Raw attribute periods + raw joins |
+| `tos device list --station SAVI` | `tos` | Raw entity table with `id_entity` column |
+| `tos audit fleet` | `tos` | Invariants over raw TOS state |
+| `tos audit apply file.txt` | `tos` | Writes raw entities |
+| `tosGPS PrintTOS SAVI` | `tosGPS` | GAMIT-formatted station sessions |
+| `tosGPS sitelog SAVI` | `tosGPS` | IGS v2.0 site log synthesis |
+| `tosGPS syncMeta` | `tosGPS` | TOS ↔ GAMIT station.info diff |
+
+When a `tosGPS` verb needs to fetch an entity, it should *call into*
+`tos` primitives (or the underlying `tostools.api.tos_client` /
+`tostools.devices` helpers) rather than re-implement them.
+
+### Shared filter set for entity-listing verbs
+
+Any `tos` verb that produces a list of device entities should use the
+standard filter helpers in `tostools.tos`:
+
+- `add_device_filter_arguments(parser, with_date=True)` — adds
+  `--subtype`, `--model`, `--status`, `--serial`, `--date` to a
+  subparser. Pass `with_date=False` for verbs operating on data without
+  time bounds.
+- `apply_device_filters(rows, args)` — applies all five filters to
+  enriched rows (shape: `subtype`, `model`, `status`, `serial`,
+  `time_from`, `time_to`). AND'd; order preserved. Tolerates missing
+  arg attributes (each treated as "no constraint").
+
+Match semantics: `subtype` exact, `model` case-insensitive substring,
+`status` exact, `serial` case-sensitive substring, `date` "device
+present on date" (time_from ≤ date < time_to). See
+`tests/test_tos_client.py::apply_device_filters` for the full pinning.
+
+Verbs that should adopt these (and don't yet): the audit reporters that
+emit device tables — `tos audit fleet`, `tos audit orphans`,
+`tos audit timelines`, plus any future `tos device search` /
+`tos station list`.
+
+### Shared filter set for attribute-period verbs
+
+Verbs that show TOS attribute periods (open or historical) should use:
+
+- `add_attribute_filter_arguments(parser)` — adds `--code` (repeatable),
+  `--value`, `--on-date`, `--suspicious` to a subparser.
+- `apply_attribute_filters(periods, args)` — filters TOS attribute-value
+  dicts (`code`, `value`, `date_from`, `date_to`). AND'd; order
+  preserved; tolerates missing arg attributes.
+
+Match semantics: `code` exact (any of listed values OR'd), `value`
+case-insensitive substring, `on_date` "period active on date"
+(date_from ≤ date < date_to), `suspicious` "date_from is the
+fleet-wide cleanup-artifact date 2014-10-17" (see memory
+`project_2014_10_17_metadata_cleanup_artifacts`). Pinning in
+`tests/test_tos_client.py::apply_attribute_filters`.
+
+Adopted by `tos device show` (--attributes and --attributes-history
+sections both filter through this helper). Future candidates:
+`tos audit attribute-dates`, `tos audit missing-attributes`, any new
+fleet-wide attribute-inspection verb.
+
+### Station triage orchestrator — `tos station triage`
+
+`tos station triage <STATION>` is the single-command entry point for
+the SAVI-style reconstruction workflow. It runs every available audit
+against the station, aggregates findings into one ACTION-style file
+consumable by `tos audit apply`, and writes it to
+`data/triage/<station>/<station>_audit_<YYYYMMDD>.txt` by default
+(configurable via `--out PATH`, or `--stdout` to skip disk).
+
+All suggested ACTION lines are **commented out by default** — operator
+opts IN by uncommenting + filling `<FILL_VALUE>` / `<FILL_DATE>`
+placeholders. Sections are ordered by confidence:
+
+  * **HIGH** — cleanup-artifact backdates (the fleet-wide 2014-10-17
+    pattern, well-documented)
+  * **MEDIUM** — missing required attributes with catalog defaults
+  * **LOW** — missing required attributes with `<FILL>` placeholders
+    (operator MUST replace before apply)
+
+Implementation in `src/tostools/station_triage.py` —
+`generate_station_triage()` calls the existing audit
+entry points (`audit_station_missing_attributes`,
+`audit_station_attribute_dates`) directly rather than re-implementing.
+Each section's body is delegated to the originating audit module's
+`format_triage_file()` so format-stability of those audits is
+preserved.
+
+Happy-path workflow (no AI required for routine stations):
+
+```
+tos station triage HEDI                        # generate triage file
+$EDITOR data/triage/hedi/hedi_audit_*.txt      # uncomment / fill
+tos audit apply <file>                         # dry-run
+tos audit apply <file> --apply                 # commit
+git add <file> && git commit                   # provenance
+```
+
+Pinned by `tests/test_station_triage.py`.
+
+**For first-time operators**: see
+`docs/tutorials/station-triage-tutorial.md` for a step-by-step
+walkthrough including the catalog-ghost remapping table, the
+split-monument Section 0 template, double-apply hazard recovery, and
+a worked example using HEDI's committed triage files.
+
+### Archive verification — `tos audit verify-from-rinex`
+
+`tos audit verify-from-rinex --station X` cross-checks TOS state against
+the cold RINEX archive. Walks
+``<archive>/<YYYY>/<mon>/<STATION>/15s_24hr/{raw,rinex}/``, classifies
+each file by receiver-brand family (`.sbf` → septentrio, `.T02` →
+trimble_netr9, etc.), reports brand transitions + data gaps, and
+cross-references against TOS's child-device joins. Deterministic,
+primary-source-anchored — operators don't have to take anyone's word on
+historical install dates.
+
+**Archive root resolution** (`src/tostools/archive.py::cold_archive_prepath`):
+
+  1. `--archive-root` CLI override
+  2. Env var `TOSTOOLS_ARCHIVE_ROOT`
+  3. `[archive_paths] cold_archive_prepath` in the shared
+     `~/.config/gpsconfig/receivers.cfg` (same cfg the receivers package
+     uses — single source of truth, no duplication)
+  4. Probe `/mnt/rawgpsdata` then `/mnt_data/rawgpsdata`
+  5. `FileNotFoundError` with a candidate list
+
+Reusable helpers in `tostools.archive`: `cold_archive_prepath()`,
+`classify_file_format()`, `walk_station_timeline()`,
+`detect_brand_transitions()`, `detect_data_gaps()`,
+`coalesce_brand_runs()` (rinex-format days absorbed into surrounding
+brand when bracketed by the same brand; ambiguous spans surfaced
+separately), `detect_rinex_only_spans()` (operationally important —
+windows where raw is missing and only RINEX archived; useful "we're
+losing raw" signal). Pinned by `tests/test_archive.py`.
+
+**Cross-tool wiring**: `tosGPS syncMeta --type gamit-station-info ...
+--with-archive` calls the same helpers and appends an "Archive evidence"
+panel below the TOS-vs-REF session diff. Opt-in (off by default — archive
+access is unreliable on offline / no-mount workflows). When set, every
+station's comparison gains brand-timeline + transitions + gaps under the
+existing diff, in one command, so operators get all three sources (TOS,
+REF, ARCHIVE) without leaving the syncMeta flow. Same `--archive-root`
+override applies; `--archive-min-gap-days` controls the gap threshold.
+
 ## Quick Start
 
 ### Environment Setup
@@ -109,6 +280,32 @@ The `api/tos_writer.py` module provides authenticated write access to TOS. Key d
 - **IGS names**: TOS stores IGS rcvr_ant.tab format names (`"SEPT POLARX5"`, `"NONE"` for no radome). `tostools.standards.igs_equipment` converts from health-reported short names.
 
 See `docs/architecture/tos-write-api.md` for the complete API reference, write patterns, and gotchas.
+
+### Retrospective writes — triage files in git as canonical provenance
+
+TOS exposes only `date_from` / `date_to` on attribute_value rows — there
+is **no `created_at` / `modified_at`** field. A back-fill written today
+but dated to 2007 is indistinguishable in TOS from a 2007-contemporaneous
+record. The `id_attribute_value` sequence is a soft signal (higher =
+newer, with the 2014-10-17 fleet bulk-load at id_av ≈ 32000–35000 as a
+historical inflection point), but not authoritative.
+
+**Convention**: every retrospective TOS write goes through a committed
+triage file at the repo root (`<station>_*.txt`), processed by
+`tos audit apply`. The triage file format (Header / Known ids / STEP +
+Run/adjust / Verification — see `savi.txt` as reference) is
+self-documenting, and the commit log gives the apply date. Triage
+files are the canonical audit trail for back-fills, since TOS itself
+doesn't track this.
+
+When investigating "was this value contemporaneous or back-filled?":
+1. Check `id_attribute_value` against the rough threshold for that era
+2. `git log -- <station>_*.txt` for triage files touching the entity
+3. The ACTION lines in matching triage files show exactly what was
+   written and the cited evidence
+
+Future tooling (project-todo): `tos device show --highlight-since
+<id_av>` will surface this visually.
 
 ## Development Workflow
 

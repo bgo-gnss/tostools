@@ -878,6 +878,36 @@ Examples:
         action="store_true",
         help="Skip detailed comparison (default for batch operations)",
     )
+    compare_group.add_argument(
+        "--with-archive",
+        action="store_true",
+        help=(
+            "After the TOS vs REF diff, append archive evidence: file-extension-"
+            "derived brand timeline, real receiver-brand transitions, and "
+            "multi-day data gaps. Surfaces TOS-claimed sessions that the "
+            "cold archive doesn't support (e.g. NETR9 records dated to a "
+            "date when the archive shows POLARX2 files). Requires archive "
+            "access; opt-in to avoid breaking offline / no-mount workflows."
+        ),
+    )
+    compare_group.add_argument(
+        "--archive-root",
+        type=str,
+        default=None,
+        help=(
+            "Override the archive root resolved by archive.cold_archive_prepath. "
+            "Default chain: env TOSTOOLS_ARCHIVE_ROOT → receivers.cfg "
+            "[archive_paths] cold_archive_prepath → probe known mounts."
+        ),
+    )
+    compare_group.add_argument(
+        "--archive-min-gap-days",
+        type=int,
+        default=30,
+        help=(
+            "Minimum gap size to report when --with-archive is set " "(default: 30)."
+        ),
+    )
 
     # Station selection options
     station_group = sync_parser.add_argument_group("Station selection")
@@ -2173,6 +2203,11 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
     overall_success = True
     results = {}
 
+    # Select the gps_metadata synthesizer once so apply + compare paths agree
+    # with PrintTOS / sitelog / rinex (new devices.station_sessions chain by
+    # default). --use-legacy-synthesis opts back into the legacy chain.
+    synthesizer = _select_synthesizer(args)
+
     for metadata_type in metadata_types:
         print(f"\n=== Processing {metadata_type} ===", file=sys.stderr)
 
@@ -2197,6 +2232,7 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
                 interactive=not args.non_interactive,
                 backup_required=args.backup or True,  # Default to backup for safety
                 production_mode=getattr(args, "production_mode", False),
+                synthesizer=synthesizer,
             )
 
             # Convert workflow result to expected format
@@ -2220,6 +2256,10 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
                 force_download=args.force_download,
                 backup=args.backup,
                 forced_server=args.force_server,
+                with_archive=getattr(args, "with_archive", False),
+                archive_root=getattr(args, "archive_root", None),
+                archive_min_gap_days=getattr(args, "archive_min_gap_days", 30),
+                synthesizer=synthesizer,
             )
 
         results[metadata_type] = type_results
@@ -2410,6 +2450,10 @@ def _process_metadata_type(
     force_download,
     backup,
     forced_server,
+    with_archive=False,
+    archive_root=None,
+    archive_min_gap_days=30,
+    synthesizer=None,
 ):
     """Process a single metadata type for all specified stations."""
     logger = get_logger(__name__)
@@ -2451,6 +2495,10 @@ def _process_metadata_type(
                     update_mode=update_mode,
                     show_comparison=show_comparison,
                     backup=backup,
+                    with_archive=with_archive,
+                    archive_root=archive_root,
+                    archive_min_gap_days=archive_min_gap_days,
+                    synthesizer=synthesizer,
                 )
 
                 results["stations_processed"] += 1
@@ -2505,19 +2553,29 @@ def _process_single_station(
     update_mode,
     show_comparison,
     backup,
+    with_archive=False,
+    archive_root=None,
+    archive_min_gap_days=30,
+    synthesizer=None,
 ):
     """Process a single station for a specific metadata type."""
     result = {"updated": False}
 
+    if synthesizer is None:
+        synthesizer = gpsqc.gps_metadata_via_devices
+
     if metadata_type == "gamit-station-info":
         try:
-            # Get TOS data using the exact same approach as PrintTOS
-            station_info = gpsqc.gps_metadata(station, url, loglevel=logging.CRITICAL)
+            # Use the same synthesizer PrintTOS / sitelog / rinex use (new
+            # devices.station_sessions composer chain by default). Otherwise
+            # syncMeta would silently drop sessions the legacy chain skips
+            # for "missing monument data", producing partial updates.
+            station_info = synthesizer(station, url, loglevel=logging.CRITICAL)
             if not station_info:
                 print(f"Error: No TOS data found for {station}", file=sys.stderr)
                 return result
 
-            # Generate GAMIT format using the same function as PrintTOS --format gamit
+            # Same GAMIT-line formatter as PrintTOS --format gamit
             tos_lines = gpsf.print_station_info(station_info, loglevel=logging.CRITICAL)
 
             # Get reference data
@@ -2541,6 +2599,16 @@ def _process_single_station(
                         f"⚠️  {station}: Differences detected (use --compare for details)"
                     )
 
+            # Optional third opinion: archive evidence. Opt-in via --with-archive
+            # because archive access is unreliable for offline / no-mount
+            # workflows; ON by default would break common dev-laptop usage.
+            if with_archive:
+                _display_archive_evidence(
+                    station,
+                    archive_root=archive_root,
+                    min_gap_days=archive_min_gap_days,
+                )
+
             if update_mode and differences_found:
                 print(
                     f"✓ {station}: Would update local data (update logic not implemented)",
@@ -2552,6 +2620,102 @@ def _process_single_station(
             print(f"Error processing {station}: {e}", file=sys.stderr)
 
     return result
+
+
+def _display_archive_evidence(station, *, archive_root=None, min_gap_days=30):
+    """Append archive-derived evidence to a syncMeta station comparison.
+
+    Walks the cold RINEX archive for ``station``, derives the file-extension
+    timeline (`.sbf` → septentrio, `.T02` → trimble_netr9, etc.), and
+    surfaces brand transitions + multi-day gaps. Same primitives the
+    ``tos audit verify-from-rinex`` verb uses — surfaced inline here so
+    operators get the third-source verdict without leaving the syncMeta
+    flow.
+
+    All failures are non-fatal: missing archive root, no archived data,
+    parse errors — each prints a single warning to stderr and returns.
+    The TOS/REF comparison preceding this call is the deliverable; the
+    archive panel is a supplement.
+    """
+    try:
+        from . import archive as archive_mod
+    except Exception as e:  # noqa: BLE001
+        print(
+            f"  [archive] could not import archive helpers: {e}",
+            file=sys.stderr,
+        )
+        return
+
+    try:
+        root = archive_mod.cold_archive_prepath(override=archive_root)
+    except FileNotFoundError as e:
+        print(f"  [archive] {e}", file=sys.stderr)
+        return
+
+    try:
+        timeline = list(archive_mod.walk_station_timeline(station, root))
+    except Exception as e:  # noqa: BLE001
+        print(
+            f"  [archive] walk failed for {station} under {root}: {e}",
+            file=sys.stderr,
+        )
+        return
+
+    if not timeline:
+        print(f"  [archive] no archived data for {station} under {root}")
+        return
+
+    transitions = archive_mod.detect_brand_transitions(timeline)
+    gaps = archive_mod.detect_data_gaps(timeline, min_days=min_gap_days)
+    # rinex (format-neutral) days are absorbed into the surrounding
+    # brand when bracketed by the same brand. Standalone rinex runs
+    # (leading/trailing/between-different-brands) survive as ambiguous
+    # spans the operator must resolve. RINEX-only spans (raw missing)
+    # are surfaced separately as an operational signal.
+    brand_runs = archive_mod.coalesce_brand_runs(timeline)
+    rinex_only_spans = archive_mod.detect_rinex_only_spans(timeline)
+
+    print(f"\nArchive evidence for {station} ({root}):")
+    print(
+        f"  {len(timeline)} archived day(s)  "
+        f"first: {timeline[0].obs_date}  last: {timeline[-1].obs_date}"
+    )
+
+    if brand_runs:
+        print(
+            "\n  Brand timeline (rinex-only days absorbed into surrounding " "brand):"
+        )
+        for r in brand_runs:
+            label = f"{r.family} (ambiguous)" if r.ambiguous else r.family
+            suffix = (
+                f"  [rinex-only inside: {r.rinex_only_days}]"
+                if r.rinex_only_days
+                else ""
+            )
+            print(f"    {r.start}  →  {r.end}     {label}{suffix}")
+
+    if transitions:
+        print("\n  Real receiver-brand transitions " "(non-RINEX day-to-day changes):")
+        for t in transitions:
+            print(
+                f"    {t.date_before} ({t.family_before})  →  "
+                f"{t.date_after} ({t.family_after})"
+            )
+    else:
+        print("\n  No receiver-brand transitions detected in archive.")
+
+    if gaps:
+        print(f"\n  Data gaps ≥{min_gap_days} days:")
+        for g in gaps:
+            print(
+                f"    {g.last_day_with_data}  →  {g.next_day_with_data}     "
+                f"({g.duration_days} days)"
+            )
+
+    if rinex_only_spans:
+        print("\n  RINEX-only spans (raw missing — possible data-loss windows):")
+        for s in rinex_only_spans:
+            print(f"    {s.start}  →  {s.end}     ({s.days} days)")
 
 
 def _lines_are_identical(tos_lines, ref_lines):
@@ -4102,6 +4266,7 @@ def _safe_update_workflow(
     interactive=True,
     backup_required=True,
     production_mode=False,
+    synthesizer=None,
 ):
     """
     Main safe update workflow orchestrator.
@@ -4114,10 +4279,17 @@ def _safe_update_workflow(
         dry_run: Test mode - no actual uploads
         interactive: Prompt for confirmations (default: True)
         backup_required: Require backup before changes
+        synthesizer: Optional gps_metadata synthesizer callable. Defaults to
+            ``gpsqc.gps_metadata_via_devices`` (the new devices.station_sessions
+            composer chain), keeping syncMeta consistent with PrintTOS / sitelog
+            / rinex. Callers should pass ``_select_synthesizer(args)`` so
+            ``--use-legacy-synthesis`` opts back into the legacy chain.
 
     Returns:
         dict: Complete workflow results
     """
+    if synthesizer is None:
+        synthesizer = gpsqc.gps_metadata_via_devices
     from pathlib import Path
 
     logger = get_logger(__name__)
@@ -4253,9 +4425,7 @@ def _safe_update_workflow(
         station_updates = {}
         for station in stations:
             try:
-                station_info = gpsqc.gps_metadata(
-                    station, url, loglevel=logging.CRITICAL
-                )
+                station_info = synthesizer(station, url, loglevel=logging.CRITICAL)
                 if station_info:
                     tos_lines = _generate_station_lines_from_tos(station_info)
                     station_updates[station] = tos_lines
@@ -4356,6 +4526,35 @@ def _safe_update_workflow(
                 if upload_result["success"]:
                     workflow_result["stations_updated"] = list(station_updates.keys())
                     if not dry_run:
+                        # Refresh the local cached copy with what we just uploaded so
+                        # subsequent no-update syncMeta runs (which read from this
+                        # local file rather than re-downloading) compare against the
+                        # same state that now lives on okada. Without this, the next
+                        # diff would still show the pre-upload state and look like
+                        # the update silently failed.
+                        try:
+                            import shutil
+
+                            local_reference = (
+                                station_config_dir / "station.info.sopac.apr05"
+                            )
+                            shutil.copy2(work_info["work_path"], local_reference)
+                            logger.info(
+                                "Local cached reference refreshed from working copy",
+                                extra={
+                                    "step": 7,
+                                    "workflow": "safe_update",
+                                    "local_reference": str(local_reference),
+                                },
+                            )
+                        except Exception as refresh_err:
+                            # Don't fail the whole workflow — upload already
+                            # succeeded; this is just a cache freshness fix.
+                            logger.warning(
+                                f"Failed to refresh local cached reference: {refresh_err}",
+                                extra={"step": 7, "workflow": "safe_update"},
+                            )
+
                         print(
                             "🎉 Update workflow completed successfully!",
                             file=sys.stderr,

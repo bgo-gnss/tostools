@@ -181,7 +181,24 @@ hitting a non-public endpoint. The public ``/entity/<id>`` is read-only
 (``Allow: HEAD, GET, OPTIONS``). Requires admin-level TOS access. Prefer
 the attribute and join verbs for routine metadata writes.
 
+## `tos audit apply` ACTION verbs
+
+Operator-facing surface for the patterns above. Each ACTION line in a triage file is `ACTION <id_entity> <verb> [args...]`; placeholders (`<FILL_*>`) are rejected at dispatch time; `--apply` flips dry-run off.
+
+| Verb | Args | Pattern | Use |
+|------|------|---------|-----|
+| `defer` | — | — | No-op, mark for later |
+| `change-subtype` | `<subtype_code>` | — | Reclassify entity (`PUT /admin_entity_row/<id>`) |
+| `decommission` | `<date>` | 2 (joins) | Close current open join + transition `status` |
+| `move` | `<to_parent_id> <date>` | 2 (joins) | Close open join + open new — relocate device |
+| `fill-gap` | `<parent_id> <date_from> <date_to>` | — | Create a closed historical join |
+| `patch-join-date` | `<id_connection> <field> <new_date>` | — | PATCH `time_from` or `time_to` on an existing join (extend a join's start back, correct a close-out date). `field ∈ {time_from, time_to}` — reparent attempts refused; use `move` for that |
+| `add-attribute` | `<code> <value> <date_from>` | 3 | POST new attribute period; refuses if a different open period exists |
+| `patch-attribute-date` | `<code> <old_date_from> <new_date_from>` | — | Re-date an existing attribute period in place |
+| `patch-attribute-value` | `<code> <date_from_match> <new_value>` | 1, 4 | Correct a wrong value in place (e.g. `serial="UNKNOWN"` → `"3163"`). Same date-prefix lookup as `patch-attribute-date`; idempotent on already-correct values |
+
 ## Future Work
 
-- **Join record updates** — Device session start/end dates live in the join record. `patch_entity_connection` is implemented but not yet wired to any reconcile workflow. `move_device()` now covers the close+open flow for receiver/antenna installs.
+- **Triage generators for cross-source diffs** — `tos audit missing-attributes` emits triage files today. A similar `tos audit fix <STATION>` (or `audit reference-diff`) that emits `patch-attribute-value` + `patch-join-date` actions by comparing TOS to GAMIT station.info / IGS site-logs would close the loop on the HEDI-style data-quality task class. Today operators hand-write the triage file from `tosGPS syncMeta` output.
+- **Join record updates** — Device session start/end dates live in the join record. `patch_entity_connection` is wired through `move_device()` (close+open) and the `patch-join-date` apply verb (single-field PATCH). Bulk reconcile workflows are still open.
 - **CLI verbs** — The `tos` CLI today only exposes read verbs. `move_device` and `add_maintenance_visit` are reached from the `receivers cfg install-device` / `receivers cfg visit` workflow (see `receivers/CLAUDE.md`). A standalone `tos device move` / `tos visit add` is open work.

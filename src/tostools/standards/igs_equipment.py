@@ -45,6 +45,16 @@ RECEIVER_IGS: dict[str, str] = {
     # Septentrio PolaRX3e (historical) -----------------------------------------
     "PolaRX3e": "SEPT POLARX3E",
     "POLARX3E": "SEPT POLARX3E",
+    # Septentrio PolaRX2 (historical, pre-PolaRX5 era; deployed at IMO
+    # stations KVIS/FTEY/GAKE/GAK1/GAK2/HEDI/SAVI from ~2006-2014):
+    "PolaRX2": "SEPT POLARX2",
+    "PolaRx2": "SEPT POLARX2",
+    "POLARX2": "SEPT POLARX2",
+    # Septentrio PolaRX2E (Enhanced variant; not currently deployed at
+    # IMO stations — listed for cross-network completeness):
+    "PolaRX2E": "SEPT POLARX2E",
+    "PolaRx2E": "SEPT POLARX2E",
+    "POLARX2E": "SEPT POLARX2E",
     # Trimble NetR9 ------------------------------------------------------------
     "NetR9": "TRIMBLE NETR9",
     "NETR9": "TRIMBLE NETR9",
@@ -111,12 +121,24 @@ RADOME_IGS: dict[str, str] = {
 def to_igs_receiver(raw: Optional[str]) -> Optional[str]:
     """Return the IGS-standard receiver name for *raw*, or ``None``.
 
-    Performs an exact-match lookup first, then a case-folded fallback so that
-    "netr9" and "NETR9" both resolve.  Returns ``None`` if *raw* is empty or
-    unknown — callers should treat ``None`` as "cannot convert, do not write".
+    Resolution order:
+
+    1. **Exact alias match** — ``RECEIVER_IGS[raw]`` (e.g. ``"PolaRx5"`` →
+       ``"SEPT POLARX5"``).
+    2. **Case-folded alias match** — ``"netr9"`` and ``"NETR9"`` both resolve
+       to ``"TRIMBLE NETR9"``.
+    3. **Canonical-name identity** — when ``raw`` is already a known IGS
+       canonical name (matches any *value* in :data:`RECEIVER_IGS`), return
+       it unchanged. Lets operators paste the rcvr_ant.tab spelling directly
+       (e.g. ``"SEPT POLARX2"``) without needing a redundant identity entry
+       for every receiver.
+
+    Returns ``None`` if *raw* is empty or unknown — callers should treat
+    ``None`` as "cannot convert, do not write".
 
     Args:
-        raw: Raw receiver model string from a health extractor or cfg.
+        raw: Raw receiver model string from a health extractor / cfg /
+            operator input.
 
     Returns:
         IGS name string (e.g. ``"SEPT POLARX5"``), or ``None`` if unknown.
@@ -126,11 +148,14 @@ def to_igs_receiver(raw: Optional[str]) -> Optional[str]:
     result = RECEIVER_IGS.get(raw)
     if result is not None:
         return result
-    # Case-insensitive fallback: check if upper-casing the raw string matches
+    # Case-insensitive alias-key fallback.
     upper = raw.upper()
     for key, value in RECEIVER_IGS.items():
         if key.upper() == upper:
             return value
+    # Canonical-name identity — accept any value already known to the dict.
+    if raw in set(RECEIVER_IGS.values()):
+        return raw
     return None
 
 

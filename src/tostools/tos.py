@@ -35,7 +35,8 @@ import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import requests
 from tabulate import tabulate
@@ -1710,7 +1711,7 @@ def generateFDSNXML(station_list=None):
     # inv.write("station.txt", format="stationtxt")
 
 
-KNOWN_SUBCOMMANDS = {"owners", "device", "audit"}
+KNOWN_SUBCOMMANDS = {"owners", "device", "audit", "station"}
 
 
 def _owners_main(argv):
@@ -1787,6 +1788,824 @@ def _owners_main(argv):
     return 0
 
 
+def add_device_filter_arguments(parser, *, with_date: bool = True) -> None:
+    """Add the standard device-filter argument set to a subparser.
+
+    Reusable across `tos device list`, future `tos device search`, audit
+    verbs that produce device tables, etc. Match semantics are documented
+    on :func:`apply_device_filters`.
+
+    Adds: ``--subtype``, ``--model``, ``--status``, ``--serial``. When
+    ``with_date=True`` (default), also adds ``--date`` for point-in-time
+    membership filtering — callers that have no time-bounded data
+    (pure-attribute listings) can opt out.
+    """
+    parser.add_argument(
+        "--subtype",
+        help=(
+            "Filter to a single TOS subtype (gnss_receiver, antenna, "
+            "radome, monument, modem_gsm, sim_card, ...). Exact match."
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        help=(
+            "Filter by device model — case-insensitive substring "
+            "(e.g. 'NETR9' matches 'TRIMBLE NETR9')."
+        ),
+    )
+    parser.add_argument(
+        "--status",
+        help=(
+            "Filter by current status — exact match against the open "
+            "status attribute value (e.g. virkt, bilað, óvirkt)."
+        ),
+    )
+    parser.add_argument(
+        "--serial",
+        help="Filter by serial — substring match, case-sensitive.",
+    )
+    if with_date:
+        parser.add_argument(
+            "--date",
+            help=(
+                "Filter to devices present at the parent on this date "
+                "(YYYY-MM-DD). Match rule: time_from <= date "
+                "AND (time_to IS NULL OR time_to > date). For listing "
+                "verbs that default to open-only joins, --date implicitly "
+                "enables --all scanning."
+            ),
+        )
+
+
+def add_attribute_filter_arguments(parser) -> None:
+    """Add the standard attribute-filter argument set to a subparser.
+
+    Reusable across `tos device show`, future fleet-wide attribute
+    inspection verbs (`tos audit attribute-dates`, ...). Match semantics
+    are documented on :func:`apply_attribute_filters`.
+
+    Adds: ``--code`` (repeatable), ``--value``, ``--on-date``,
+    ``--suspicious``.
+    """
+    parser.add_argument(
+        "--code",
+        action="append",
+        dest="codes",
+        help=(
+            "Filter to one or more attribute codes (e.g. --code "
+            "serial_number --code model). Repeatable; OR'd. Exact match."
+        ),
+    )
+    parser.add_argument(
+        "--value",
+        help=(
+            "Filter by attribute value — case-insensitive substring "
+            "(e.g. '--value NETR9' matches 'TRIMBLE NETR9')."
+        ),
+    )
+    parser.add_argument(
+        "--on-date",
+        dest="on_date",
+        help=(
+            "Filter to attribute periods active on this date "
+            "(YYYY-MM-DD). Match rule: date_from <= date "
+            "AND (date_to IS NULL OR date_to > date)."
+        ),
+    )
+    parser.add_argument(
+        "--suspicious",
+        action="store_true",
+        help=(
+            "Filter to attribute periods opening on 2014-10-17 — the "
+            "fleet-wide metadata-cleanup-artifact pattern (model / "
+            "serial / etc. silently dated to the bulk-load date). See "
+            "memory project_2014_10_17_metadata_cleanup_artifacts."
+        ),
+    )
+
+
+def apply_attribute_filters(
+    periods: List[Dict[str, Any]],
+    args,
+) -> List[Dict[str, Any]]:
+    """Filter attribute-period rows by the standard CLI attribute-filter set.
+
+    Reads ``args.codes`` (list), ``args.value``, ``args.on_date``,
+    ``args.suspicious`` (any missing attribute is treated as "no
+    constraint"). Filters are AND'd; preserves input order.
+
+    Expected period shape: TOS attribute-value dict with ``code``,
+    ``value``, ``date_from``, ``date_to`` (the rows from
+    ``writer.get_attribute_values`` / ``client.get_entity_history``).
+
+    Match semantics:
+      - ``codes``: exact match against ``period['code']`` (any one of the
+        listed codes — OR'd within the filter, AND'd with others)
+      - ``value``: case-insensitive substring against
+        ``str(period['value'])``
+      - ``on_date``: period active on date —
+        ``date_from <= date < date_to`` (or ``date_to`` is None). Same
+        date-prefix lex compare as :func:`apply_device_filters`.
+      - ``suspicious``: period's ``date_from[:10] == '2014-10-17'``
+    """
+    codes = getattr(args, "codes", None) or None
+    value_needle = getattr(args, "value", None)
+    on_date_raw = getattr(args, "on_date", None)
+    on_date = on_date_raw[:10] if on_date_raw else None
+    suspicious_only = bool(getattr(args, "suspicious", False))
+
+    code_set = set(codes) if codes else None
+    value_lower = value_needle.lower() if value_needle else None
+
+    out: List[Dict[str, Any]] = []
+    for p in periods:
+        if code_set and p.get("code") not in code_set:
+            continue
+        if value_lower is not None:
+            value = p.get("value")
+            if value is None or value_lower not in str(value).lower():
+                continue
+        if on_date:
+            df = (p.get("date_from") or "")[:10]
+            dt_raw = p.get("date_to")
+            dt = dt_raw[:10] if dt_raw else None
+            if df and df > on_date:
+                continue
+            if dt is not None and dt <= on_date:
+                continue
+        if suspicious_only:
+            if (p.get("date_from") or "")[:10] != _CLEANUP_ARTIFACT_DATE:
+                continue
+        out.append(p)
+    return out
+
+
+def apply_device_filters(
+    rows: List[Dict[str, Any]],
+    args,
+) -> List[Dict[str, Any]]:
+    """Filter enriched device rows by the standard CLI filter set.
+
+    Reads ``args.subtype``, ``args.model``, ``args.status``, ``args.serial``,
+    ``args.date`` (any missing attribute is treated as "no constraint").
+    Filters are AND'd; preserves input order.
+
+    Expected row shape: ``subtype``, ``model``, ``status``, ``serial``,
+    ``time_from``, ``time_to`` (the row dicts emitted by
+    :func:`_device_list_main` and similar producers).
+
+    Match semantics:
+      - ``subtype``: exact match against ``row['subtype']``
+      - ``model``: case-insensitive substring against ``row['model']``
+      - ``status``: exact match against ``row['status']``
+      - ``serial``: case-sensitive substring against ``row['serial']``
+      - ``date``: row's join straddles the date —
+        ``row['time_from'] <= date < row['time_to']`` (or
+        ``time_to`` is None). Date-only prefixes (YYYY-MM-DD) are
+        compared lexicographically; TOS's full-datetime values compare
+        correctly because year-first.
+    """
+    subtype = getattr(args, "subtype", None)
+    model = getattr(args, "model", None)
+    status = getattr(args, "status", None)
+    serial = getattr(args, "serial", None)
+    date_raw = getattr(args, "date", None)
+    on_date = date_raw[:10] if date_raw else None
+
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        if subtype and row.get("subtype") != subtype:
+            continue
+        if model and model.lower() not in (row.get("model") or "").lower():
+            continue
+        if status and row.get("status") != status:
+            continue
+        if serial and serial not in (row.get("serial") or ""):
+            continue
+        if on_date:
+            tf = (row.get("time_from") or "")[:10]
+            tt_raw = row.get("time_to")
+            tt = tt_raw[:10] if tt_raw else None
+            if tf and tf > on_date:
+                continue
+            if tt is not None and tt <= on_date:
+                continue
+        out.append(row)
+    return out
+
+
+def _resolve_parent_id(
+    client,
+    *,
+    station_marker: Optional[str] = None,
+    location_name: Optional[str] = None,
+) -> Optional[int]:
+    """Resolve a parent entity id from a station marker or a location name.
+
+    Read-only helper used by ``tos device list``. Uses
+    :meth:`TOSClient.basic_search` directly (rather than the
+    TOSWriter wrappers ``find_station_by_marker`` /
+    ``find_location_by_name``) to keep the read CLI off the writer
+    surface — same convention as ``tos device show``. See memory note
+    ``project_tos_client_writer_read_duplication`` for the eventual
+    consolidation plan.
+
+    Returns the parent's ``id_entity`` or ``None`` if no exact match.
+    """
+    if station_marker:
+        needle = station_marker.lower()
+        for hit in client.basic_search(needle):
+            if hit.get("code") != "marker":
+                continue
+            if hit.get("distance") != 0:
+                continue
+            if (hit.get("value_varchar") or "").lower() != needle:
+                continue
+            if hit.get("type_lvl_two") != "stöð":
+                continue
+            entity_id = hit.get("id_entity") or hit.get("id_lvl_two")
+            if entity_id:
+                return int(entity_id)
+        return None
+    if location_name:
+        for hit in client.basic_search(location_name):
+            if hit.get("code") != "name":
+                continue
+            if hit.get("distance") != 0:
+                continue
+            if hit.get("value_varchar") != location_name:
+                continue
+            entity_id = hit.get("id_entity") or hit.get("id_lvl_two")
+            if entity_id:
+                return int(entity_id)
+        return None
+    return None
+
+
+def _device_list_main(args) -> int:
+    """Handle ``tos device list`` — list devices joined to a parent.
+
+    Resolves the parent entity from ``--station`` (marker) or
+    ``--location`` (name), reads its ``children_connections``, and
+    prints a table of currently-joined devices. Mirrors the TOS web UI's
+    per-station device panel: ``id_entity, serial, model, subtype,
+    status, since`` plus ``id_connection`` for use in subsequent ACTION
+    lines.
+
+    Defaults to **open** joins only (devices presently at the parent).
+    ``--all`` includes closed joins for full-history inspection.
+
+    Each child's serial / model / subtype / status comes from a
+    follow-up ``get_entity_history(child_id)`` call. One HTTP per
+    distinct device; cheap for a station with <10 children.
+    """
+    import json as _json
+
+    from .api.tos_client import TOSClient
+    from .devices import open_attribute
+
+    scheme = "https" if args.port == 443 else "http"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    client = TOSClient(base_url=base_url)
+
+    parent_id = _resolve_parent_id(
+        client,
+        station_marker=args.station,
+        location_name=args.location,
+    )
+    if parent_id is None:
+        needle = args.station or args.location
+        kind = "station marker" if args.station else "location name"
+        print(f"No parent entity found for {kind} {needle!r}", file=sys.stderr)
+        return 1
+
+    parent = client.get_entity_history(parent_id)
+    if not parent:
+        print(
+            f"Parent id_entity={parent_id} returned no history payload",
+            file=sys.stderr,
+        )
+        return 1
+
+    parent_name = open_attribute(parent, "name") or open_attribute(parent, "marker")
+    children = parent.get("children_connections") or []
+
+    # --date implies --all: closed joins must be scanned to know what was
+    # at the parent on a past date. Open-vs-all filtering happens here
+    # (no child fetch needed); all other filters happen after enrichment
+    # via apply_device_filters.
+    include_closed = args.all or args.date is not None
+    if not include_closed:
+        children = [c for c in children if c.get("time_to") is None]
+
+    rows: List[Dict[str, Any]] = []
+    for conn in children:
+        child_id_raw = conn.get("id_entity_child")
+        if child_id_raw is None:
+            continue
+        try:
+            child_id = int(child_id_raw)
+        except (TypeError, ValueError):
+            continue
+        child = client.get_entity_history(child_id) or {}
+        rows.append(
+            {
+                "id_entity": child_id,
+                "serial": open_attribute(child, "serial_number") or "?",
+                "model": open_attribute(child, "model") or "?",
+                "subtype": child.get("code_entity_subtype") or "?",
+                "status": open_attribute(child, "status") or "—",
+                "time_from": conn.get("time_from") or "?",
+                "time_to": conn.get("time_to"),
+                "id_connection": conn.get("id_entity_connection") or conn.get("id"),
+            }
+        )
+
+    rows = apply_device_filters(rows, args)
+
+    active_filters = {
+        "subtype": args.subtype,
+        "model": args.model,
+        "status": args.status,
+        "serial": args.serial,
+        "on_date": args.date,
+    }
+    active_filters = {k: v for k, v in active_filters.items() if v}
+
+    if args.json:
+        payload = {
+            "parent_id_entity": parent_id,
+            "parent_name": parent_name,
+            "include_closed": include_closed,
+            "filters": active_filters,
+            "devices": rows,
+        }
+        print(_json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    parent_label = parent_name or f"id_entity={parent_id}"
+    if args.date:
+        scope = f"as-of {args.date}"
+    elif include_closed:
+        scope = "all"
+    else:
+        scope = "open"
+    filter_suffix = ""
+    if active_filters:
+        bits = [f"{k}={v!r}" for k, v in active_filters.items()]
+        filter_suffix = f"  [filters: {', '.join(bits)}]"
+    print(
+        f"Devices at {parent_label} (id_entity={parent_id}) — {len(rows)} {scope} "
+        f"join(s):{filter_suffix}"
+    )
+    if not rows:
+        print("  (no matching children_connections)")
+        return 0
+
+    headers = ("id", "serial", "model", "subtype", "status", "since", "until", "conn")
+
+    def _fmt_row(r: Dict[str, Any]) -> tuple:
+        return (
+            str(r["id_entity"]),
+            str(r["serial"]),
+            str(r["model"]),
+            str(r["subtype"]),
+            str(r["status"]),
+            str(r["time_from"])[:19],
+            str(r["time_to"])[:19] if r["time_to"] else "—",
+            str(r["id_connection"]) if r["id_connection"] is not None else "?",
+        )
+
+    formatted = [_fmt_row(r) for r in rows]
+    widths = [
+        max(len(h), max((len(row[i]) for row in formatted), default=0))
+        for i, h in enumerate(headers)
+    ]
+    print("  " + "  ".join(h.ljust(widths[i]) for i, h in enumerate(headers)))
+    for row in formatted:
+        print("  " + "  ".join(c.ljust(widths[i]) for i, c in enumerate(row)))
+    return 0
+
+
+# ----------------------------------------------------------------------
+# `tos device show` rendering helpers
+# ----------------------------------------------------------------------
+#
+# Suspicion-coloring rules surface known TOS data-quality smells without
+# requiring the operator to re-derive them:
+#
+#  - "2014-10-17" date_from on any attribute / join is the fleet-wide
+#    metadata-cleanup-artifact pattern (see memory
+#    project_2014_10_17_metadata_cleanup_artifacts). Yellow.
+#  - status == bilað / óvirkt is operationally relevant. Red.
+#  - closed periods (date_to set) are dimmed so the open / current
+#    periods stand out at a glance.
+#  - id_attribute_value and id_connection are cyan — they're what the
+#    operator copies into the next ACTION line in a triage file.
+
+_CLEANUP_ARTIFACT_DATE = "2014-10-17"
+_SUSPICIOUS_STATUSES = ("bilað", "óvirkt")
+
+
+def _color_date(date_str: Optional[str]) -> str:
+    """Wrap a date in rich markup; yellow if it's the cleanup-artifact date."""
+    if not date_str:
+        return "—"
+    if str(date_str)[:10] == _CLEANUP_ARTIFACT_DATE:
+        return f"[yellow]{date_str}[/yellow]"
+    return str(date_str)
+
+
+def _color_status(value: Optional[str]) -> str:
+    """Wrap a status value in red if it's bilað/óvirkt."""
+    if value is None:
+        return "—"
+    if str(value) in _SUSPICIOUS_STATUSES:
+        return f"[red]{value}[/red]"
+    return str(value)
+
+
+def _color_id(value: Any) -> str:
+    """Wrap an id in cyan — visually distinguishes copy-into-ACTION-line values."""
+    if value is None:
+        return "?"
+    return f"[cyan]{value}[/cyan]"
+
+
+def _color_id_with_recency(value: Any, highlight_since: Optional[int]) -> str:
+    """Like :func:`_color_id` but flag values above ``highlight_since``.
+
+    Renders a leading ★ and switches the cell to bold magenta when the
+    id is above the threshold. Used by ``tos device show
+    --highlight-since`` to surface attribute_value / id_connection rows
+    that were written recently (likely retrospective back-fills, since
+    TOS exposes no created_at field — see CLAUDE.md "Retrospective
+    writes" section).
+    """
+    if value is None:
+        return "?"
+    if highlight_since is not None:
+        try:
+            if int(value) > int(highlight_since):
+                return f"[bold magenta]★ {value}[/bold magenta]"
+        except (TypeError, ValueError):
+            pass
+    return f"[cyan]{value}[/cyan]"
+
+
+def _render_show_header(console, history: Dict[str, Any]) -> None:
+    """One-line device summary: id, subtype, open serial/model/status."""
+    from .devices import open_attribute
+
+    did = history.get("id_entity")
+    subtype = history.get("code_entity_subtype") or "?"
+    serial = open_attribute(history, "serial_number") or "?"
+    model = open_attribute(history, "model") or "?"
+    status = open_attribute(history, "status")
+    console.print(
+        f"Device id={_color_id(did)}  subtype={subtype}  "
+        f"SN [bold]{serial}[/bold]  model [bold]{model}[/bold]  "
+        f"status {_color_status(status)}"
+    )
+
+
+def _render_show_open_attributes(
+    console,
+    history: Dict[str, Any],
+    args=None,
+) -> None:
+    """Render the currently-open attribute periods only (--attributes view).
+
+    Mirrors the TOS web UI 'Eiginleikar' panel. Highlights yellow when an
+    open period's date_from is the cleanup-artifact date 2014-10-17.
+
+    When ``args`` carries attribute filters (see
+    :func:`add_attribute_filter_arguments`), only matching periods are
+    shown. Filters AND'd with the implicit "open only" constraint.
+    """
+    from rich.table import Table
+
+    from .devices import attribute_periods
+
+    by_code = attribute_periods(history)
+    open_rows = []
+    for code in sorted(by_code):
+        for p in by_code[code]:
+            if p.get("date_to") is None:
+                open_rows.append((code, p))
+
+    if args is not None:
+        filtered = apply_attribute_filters([p for _, p in open_rows], args)
+        keep_ids = {id(p) for p in filtered}
+        open_rows = [(code, p) for code, p in open_rows if id(p) in keep_ids]
+
+    highlight_since = (
+        getattr(args, "highlight_since", None) if args is not None else None
+    )
+
+    table = Table(title="Current attributes (open periods only)")
+    table.add_column("code")
+    table.add_column("value")
+    table.add_column("date_from")
+    table.add_column("id_attribute_value", justify="right")
+    for code, p in open_rows:
+        value = p.get("value")
+        rendered_value = (
+            _color_status(value)
+            if code == "status"
+            else (str(value) if value is not None else "—")
+        )
+        table.add_row(
+            code,
+            rendered_value,
+            _color_date(p.get("date_from")),
+            _color_id_with_recency(p.get("id_attribute_value"), highlight_since),
+        )
+    console.print(table)
+
+
+def _render_show_attribute_history(
+    console,
+    history: Dict[str, Any],
+    args=None,
+) -> None:
+    """Render the full attribute history (--attributes-history view).
+
+    Mirrors the TOS web UI 'Saga eiginda tækis' panel: open + closed
+    periods, with date_to and datatype columns. Closed rows dimmed so
+    the currently-open ones stand out.
+
+    When ``args`` carries attribute filters (see
+    :func:`add_attribute_filter_arguments`), only matching periods are
+    shown.
+    """
+    from rich.table import Table
+
+    from .devices import attribute_periods
+
+    by_code = attribute_periods(history)
+    if args is not None:
+        # Per-code filter, preserving the chronological sort
+        # attribute_periods built. Drop codes that lose all periods so
+        # the table doesn't show empty per-code groupings.
+        filtered_by_code: Dict[str, List[Dict[str, Any]]] = {}
+        for code, periods in by_code.items():
+            kept = apply_attribute_filters(periods, args)
+            if kept:
+                filtered_by_code[code] = kept
+        by_code = filtered_by_code
+    highlight_since = (
+        getattr(args, "highlight_since", None) if args is not None else None
+    )
+
+    table = Table(title="Attribute history (all periods)")
+    table.add_column("code")
+    table.add_column("value")
+    table.add_column("date_from")
+    table.add_column("date_to")
+    table.add_column("type")
+    table.add_column("id_attribute_value", justify="right")
+
+    for code in sorted(by_code):
+        for p in by_code[code]:
+            is_closed = p.get("date_to") is not None
+            value = p.get("value")
+            rendered_value = (
+                _color_status(value)
+                if code == "status"
+                else (str(value) if value is not None else "—")
+            )
+            datatype = p.get("attribute_datatype_code") or "?"
+
+            cells = [
+                code,
+                rendered_value,
+                _color_date(p.get("date_from")),
+                _color_date(p.get("date_to")) if p.get("date_to") else "open",
+                datatype,
+                _color_id_with_recency(p.get("id_attribute_value"), highlight_since),
+            ]
+            if is_closed:
+                # Dim the whole row by wrapping each cell. Keep the
+                # color markup intact (rich nests styles cleanly).
+                cells = [f"[dim]{c}[/dim]" for c in cells]
+            table.add_row(*cells)
+    console.print(table)
+
+
+def _render_show_parent_history(
+    console,
+    client,
+    parent_history: List[Dict[str, Any]],
+    args=None,
+) -> None:
+    """Render the parent (location/station) history (--list view).
+
+    Mirrors the TOS web UI 'Saga staðsetningar tækis' panel. Resolves
+    parent names via on-demand get_entity_history, cached per id.
+    Highlights cleanup-artifact dates yellow; dims closed joins.
+    """
+    from rich.table import Table
+
+    if not parent_history:
+        console.print(
+            "[dim]Parent history: (no parent connections — device is orphan or "
+            "never joined to a parent)[/dim]"
+        )
+        return
+
+    parent_names: Dict[int, str] = {}
+
+    def _parent_name(pid: int) -> str:
+        cached = parent_names.get(pid)
+        if cached is not None:
+            return cached
+        try:
+            parent_entity = client.get_entity_history(pid)
+        except Exception:  # noqa: BLE001
+            parent_entity = None
+        name: Optional[str] = None
+        if parent_entity:
+            for a in parent_entity.get("attributes") or []:
+                if a.get("code") in ("name", "marker") and a.get("date_to") is None:
+                    name = a.get("value")
+                    break
+        resolved = name or "?"
+        parent_names[pid] = resolved
+        return resolved
+
+    highlight_since = (
+        getattr(args, "highlight_since", None) if args is not None else None
+    )
+
+    table = Table(title=f"Parent history ({len(parent_history)} join(s))")
+    table.add_column("#", justify="right")
+    table.add_column("state")
+    table.add_column("time_from")
+    table.add_column("time_to")
+    table.add_column("parent")
+    table.add_column("name")
+    table.add_column("id_connection", justify="right")
+
+    for i, j in enumerate(parent_history, 1):
+        is_open = j.get("time_to") is None
+        pid = j.get("id_entity_parent")
+        pname = _parent_name(int(pid)) if pid is not None else "?"
+        conn_id = j.get("id")
+
+        cells = [
+            str(i),
+            "[green]open[/green]" if is_open else "closed",
+            _color_date(j.get("time_from")),
+            _color_date(j.get("time_to")) if j.get("time_to") else "—",
+            str(pid) if pid is not None else "?",
+            pname,
+            _color_id_with_recency(conn_id, highlight_since),
+        ]
+        if not is_open:
+            cells = [f"[dim]{c}[/dim]" for c in cells]
+        table.add_row(*cells)
+    console.print(table)
+
+
+def _device_show_main(args) -> int:
+    """Handle ``tos device show`` — read-only device inspection.
+
+    Resolves a device by ``id_entity`` or ``(--serial, --subtype)`` and
+    renders one or more sections. Defaults to all three; flag-restricted
+    via ``--list``, ``--attributes``, ``--attributes-history`` (mutually
+    exclusive).
+
+    Sections:
+      - **Header** — id, subtype, currently-open serial / model / status.
+        Always printed in pretty mode (unless a flag suppresses it; see
+        below).
+      - **Current attributes** (``--attributes``) — currently-open
+        attribute periods. Mirrors the TOS web UI 'Eiginleikar' panel.
+      - **Attribute history** (``--attributes-history``) — full open +
+        closed periods. Mirrors 'Saga eiginda tækis'.
+      - **Parent history** (``--list``) — every join, open and closed,
+        with parent names resolved via on-demand
+        :meth:`TOSClient.get_entity_history` (cached per parent id).
+        Mirrors 'Saga staðsetningar tækis'.
+
+    Suspicion coloring:
+      - **yellow** date_from / date_to matching ``2014-10-17`` (the
+        fleet-wide metadata-cleanup-artifact pattern)
+      - **red** status value ``bilað`` / ``óvirkt``
+      - **dim** closed periods (date_to set) so open / current periods
+        stand out
+      - **cyan** id_attribute_value / id_connection — the values the
+        operator copies into ACTION lines
+
+    ``--json`` emits the raw entity history + parent_history payload as
+    a single JSON object, bypassing the pretty-print path. Section flags
+    are ignored when ``--json`` is set.
+    """
+    import json as _json
+
+    from rich.console import Console
+
+    from .api.tos_client import TOSClient
+    from .devices import find_device
+
+    if args.serial is None and args.id_entity is None:
+        print(
+            "tos device show requires either id_entity or --serial",
+            file=sys.stderr,
+        )
+        return 2
+    if args.serial is not None and args.subtype is None:
+        print(
+            "tos device show --serial requires --subtype to disambiguate",
+            file=sys.stderr,
+        )
+        return 2
+
+    scheme = "https" if args.port == 443 else "http"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    client = TOSClient(base_url=base_url)
+
+    try:
+        history = find_device(
+            client,
+            serial=args.serial,
+            id_entity=args.id_entity,
+            subtype=args.subtype,
+        )
+    except (LookupError, ValueError) as e:
+        print(f"Device lookup failed: {e}", file=sys.stderr)
+        return 1
+
+    did = int(history["id_entity"])
+    parent_history = client.get_parent_history(did)
+
+    if args.json:
+        payload = {
+            "id_entity": did,
+            "history": history,
+            "parent_history": parent_history,
+        }
+        print(_json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    console = Console()
+    show_all = not (
+        args.section_list or args.section_attributes or args.section_attributes_history
+    )
+
+    if show_all or args.section_list or args.section_attributes:
+        _render_show_header(console, history)
+
+    if show_all or args.section_attributes:
+        console.print()
+        _render_show_open_attributes(console, history, args)
+
+    if show_all or args.section_attributes_history:
+        console.print()
+        _render_show_attribute_history(console, history, args)
+
+    if show_all or args.section_list:
+        console.print()
+        _render_show_parent_history(console, client, parent_history, args)
+
+    return 0
+
+
+def _substitute_id_in_triage(
+    path: Path, placeholder: str, id_entity: int
+) -> Dict[str, Any]:
+    """Substitute ``<placeholder>`` with ``id_entity`` in a triage file in-place.
+
+    Used by ``tos device add --triage PATH --placeholder TOKEN`` to drop a
+    freshly-created entity's id into a waiting triage file, eliminating
+    the copy-paste step between ``device add`` and ``audit apply``.
+
+    Args:
+        path: Triage file to update in-place. Read + write text, UTF-8.
+        placeholder: Token name (without angle brackets). The actual
+            match string is ``<TOKEN>``.
+        id_entity: The new entity's id, substituted as ``str(id_entity)``.
+
+    Returns:
+        Dict with ``token`` (the angle-bracketed match string), ``count``
+        (number of substitutions; 0 if the placeholder wasn't present),
+        and ``written`` (True iff the file was modified — False on
+        count==0, no write performed).
+
+    Raises:
+        OSError on read/write failure — caller surfaces to stderr.
+    """
+    token = f"<{placeholder}>"
+    content = path.read_text(encoding="utf-8")
+    count = content.count(token)
+    if count == 0:
+        return {"token": token, "count": 0, "written": False}
+    path.write_text(content.replace(token, str(id_entity)), encoding="utf-8")
+    return {"token": token, "count": count, "written": True}
+
+
 def _device_main(argv):
     """Handle ``tos device ...`` subcommands.
 
@@ -1861,8 +2680,161 @@ def _device_main(argv):
         action="store_true",
         help="Emit a structured JSON summary instead of plain text.",
     )
+    p_add.add_argument(
+        "--triage",
+        type=Path,
+        default=None,
+        help=(
+            "After successful device creation, substitute the returned "
+            "id_entity into a triage file in-place. Requires --placeholder. "
+            "No-op in dry-run (no real id_entity returned). Example: "
+            "--triage savi.txt --placeholder POLARX2_3102_ID will replace "
+            "every '<POLARX2_3102_ID>' in savi.txt with the new id."
+        ),
+    )
+    p_add.add_argument(
+        "--placeholder",
+        help=(
+            "Token name to substitute in the --triage file. The actual "
+            "match is the angle-bracketed form '<TOKEN>'. Required when "
+            "--triage is given."
+        ),
+    )
+
+    p_show = sub.add_parser(
+        "show",
+        help=(
+            "Display everything TOS knows about one device: current "
+            "attribute values, full attribute history, full parent "
+            "(location/station) history."
+        ),
+    )
+    p_show.add_argument(
+        "id_entity",
+        nargs="?",
+        type=int,
+        help="Device id_entity. Mutually exclusive with --serial.",
+    )
+    p_show.add_argument(
+        "--serial",
+        help=(
+            "Look up by serial_number instead of id_entity. Requires "
+            "--subtype to disambiguate."
+        ),
+    )
+    p_show.add_argument(
+        "--subtype",
+        help=(
+            "Required with --serial. TOS subtype code (gnss_receiver, "
+            "antenna, radome, monument, ...)."
+        ),
+    )
+    p_show.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_show.add_argument("--port", type=int, default=443)
+    p_show.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the raw entity history + parent_history as JSON.",
+    )
+    section_group = p_show.add_mutually_exclusive_group()
+    section_group.add_argument(
+        "--list",
+        dest="section_list",
+        action="store_true",
+        help=(
+            "Print only the parent (location/station) history section. "
+            "Mirrors the TOS web UI 'Saga staðsetningar tækis' panel."
+        ),
+    )
+    section_group.add_argument(
+        "--attributes",
+        dest="section_attributes",
+        action="store_true",
+        help=(
+            "Print only the currently-open attributes table. Mirrors the "
+            "TOS web UI 'Eiginleikar' panel."
+        ),
+    )
+    section_group.add_argument(
+        "--attributes-history",
+        dest="section_attributes_history",
+        action="store_true",
+        help=(
+            "Print only the full attribute history (open + closed periods, "
+            "with date_to and datatype columns). Mirrors the TOS web UI "
+            "'Saga eiginda tækis' panel."
+        ),
+    )
+    p_show.add_argument(
+        "--highlight-since",
+        type=int,
+        default=None,
+        metavar="ID_AV",
+        help=(
+            "Flag attribute_value / id_connection rows whose id is above "
+            "this threshold with a bold-magenta ★ marker. TOS exposes no "
+            "created_at, so the id_attribute_value sequence is the only "
+            "soft signal of write-recency. Useful for spotting "
+            "after-the-fact back-fills (which date_from alone cannot "
+            "reveal). Reasonable thresholds: the 2014-10-17 fleet "
+            "bulk-load sits at id_av ≈ 32000-35000; per-session writes "
+            "land 5-10k higher each year. See CLAUDE.md 'Retrospective "
+            "writes' section + memory project_tos_retrospective_writes_provenance_gap."
+        ),
+    )
+    add_attribute_filter_arguments(p_show)
+
+    p_list = sub.add_parser(
+        "list",
+        help=(
+            "List devices currently joined to a station (by marker) or "
+            "to a location (by name, e.g. warehouse). Mirrors the TOS web "
+            "UI's per-station device panel."
+        ),
+    )
+    parent_group = p_list.add_mutually_exclusive_group(required=True)
+    parent_group.add_argument(
+        "--station",
+        help="Station marker (e.g. SAVI). Case-insensitive.",
+    )
+    parent_group.add_argument(
+        "--location",
+        help=(
+            "Location name (e.g. 'B9 - Kjallari - Jörð' for the bench "
+            "warehouse). Exact match, case-sensitive."
+        ),
+    )
+    p_list.add_argument(
+        "--all",
+        action="store_true",
+        help=(
+            "Include closed (historical) joins. Default shows only "
+            "currently-open joins (devices presently at the parent). "
+            "Implicitly enabled by --date."
+        ),
+    )
+    add_device_filter_arguments(p_list)
+    p_list.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_list.add_argument("--port", type=int, default=443)
+    p_list.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the device rows as JSON instead of a rendered table.",
+    )
 
     args = p.parse_args(argv)
+    if args.action == "show":
+        return _device_show_main(args)
+    if args.action == "list":
+        return _device_list_main(args)
     if args.action != "add":
         p.error(f"unknown action: {args.action}")
         return 2
@@ -2002,7 +2974,603 @@ def _device_main(argv):
                     f"Connected to location {args.location!r} "
                     f"(connection id={conn_id})"
                 )
+
+    # ---- Triage-file substitution -------------------------------------------
+    # Operator UX: paste the just-created id_entity into a waiting triage
+    # file in one shot, so the device-add → triage-edit handoff is
+    # deterministic instead of a copy-paste step. Two modes:
+    #   1. --triage PATH --placeholder TOKEN  → auto-substitute in-place
+    #   2. neither flag  → print a sed hint the operator can run themselves
+    if args.triage is not None or args.placeholder is not None:
+        if args.triage is None or args.placeholder is None:
+            print(
+                "--triage and --placeholder must be used together",
+                file=sys.stderr,
+            )
+            return 2
+    if dry_run or id_entity is None:
+        if args.triage is not None and not args.json:
+            print(
+                f"Triage update skipped: dry-run / no real id_entity "
+                f"returned (use --no-dry-run to substitute "
+                f"<{args.placeholder}> in {args.triage}).",
+                file=sys.stderr,
+            )
+    elif args.triage is not None and args.placeholder is not None:
+        try:
+            result = _substitute_id_in_triage(args.triage, args.placeholder, id_entity)
+        except OSError as e:
+            print(
+                f"Could not read triage file {args.triage}: {e}",
+                file=sys.stderr,
+            )
+            return 1
+        if result["count"] == 0:
+            print(
+                f"Triage update: placeholder {result['token']!r} not found "
+                f"in {args.triage} (no changes written).",
+                file=sys.stderr,
+            )
+        elif not args.json:
+            n = result["count"]
+            print(
+                f"Updated {args.triage}: {result['token']} → {id_entity} "
+                f"({n} replacement{'s' if n != 1 else ''})"
+            )
+    elif id_entity is not None and not args.json:
+        # Hint mode (always-on) — operator didn't pass --triage; nudge
+        # them with a sed line they can paste if they're working with a
+        # waiting triage file.
+        print(
+            f"\nTip: to drop this id into a triage file, run:\n"
+            f"  sed -i 's/<TOKEN>/{id_entity}/g' <triage-file>\n"
+            f"(or pass --triage <file> --placeholder TOKEN to do it in one "
+            f"shot next time)"
+        )
     return 0
+
+
+# Model-substring → expected brand-family map. Keys are matched
+# case-insensitively against the device's open `model` attribute; first
+# matching rule wins. Add a rule when a new receiver model shows up.
+_MODEL_TO_FAMILY = (
+    ("netr9", "trimble_netr9"),
+    ("netrs", "trimble_netrs"),
+    ("trimble 4000", "trimble_4000"),
+    ("polarx", "septentrio"),
+    ("sept", "septentrio"),
+)
+
+
+def _infer_expected_family(model: Optional[str]) -> Optional[str]:
+    """Map a TOS-stored model string to the archive's brand-family code.
+
+    Returns ``None`` when no rule matches (e.g. ``ASHTECH UZ-12`` — no
+    .sbf-style raw extension is mapped for ASHTECH; verdict logic
+    should treat the model as 'unmapped' rather than 'wrong').
+    """
+    if not model:
+        return None
+    m = model.lower()
+    for needle, family in _MODEL_TO_FAMILY:
+        if needle in m:
+            return family
+    return None
+
+
+def _classify_tos_join_against_archive(
+    time_from: str,
+    time_to: Optional[str],
+    expected_family: Optional[str],
+    timeline,
+) -> Dict[str, Any]:
+    """Compare a TOS join window against the archive's brand timeline.
+
+    Returns a dict with ``status`` and human-readable ``detail``; when
+    the verdict implies a fixable ACTION (``join_too_wide`` is the
+    canonical case — the bulk-load placeholder dates), also includes
+    ``suggested_action_args`` so the caller can render the operator-
+    targeted suggestion.
+
+    Status values:
+      * ``no_archive_coverage`` — no archived days in window
+      * ``unmapped_model`` — TOS model doesn't map to a known family
+      * ``rinex_only`` — only RINEX (format-neutral) days in window
+      * ``ok`` — only the expected family present in the window
+      * ``late_start`` — expected family present, but starts later than
+        ``time_from``; non-expected (or no) days before; suggests
+        narrowing time_from forward
+      * ``early_end`` — expected family present, but stops earlier than
+        ``time_to``; non-expected days after; suggests narrowing
+        time_to backward
+      * ``join_too_wide`` — expected family present **and** a different
+        raw family also present in window; suggests narrowing the join
+        to match the first expected-family day
+      * ``wrong_brand`` — only non-expected raw families in window
+    """
+    tf = time_from[:10] if time_from else ""
+    tt = time_to[:10] if time_to else None
+
+    in_window = [
+        d
+        for d in timeline
+        if (not tf or str(d.obs_date) >= tf) and (tt is None or str(d.obs_date) < tt)
+    ]
+    if not in_window:
+        return {
+            "status": "no_archive_coverage",
+            "detail": "no archived data in window",
+        }
+    if expected_family is None:
+        archive_families = sorted({d.family for d in in_window if d.is_raw})
+        return {
+            "status": "unmapped_model",
+            "detail": (
+                f"model not in MODEL_TO_FAMILY map; archive shows "
+                f"{','.join(archive_families) or 'rinex-only'}"
+            ),
+        }
+    raw_days = [d for d in in_window if d.is_raw]
+    if not raw_days:
+        return {
+            "status": "rinex_only",
+            "detail": "only RINEX days in window; brand undetermined",
+        }
+    expected_days = [d for d in raw_days if d.family == expected_family]
+    other_days = [d for d in raw_days if d.family != expected_family]
+
+    if not expected_days:
+        other_families = sorted({d.family for d in other_days})
+        return {
+            "status": "wrong_brand",
+            "detail": (
+                f"expected {expected_family}; archive shows "
+                f"{','.join(other_families)} throughout"
+            ),
+        }
+    if not other_days:
+        return {
+            "status": "ok",
+            "detail": f"archive {expected_family} throughout",
+        }
+    # Both present — the SAVI-style "join too wide" case.
+    first_expected = expected_days[0].obs_date
+    last_expected = expected_days[-1].obs_date
+    first_other = other_days[0].obs_date
+    last_other = other_days[-1].obs_date
+
+    if first_other < first_expected and last_other < first_expected:
+        # Other brand fully precedes expected — TOS time_from is too early.
+        other_families = sorted({d.family for d in other_days})
+        return {
+            "status": "late_start",
+            "detail": (
+                f"expected {expected_family} starts {first_expected} "
+                f"(archive shows {','.join(other_families)} before that)"
+            ),
+            "suggested_action_args": ("time_from", str(first_expected)),
+        }
+    if first_other > last_expected and last_other > last_expected:
+        # Other brand fully follows expected — TOS time_to is too late.
+        other_families = sorted({d.family for d in other_days})
+        return {
+            "status": "early_end",
+            "detail": (
+                f"expected {expected_family} ends {last_expected} "
+                f"(archive shows {','.join(other_families)} after that)"
+            ),
+            "suggested_action_args": ("time_to", str(last_expected)),
+        }
+    # Interleaved (or other complex pattern) — surface as join_too_wide
+    # with the suggestion to narrow to first_expected_day.
+    other_families = sorted({d.family for d in other_days})
+    return {
+        "status": "join_too_wide",
+        "detail": (
+            f"join window contains both {expected_family} and "
+            f"{','.join(other_families)}; expected family first appears "
+            f"{first_expected}"
+        ),
+        "suggested_action_args": ("time_from", str(first_expected)),
+    }
+
+
+def _audit_verify_from_rinex_main(args, client) -> int:
+    """Handle ``tos audit verify-from-rinex --station X``.
+
+    Reproduces the deterministic-investigation pattern from the SAVI
+    reconstruction (2026-05-24) as a one-shot verb:
+
+    1. Resolve archive root via :func:`archive.cold_archive_prepath`
+       (CLI override → env → ``receivers.cfg`` → mount probe → error).
+    2. Walk the station's timeline in the archive
+       (:func:`archive.walk_station_timeline`).
+    3. Detect brand transitions
+       (:func:`archive.detect_brand_transitions`) — these are real
+       receiver-hardware changes per the file-extension signal.
+    4. Detect multi-day data gaps
+       (:func:`archive.detect_data_gaps`) — surfaces dormant periods.
+    5. Fetch TOS state via :func:`_resolve_parent_id` + the parent's
+       ``children_connections`` (same primitives as ``tos device list``)
+       and cross-reference against the archive timeline.
+    6. Print a rich-formatted report (or ``--json``).
+
+    Exit codes: 0 = clean (archive and TOS aligned or empty), 1 =
+    discrepancies surfaced (caller should review), 2 = lookup / usage
+    error.
+    """
+    import json as _json
+
+    from rich.console import Console
+    from rich.table import Table
+
+    from . import archive as archive_mod
+    from .devices import open_attribute
+
+    # Resolve archive root with the documented fallback chain.
+    try:
+        archive_root = archive_mod.cold_archive_prepath(override=args.archive_root)
+    except FileNotFoundError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
+    # Walk the station timeline.
+    timeline = list(archive_mod.walk_station_timeline(args.station, archive_root))
+    if not timeline:
+        print(
+            f"No archived data for station {args.station!r} under " f"{archive_root}",
+            file=sys.stderr,
+        )
+        return 2
+
+    transitions = archive_mod.detect_brand_transitions(timeline)
+    gaps = archive_mod.detect_data_gaps(timeline, min_days=args.min_gap_days)
+    # Brand-aware runs: rinex (format-neutral) days are absorbed into
+    # the surrounding brand when bracketed by the same brand. Standalone
+    # rinex runs (leading/trailing/between-different-brands) survive as
+    # ambiguous spans the operator must resolve. Absorbed-rinex counts
+    # are preserved on each BrandRun so the "raw missing" signal is
+    # never lost.
+    brand_runs = archive_mod.coalesce_brand_runs(timeline)
+    rinex_only_spans = archive_mod.detect_rinex_only_spans(timeline)
+
+    # Fetch TOS state — reuse the same primitives as `tos device list`
+    # for parent resolution + child enumeration.
+    parent_id = _resolve_parent_id(client, station_marker=args.station)
+    tos_devices: List[Dict[str, Any]] = []
+    if parent_id is not None:
+        parent = client.get_entity_history(parent_id)
+        if parent:
+            for conn in parent.get("children_connections") or []:
+                child_id_raw = conn.get("id_entity_child")
+                if child_id_raw is None:
+                    continue
+                try:
+                    child_id = int(child_id_raw)
+                except (TypeError, ValueError):
+                    continue
+                child = client.get_entity_history(child_id) or {}
+                subtype = child.get("code_entity_subtype")
+                # Only receivers contribute to brand-transition reasoning
+                # (antennas / monuments / sim cards don't show up in the
+                # raw-file extension signal). Keep them in the JSON
+                # payload for completeness but only cross-reference
+                # gnss_receiver entries against the archive timeline.
+                tos_devices.append(
+                    {
+                        "id_entity": child_id,
+                        "subtype": subtype,
+                        "serial": open_attribute(child, "serial_number"),
+                        "model": open_attribute(child, "model"),
+                        "time_from": conn.get("time_from"),
+                        "time_to": conn.get("time_to"),
+                        "id_connection": (
+                            conn.get("id_entity_connection") or conn.get("id")
+                        ),
+                    }
+                )
+
+    tos_receivers = [d for d in tos_devices if d["subtype"] == "gnss_receiver"]
+    tos_receivers.sort(key=lambda d: d.get("time_from") or "")
+
+    if args.json:
+        payload = {
+            "station": args.station,
+            "archive_root": str(archive_root),
+            "timeline_count": len(timeline),
+            "first": timeline[0].obs_date.isoformat() if timeline else None,
+            "last": timeline[-1].obs_date.isoformat() if timeline else None,
+            "brand_runs": [
+                {
+                    "family": r.family,
+                    "from": r.start.isoformat(),
+                    "to": r.end.isoformat(),
+                    "days": r.days,
+                    "rinex_only_days": r.rinex_only_days,
+                    "ambiguous": r.ambiguous,
+                }
+                for r in brand_runs
+            ],
+            "brand_transitions": [
+                {
+                    "date_before": t.date_before.isoformat(),
+                    "date_after": t.date_after.isoformat(),
+                    "family_before": t.family_before,
+                    "family_after": t.family_after,
+                }
+                for t in transitions
+            ],
+            "data_gaps": [
+                {
+                    "from": g.last_day_with_data.isoformat(),
+                    "to": g.next_day_with_data.isoformat(),
+                    "duration_days": g.duration_days,
+                }
+                for g in gaps
+            ],
+            "rinex_only_spans": [
+                {
+                    "from": s.start.isoformat(),
+                    "to": s.end.isoformat(),
+                    "days": s.days,
+                }
+                for s in rinex_only_spans
+            ],
+            "tos_receivers": [
+                {**d, "time_from": d["time_from"], "time_to": d["time_to"]}
+                for d in tos_receivers
+            ],
+        }
+        print(_json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+        return 1 if (transitions or gaps) else 0
+
+    # ---- Pretty text output ----
+    console = Console()
+    console.print(
+        f"Station [bold]{args.station}[/bold] vs archive at "
+        f"[cyan]{archive_root}[/cyan]"
+    )
+    console.print(
+        f"  archived days: [bold]{len(timeline)}[/bold]  |  "
+        f"first: {timeline[0].obs_date}  |  last: {timeline[-1].obs_date}"
+    )
+
+    if brand_runs:
+        console.print()
+        t_runs = Table(
+            title=(
+                "Archive brand timeline "
+                "(rinex-only days absorbed into surrounding brand)"
+            )
+        )
+        t_runs.add_column("family")
+        t_runs.add_column("from")
+        t_runs.add_column("to")
+        t_runs.add_column("days", justify="right")
+        t_runs.add_column("rinex-only inside", justify="right")
+        for r in brand_runs:
+            family_label = (
+                f"[yellow]{r.family} (ambiguous)[/yellow]" if r.ambiguous else r.family
+            )
+            rinex_cell = str(r.rinex_only_days) if r.rinex_only_days else ""
+            t_runs.add_row(
+                family_label,
+                str(r.start),
+                str(r.end),
+                str(r.days),
+                rinex_cell,
+            )
+        console.print(t_runs)
+
+    if transitions:
+        console.print()
+        t_trans = Table(title="Brand transitions (real receiver swaps per archive)")
+        t_trans.add_column("date_before")
+        t_trans.add_column("family_before")
+        t_trans.add_column("date_after")
+        t_trans.add_column("family_after")
+        for t in transitions:
+            t_trans.add_row(
+                str(t.date_before),
+                t.family_before,
+                f"[yellow]{t.date_after}[/yellow]",
+                f"[yellow]{t.family_after}[/yellow]",
+            )
+        console.print(t_trans)
+
+    if gaps:
+        console.print()
+        t_gaps = Table(title=f"Data gaps ≥{args.min_gap_days} days")
+        t_gaps.add_column("last day with data")
+        t_gaps.add_column("next day with data")
+        t_gaps.add_column("duration (days)", justify="right")
+        for g in gaps:
+            t_gaps.add_row(
+                str(g.last_day_with_data),
+                str(g.next_day_with_data),
+                str(g.duration_days),
+            )
+        console.print(t_gaps)
+
+    if rinex_only_spans:
+        console.print()
+        t_ronly = Table(
+            title="RINEX-only spans (raw missing — possible data-loss windows)"
+        )
+        t_ronly.add_column("from")
+        t_ronly.add_column("to")
+        t_ronly.add_column("days", justify="right")
+        for s in rinex_only_spans:
+            t_ronly.add_row(str(s.start), str(s.end), str(s.days))
+        console.print(t_ronly)
+
+    # TOS-vs-archive cross-reference for the receiver timeline.
+    suggested_actions: List[str] = []
+    if tos_receivers:
+        console.print()
+        t_tos = Table(title="TOS receiver joins (all, incl. closed)")
+        t_tos.add_column("id_entity", justify="right")
+        t_tos.add_column("serial")
+        t_tos.add_column("model")
+        t_tos.add_column("time_from")
+        t_tos.add_column("time_to")
+        t_tos.add_column("verdict")
+        # Status → rich-markup styling. Green=clean, yellow=informational,
+        # red=actionable. Keep contractually short so the verdict column
+        # doesn't dominate the table.
+        _VERDICT_STYLE = {
+            "ok": "green",
+            "no_archive_coverage": "yellow",
+            "unmapped_model": "dim",
+            "rinex_only": "yellow",
+            "late_start": "red",
+            "early_end": "red",
+            "join_too_wide": "red",
+            "wrong_brand": "red",
+        }
+        for d in tos_receivers:
+            tf = (d.get("time_from") or "")[:10]
+            tt_raw = d.get("time_to")
+            tt = tt_raw[:10] if tt_raw else None
+            expected_family = _infer_expected_family(d.get("model"))
+            verdict = _classify_tos_join_against_archive(
+                tf, tt, expected_family, timeline
+            )
+            style = _VERDICT_STYLE.get(verdict["status"], "white")
+            verdict_text = (
+                f"[{style}]{verdict['status']}[/{style}]: {verdict['detail']}"
+            )
+            # If the verdict implies a fixable ACTION, also collect a
+            # suggested triage line operators can paste into a triage file.
+            sug = verdict.get("suggested_action_args")
+            id_conn = d.get("id_connection")
+            if sug and id_conn is not None:
+                field, new_date = sug
+                suggested_actions.append(
+                    f"ACTION {d['id_entity']} patch-join-date "
+                    f"{id_conn} {field} {new_date}  "
+                    f"# was {tf if field == 'time_from' else (tt or 'open')}"
+                )
+            t_tos.add_row(
+                str(d["id_entity"]),
+                str(d.get("serial") or "?"),
+                str(d.get("model") or "?"),
+                tf or "?",
+                tt or "—",
+                verdict_text,
+            )
+        console.print(t_tos)
+
+        if suggested_actions:
+            console.print()
+            console.print(
+                "[bold]Suggested ACTION lines for triage[/bold] "
+                "(paste into a triage file then `tos audit apply`):"
+            )
+            for line in suggested_actions:
+                console.print(f"  {line}")
+
+    return 1 if (transitions or gaps) else 0
+
+
+def _station_main(argv):
+    """Handle ``tos station <verb> <STN>`` — top-level station orchestration.
+
+    Currently ships one verb:
+
+      ``triage``  Run all available audits against the station + emit a
+                  single combined ACTION-style triage file consumable by
+                  ``tos audit apply``. Per-audit findings are sectioned
+                  by confidence (HIGH for cleanup-artifact backdates,
+                  MEDIUM/LOW for missing required attributes per FILL
+                  placeholders). All ACTION lines are COMMENTED OUT by
+                  default — operator opts in via uncomment + edit.
+
+    Exit codes: 0 on successful generation, 2 on usage error.
+    """
+    from pathlib import Path
+
+    from .api.tos_client import TOSClient
+    from .station_triage import (
+        default_triage_path,
+        format_station_triage,
+        generate_station_triage,
+    )
+
+    p = argparse.ArgumentParser(
+        prog="tos station",
+        description=(
+            "Top-level station orchestration. Aggregates the individual "
+            "audit verbs into single-command workflows.\n\n"
+            "Verbs:\n"
+            "  triage <STATION>    Run all audits + emit a combined "
+            "triage file (commented ACTIONs)\n\n"
+            "Example workflow:\n"
+            "  tos station triage HEDI                # generates "
+            "data/triage/hedi/hedi_audit_<DATE>.txt\n"
+            "  $EDITOR <file>                         # uncomment / fill "
+            "<FILL> placeholders\n"
+            "  tos audit apply <file>                 # dry-run\n"
+            "  tos audit apply <file> --apply         # commit"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = p.add_subparsers(dest="verb", required=True)
+
+    p_tri = sub.add_parser(
+        "triage",
+        help=(
+            "Run all audits on a station + emit a single combined "
+            "triage file. Suggested ACTION lines are commented out by "
+            "default — operator opts in."
+        ),
+    )
+    p_tri.add_argument("station", help="Station marker (e.g. HEDI) or name.")
+    p_tri.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help=(
+            "Output path for the triage file. Default: "
+            "data/triage/<station>/<station>_audit_<YYYYMMDD>.txt "
+            "(per-station subdirectory under the repo's `data/` "
+            "convention)."
+        ),
+    )
+    p_tri.add_argument(
+        "--stdout",
+        action="store_true",
+        help="Print the triage file to stdout instead of writing to disk.",
+    )
+
+    args = p.parse_args(argv)
+
+    if args.verb == "triage":
+        client = TOSClient()
+        report = generate_station_triage(args.station, client=client)
+        rendered = format_station_triage(report)
+
+        if args.stdout:
+            print(rendered, end="")
+            return 0
+
+        out_path = args.out or default_triage_path(args.station)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(rendered, encoding="utf-8")
+
+        print(
+            f"Wrote triage file: {out_path}\n"
+            f"  station_id: {report.station_id}\n"
+            f"  findings:   {report.total_findings}\n"
+            f"\n"
+            f"Next:\n"
+            f"  $EDITOR {out_path}\n"
+            f"  tos audit apply {out_path}            # dry-run\n"
+            f"  tos audit apply {out_path} --apply    # commit"
+        )
+        return 0
+
+    return 2
 
 
 def _audit_main(argv):
@@ -2450,6 +4018,23 @@ def _audit_main(argv):
             "                            `tos audit missing-attributes --triage`. "
             "Quote values\n"
             "                            with spaces, e.g. `'GPS stöð'`.\n"
+            "  delete-join <id_connection>\n"
+            "                            DELETE /admin_entity_connection_row/<id> "
+            "— permanently\n"
+            "                            remove a join row. Destructive / "
+            "history-erasing. Use\n"
+            "                            ONLY on known-bad rows (e.g. "
+            "SOPAC-convention\n"
+            "                            split-monument workaround joins). "
+            "Admin-only.\n"
+            "  delete-attribute-value <id_attribute_value>\n"
+            "                            DELETE /admin_attribute_value_row/<id> "
+            "— permanently\n"
+            "                            remove an attribute_value row. "
+            "Destructive. Use on\n"
+            "                            wrong-scope id_attribute FKs, "
+            "duplicates, orphans.\n"
+            "                            Admin-only.\n"
             "  defer                      no-op placeholder (review next run)\n\n"
             "Validation: each ACTION line is parsed before any HTTP call. "
             "If any line is malformed, nothing is sent. Otherwise actions "
@@ -2748,6 +4333,69 @@ def _audit_main(argv):
     )
     p_missing.add_argument("--port", type=int, default=443)
 
+    p_verify = sub.add_parser(
+        "verify-from-rinex",
+        help=(
+            "Cross-check TOS state against the cold RINEX archive. Detects "
+            "data gaps, receiver-brand transitions, and TOS-claimed dates "
+            "that don't match what's archived."
+        ),
+        description=(
+            "Walks ``<archive>/<YYYY>/<mon>/<STATION>/15s_24hr/{raw,rinex}/`` "
+            "for a station, classifies each archived file by receiver-brand "
+            "family (`.sbf` → septentrio, `.T02` → trimble_netr9, etc.), and "
+            "compares the resulting timeline against TOS's child-device "
+            "joins. Surfaces brand transitions, multi-day gaps, and "
+            "discrepancies between TOS-claimed join start dates and the "
+            "earliest archived day for each brand.\n\n"
+            "Archive root is resolved in order: --archive-root → env "
+            "TOSTOOLS_ARCHIVE_ROOT → ``receivers.cfg [archive_paths] "
+            "cold_archive_prepath`` (shared with the receivers package) → "
+            "probe ``/mnt/rawgpsdata`` then ``/mnt_data/rawgpsdata``. Pin "
+            "the path by adding ``cold_archive_prepath`` to the shared cfg."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos audit verify-from-rinex --station SAVI\n"
+            "  tos audit verify-from-rinex --station SAVI --json\n"
+            "  tos audit verify-from-rinex --station SAVI "
+            "--archive-root /mnt_data/rawgpsdata\n"
+            "  tos audit verify-from-rinex --station SAVI --min-gap-days 90\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_verify.add_argument(
+        "--station",
+        required=True,
+        help="Station marker (e.g. SAVI). Case-insensitive.",
+    )
+    p_verify.add_argument(
+        "--archive-root",
+        type=Path,
+        default=None,
+        help=(
+            "Override the resolved archive root. Default: env "
+            "TOSTOOLS_ARCHIVE_ROOT, then receivers.cfg, then probed mount."
+        ),
+    )
+    p_verify.add_argument(
+        "--min-gap-days",
+        type=int,
+        default=30,
+        help="Minimum gap to surface in the report (default: 30 days).",
+    )
+    p_verify.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON instead of pretty text.",
+    )
+    p_verify.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_verify.add_argument("--port", type=int, default=443)
+
     args = p.parse_args(argv)
 
     scheme = "https" if args.port == 443 else "http"
@@ -3031,6 +4679,9 @@ def _audit_main(argv):
             _print_missing_attributes_report(report, verbose=args.verbose)
         return 1 if report.has_violations else 0
 
+    if args.kind == "verify-from-rinex":
+        return _audit_verify_from_rinex_main(args, client)
+
     p.error(f"unknown kind: {args.kind}")
     return 2
 
@@ -3063,11 +4714,16 @@ class ParseError:
 _SUPPORTED_VERBS = (
     "add-attribute",
     "change-subtype",
+    "create-join",
     "decommission",
     "defer",
+    "delete-attribute-value",
+    "delete-join",
     "fill-gap",
     "move",
     "patch-attribute-date",
+    "patch-attribute-value",
+    "patch-join-date",
 )
 
 
@@ -3239,6 +4895,81 @@ def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]
                 )
             )
             continue
+        if verb == "patch-attribute-value" and len(tokens) != 6:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "patch-attribute-value requires exactly three "
+                        "arguments: <code> <date_from_match> <new_value> "
+                        "(quote the value if it contains spaces)"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        if verb == "patch-join-date" and len(tokens) != 6:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "patch-join-date requires exactly three arguments: "
+                        "<id_connection> <field> <new_date> "
+                        "(field is time_from or time_to)"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        # create-join accepts either 2 args (open join) or 3 args
+        # (closed historical join). Token count: ACTION <id> <verb>
+        # <parent_id> <date_from> [<date_to>] → 5 or 6 tokens.
+        if verb == "create-join" and len(tokens) not in (5, 6):
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "create-join requires 2 or 3 arguments: "
+                        "<parent_id> <date_from> [<date_to>] "
+                        "(omit date_to for an open join; provide it for "
+                        "a closed historical join — alt to fill-gap)"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        # delete-join takes exactly one arg (the connection id to drop).
+        # Token count: ACTION <id> delete-join <id_connection> → 4 tokens.
+        if verb == "delete-join" and len(tokens) != 4:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "delete-join requires exactly one argument: "
+                        "<id_connection> (the join row to permanently "
+                        "remove). Use only on known-bad rows — see verb "
+                        "docstring."
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        # delete-attribute-value: 4 tokens (ACTION <id> verb <id_av>).
+        if verb == "delete-attribute-value" and len(tokens) != 4:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "delete-attribute-value requires exactly one "
+                        "argument: <id_attribute_value> (the row to "
+                        "permanently remove). Destructive — use only "
+                        "on known-bad rows (wrong-scope id_attribute "
+                        "FKs, duplicates, orphans)."
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
         actions.append(
             ParsedAction(
                 line_no=i,
@@ -3258,6 +4989,72 @@ class ActionResult:
     action: ParsedAction
     status: str  # "ok" | "deferred" | "failed"
     detail: str
+
+
+_DATE_TOKEN_NOW = "now"
+_DATE_TOKEN_START = "start"
+
+
+def _resolve_date_token(
+    raw: str, id_entity: int, writer
+) -> tuple[Optional[str], Optional[str]]:
+    """Resolve `now` / `start` date tokens to ``YYYY-MM-DD``.
+
+    Lets triage files reference dates symbolically — useful when the
+    same date_from would be hand-copied across many ACTIONs (the
+    station's earliest_known), or when the operator wants to stamp
+    "today" without typing the calendar date.
+
+    Returns ``(resolved_date, error)``. Exactly one is non-None:
+
+    * On success: ``(yyyy-mm-dd, None)``.
+    * On token-unresolvable: ``(None, "<reason>")`` so the caller
+      returns a `failed` ActionResult with the message.
+    * Strings that are NOT `now` / `start` pass through unchanged
+      (``(raw, None)``) — non-token paths are unaffected.
+
+    Token semantics
+    ---------------
+    * ``now`` — today's date in UTC. Always unambiguous.
+    * ``start`` — the entity's ``earliest_known`` anchor (per the
+      missing-attributes / attribute-dates audit convention): earliest
+      non-2014-10-17 open attribute date_from, falling back to the
+      open parent-join's time_from. Errors if neither resolves.
+      Evaluated once per entity per apply run (cached on the writer)
+      so the same `start` token resolves to the same value across
+      multiple ACTIONs in one file, even when later ACTIONs mutate
+      the underlying entity state.
+
+    See also: memory ``project_layer6_followup_date_shortcuts``,
+    ``project_2014_10_17_metadata_cleanup_artifacts``.
+    """
+    if raw == _DATE_TOKEN_NOW:
+        import datetime as _dt
+
+        return (
+            _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d"),
+            None,
+        )
+
+    if raw == _DATE_TOKEN_START:
+        if writer is None:
+            return (None, "'start' token requires a live writer for entity lookup")
+        try:
+            resolved = writer._get_earliest_known(id_entity)
+        except Exception as exc:  # noqa: BLE001
+            return (None, f"'start' token lookup failed: {exc}")
+        if resolved is None:
+            return (
+                None,
+                (
+                    f"'start' token can't resolve for id_entity={id_entity} — "
+                    "entity has no non-cleanup-artifact open attribute "
+                    "date_from and no open parent join time_from"
+                ),
+            )
+        return (resolved, None)
+
+    return (raw, None)
 
 
 def _dispatch_decommission(
@@ -3294,7 +5091,16 @@ def _dispatch_decommission(
     """
     from . import devices
 
-    retirement_date = action.args[0]
+    retirement_date_raw = action.args[0]
+
+    # Resolve `now` / `start` tokens.
+    resolved, err = _resolve_date_token(retirement_date_raw, action.id_entity, writer)
+    if err is not None:
+        return ActionResult(
+            action=action, status="failed", detail=f"decommission: {err}"
+        )
+    retirement_date = resolved or retirement_date_raw
+
     open_join = open_joins_by_device.get(action.id_entity)
 
     join_detail = "no open join — skip close"
@@ -3373,6 +5179,12 @@ def _dispatch_move(
             detail=(f"move requires integer to_parent_id, got {to_parent_token!r}"),
         )
 
+    # Resolve `now` / `start` tokens.
+    resolved, err = _resolve_date_token(date, action.id_entity, writer)
+    if err is not None:
+        return ActionResult(action=action, status="failed", detail=f"move: {err}")
+    date = resolved or date
+
     open_join = open_joins_by_device.get(action.id_entity)
     if open_join is None:
         return ActionResult(
@@ -3427,6 +5239,80 @@ def _dispatch_move(
     )
 
 
+def _dispatch_create_join(writer, action: ParsedAction) -> ActionResult:
+    """Open a fresh parent→child join (or backfill a closed one).
+
+    Action shapes:
+      * ``ACTION <child_id> create-join <parent_id> <date_from>`` — open
+        join (``time_to=None``). Use when the device needs to land at a
+        new parent and there's no existing open join to ``move`` from
+        (e.g. after manually closing the prior join, or for devices
+        that come out of nowhere mid-reconstruction).
+      * ``ACTION <child_id> create-join <parent_id> <date_from>
+        <date_to>`` — closed historical join. Functionally equivalent
+        to ``fill-gap`` but with consistent verb naming; prefer
+        ``fill-gap`` when you specifically mean "backfill a gap".
+
+    Pure single-write verb — no prerequisite reads, no open-joins
+    cache. Dispatcher-safe and order-independent within an apply run.
+    Dates pass through ``writer.create_entity_connection`` which
+    normalises them via ``_tos_date`` (TOS rejects bare YYYY-MM-DD
+    on the /joins endpoint).
+    """
+    parent_token = action.args[0]
+    date_from = action.args[1]
+    date_to = action.args[2] if len(action.args) >= 3 else None
+
+    try:
+        parent_id = int(parent_token)
+    except ValueError:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(f"create-join requires integer parent_id, got {parent_token!r}"),
+        )
+
+    # Resolve `now` / `start` tokens on both date arguments.
+    resolved, err = _resolve_date_token(date_from, action.id_entity, writer)
+    if err is not None:
+        return ActionResult(
+            action=action, status="failed", detail=f"create-join: {err}"
+        )
+    date_from = resolved or date_from
+
+    if date_to is not None:
+        resolved, err = _resolve_date_token(date_to, action.id_entity, writer)
+        if err is not None:
+            return ActionResult(
+                action=action, status="failed", detail=f"create-join: {err}"
+            )
+        date_to = resolved or date_to
+
+    try:
+        response = writer.create_entity_connection(
+            id_parent=parent_id,
+            id_child=action.id_entity,
+            time_from=date_from,
+            time_to=date_to,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"create_entity_connection raised: {exc}",
+        )
+
+    end = date_to if date_to is not None else "open"
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"POST /joins parent={parent_id} child={action.id_entity} "
+            f"{date_from} → {end} — {response!r}"
+        ),
+    )
+
+
 def _dispatch_fill_gap(writer, action: ParsedAction) -> ActionResult:
     """Backfill a closed historical join for a known window.
 
@@ -3446,6 +5332,20 @@ def _dispatch_fill_gap(writer, action: ParsedAction) -> ActionResult:
             status="failed",
             detail=f"fill-gap requires integer parent_id, got {parent_token!r}",
         )
+
+    # Resolve `now` / `start` tokens on both date arguments.
+    for label, raw in (("date_from", date_from), ("date_to", date_to)):
+        resolved, err = _resolve_date_token(raw, action.id_entity, writer)
+        if err is not None:
+            return ActionResult(
+                action=action,
+                status="failed",
+                detail=f"fill-gap ({label}): {err}",
+            )
+        if label == "date_from":
+            date_from = resolved or date_from
+        else:
+            date_to = resolved or date_to
 
     try:
         devices.fill_join_gap(
@@ -3503,6 +5403,18 @@ def _dispatch_patch_attribute_date(writer, action: ParsedAction) -> ActionResult
     code = action.args[0]
     old_date_raw = action.args[1]
     new_date_raw = action.args[2]
+
+    # Resolve `now` / `start` on the NEW date argument. (The OLD date
+    # is a match-anchor against existing TOS data; it makes no sense to
+    # symbolise it, so we leave it literal.)
+    resolved_new, err = _resolve_date_token(new_date_raw, action.id_entity, writer)
+    if err is not None:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch-attribute-date: {err}",
+        )
+    new_date_raw = resolved_new or new_date_raw
 
     # Normalise both date arguments to YYYY-MM-DD up front. Matches the
     # audit-time _date_only() contract and keeps the comparison robust
@@ -3658,6 +5570,16 @@ def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
             ),
         )
 
+    # Resolve `now` / `start` tokens before the format check.
+    resolved, err = _resolve_date_token(date_from_raw, action.id_entity, writer)
+    if err is not None:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"add-attribute: {err}",
+        )
+    date_from_raw = resolved or date_from_raw
+
     # Date format check — same YYYY-MM-DD contract as patch-attribute-date.
     date_from = date_from_raw[:10]
     if len(date_from) != 10 or date_from[4] != "-" or date_from[7] != "-":
@@ -3736,6 +5658,367 @@ def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
     )
 
 
+def _dispatch_patch_attribute_value(writer, action: ParsedAction) -> ActionResult:
+    """Correct a wrong attribute value in-place (Pattern 1 / Pattern 4).
+
+    Action shape: ``ACTION <id_entity> patch-attribute-value <code>
+    <date_from_match> <new_value>``. Same date-prefix lookup as
+    :func:`_dispatch_patch_attribute_date` (match by ``YYYY-MM-DD``
+    prefix, refuse on 0 or >1 matches), but PATCHes the ``value`` field
+    instead of ``date_from``.
+
+    Use case
+    --------
+    TOS holds a wrong value for a known time period — e.g. a serial
+    recorded as ``"UNKNOWN"`` that the reference source says is
+    ``"3163"``, or a misspelled station name. The time period itself is
+    correct; only the stored value is wrong. PATCH overwrites in place
+    (history-destructive); use a transition verb instead if the value
+    actually changed at a date and the old value should be preserved.
+
+    Pre-flight checks
+    -----------------
+    * **Placeholder rejection** — refuses literal ``<FILL_*>`` markers.
+    * **Date format** — ``date_from_match`` must look like YYYY-MM-DD.
+    * **Idempotence** — if the matched period already holds the requested
+      value, returns ``status="ok"`` with "already present" detail and
+      skips the PATCH.
+    """
+    code = action.args[0]
+    old_date_raw = action.args[1]
+    new_value = action.args[2]
+
+    # Placeholder rejection — same contract as add-attribute.
+    if new_value.startswith("<") and new_value.endswith(">"):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: value placeholder {new_value!r} not "
+                "replaced — fill in the value before applying"
+            ),
+        )
+    if old_date_raw.startswith("<") and old_date_raw.endswith(">"):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: date placeholder {old_date_raw!r} not "
+                "replaced — fill in the date_from_match before applying"
+            ),
+        )
+
+    old_date = old_date_raw[:10]
+    if len(old_date) != 10 or old_date[4] != "-" or old_date[7] != "-":
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: date_from_match must be YYYY-MM-DD "
+                f"(got {old_date_raw!r})"
+            ),
+        )
+
+    try:
+        attrs = writer.get_attribute_values(action.id_entity, code)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"get_attribute_values raised: {exc}",
+        )
+
+    matches: List[Dict[str, Any]] = []
+    for a in attrs:
+        df = a.get("date_from")
+        if not df:
+            continue
+        if str(df)[:10] == old_date:
+            matches.append(a)
+
+    if not matches:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: no period found for "
+                f"id_entity={action.id_entity} code={code!r} "
+                f"date_from={old_date} (re-audit and regenerate triage)"
+            ),
+        )
+    if len(matches) > 1:
+        ids = ", ".join(str(a.get("id_attribute_value")) for a in matches)
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: {len(matches)} periods match "
+                f"id_entity={action.id_entity} code={code!r} "
+                f"date_from={old_date} (id_attribute_value: {ids}); "
+                "refusing to PATCH ambiguously — disambiguate manually"
+            ),
+        )
+
+    target = matches[0]
+    current_value = target.get("value")
+    if str(current_value) == new_value:
+        return ActionResult(
+            action=action,
+            status="ok",
+            detail=(
+                f"already present: period for {code!r} on "
+                f"id_entity={action.id_entity} date_from={old_date} already "
+                f"has value {new_value!r} (no-op)"
+            ),
+        )
+
+    id_av_raw = target.get("id_attribute_value")
+    if id_av_raw is None:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "patch-attribute-value: matching period has no "
+                "id_attribute_value (partial payload); rerun later"
+            ),
+        )
+
+    try:
+        id_av = int(id_av_raw)
+    except (TypeError, ValueError):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-value: id_attribute_value={id_av_raw!r} "
+                "is not an integer (unexpected TOS payload shape)"
+            ),
+        )
+
+    try:
+        response = writer.patch_attribute_value(id_av, value=new_value)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch_attribute_value raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"PATCH /attribute_value/{id_av} "
+            f"value {current_value!r} → {new_value!r} "
+            f"(code={code!r} date_from={old_date}) — {response!r}"
+        ),
+    )
+
+
+_PATCH_JOIN_DATE_FIELDS = ("time_from", "time_to")
+
+
+def _dispatch_patch_join_date(writer, action: ParsedAction) -> ActionResult:
+    """PATCH a single date field on an existing join row.
+
+    Action shape: ``ACTION <id_device> patch-join-date <id_connection>
+    <field> <new_date>`` where ``field ∈ {time_from, time_to}``. Used
+    for missing-join backfills (extend ``time_from`` back to the real
+    deployment date) and historical join close-out corrections.
+
+    Field whitelist
+    ---------------
+    Only ``time_from`` and ``time_to`` are accepted. The underlying
+    :meth:`TOSWriter.patch_entity_connection` will happily PATCH
+    ``id_entity_parent`` / ``id_entity_child`` too, but that is the
+    semantics of ``move`` (close+open) — refuse it here so this verb
+    can't be misused as a backdoor reparent.
+
+    Trust model
+    -----------
+    ``id_connection`` is trusted without verifying that it belongs to
+    ``id_entity``. Same precedent as :func:`_dispatch_fill_gap`. The
+    pre-flight table + dry-run review is the safety net.
+    """
+    connection_token, field, new_date = (
+        action.args[0],
+        action.args[1],
+        action.args[2],
+    )
+
+    try:
+        id_connection = int(connection_token)
+    except ValueError:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-join-date requires integer id_connection, got "
+                f"{connection_token!r}"
+            ),
+        )
+
+    if field not in _PATCH_JOIN_DATE_FIELDS:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-join-date: field must be one of "
+                f"{', '.join(_PATCH_JOIN_DATE_FIELDS)} (got {field!r}). "
+                "Use the move verb to reparent."
+            ),
+        )
+
+    if new_date.startswith("<") and new_date.endswith(">"):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-join-date: date placeholder {new_date!r} not "
+                "replaced — fill in the new date before applying"
+            ),
+        )
+
+    # Resolve `now` / `start` tokens.
+    resolved_new, err = _resolve_date_token(new_date, action.id_entity, writer)
+    if err is not None:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch-join-date: {err}",
+        )
+    new_date = resolved_new or new_date
+
+    date_prefix = new_date[:10]
+    if len(date_prefix) != 10 or date_prefix[4] != "-" or date_prefix[7] != "-":
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-join-date: new_date must be YYYY-MM-DD " f"(got {new_date!r})"
+            ),
+        )
+
+    try:
+        response = writer.patch_entity_connection(id_connection, **{field: new_date})
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch_entity_connection raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"PATCH /join/{id_connection} {field}={new_date} "
+            f"(device={action.id_entity}) — {response!r}"
+        ),
+    )
+
+
+def _dispatch_delete_attribute_value(writer, action: ParsedAction) -> ActionResult:
+    """Permanently DELETE an attribute_value row from TOS.
+
+    Action shape: ``ACTION <id_entity> delete-attribute-value
+    <id_attribute_value>``.
+
+    Destructive — erases history. Use only on known-bad rows such as
+    wrong-scope id_attribute FKs (the resolver bug fixed 2026-05-25
+    sent some monument attributes to station-scoped schema rows;
+    cleaning them up requires DELETE + re-write via the fixed
+    resolver).
+
+    Trust model: ``id_attribute_value`` is trusted without verifying
+    it belongs to ``id_entity`` (same precedent as
+    :func:`_dispatch_delete_join`). Pre-flight + dry-run is the
+    safety net.
+    """
+    (av_token,) = (action.args[0],)
+
+    try:
+        id_av = int(av_token)
+    except ValueError:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"delete-attribute-value requires integer "
+                f"id_attribute_value, got {av_token!r}"
+            ),
+        )
+
+    try:
+        response = writer.delete_attribute_value(id_av)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"delete_attribute_value raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"DELETE /attribute_value/{id_av} "
+            f"(device={action.id_entity}) — {response!r}"
+        ),
+    )
+
+
+def _dispatch_delete_join(writer, action: ParsedAction) -> ActionResult:
+    """Permanently DELETE a join row from TOS.
+
+    Action shape: ``ACTION <id_entity> delete-join <id_connection>``.
+
+    Destructive — erases history. Use only on known-bad rows such as
+    SOPAC-convention split-monument workaround entities whose historical
+    joins never represented a real physical install (e.g. SAVI monument
+    5244 → join 6429). The default close-out workflow PATCHes time_to;
+    deletion removes the row entirely so it stops appearing in
+    ``device list --all`` and parent_history walks.
+
+    Trust model: ``id_connection`` is trusted without verifying it
+    belongs to ``id_entity`` (same precedent as patch-join-date /
+    fill-gap). The pre-flight table + dry-run review is the safety
+    net. The verb is admin-level; non-admin tokens will get a 403 from
+    TOS and the dispatcher will surface that as ``failed``.
+    """
+    (connection_token,) = (action.args[0],)
+
+    try:
+        id_connection = int(connection_token)
+    except ValueError:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"delete-join requires integer id_connection, got "
+                f"{connection_token!r}"
+            ),
+        )
+
+    try:
+        response = writer.delete_entity_connection(id_connection)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"delete_entity_connection raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"DELETE /join/{id_connection} "
+            f"(device={action.id_entity}) — {response!r}"
+        ),
+    )
+
+
 def _dispatch_action(
     writer,
     action: ParsedAction,
@@ -3769,10 +6052,20 @@ def _dispatch_action(
         return _dispatch_move(
             writer, action, open_joins_by_device=open_joins_by_device or {}
         )
+    if action.verb == "create-join":
+        return _dispatch_create_join(writer, action)
     if action.verb == "fill-gap":
         return _dispatch_fill_gap(writer, action)
     if action.verb == "patch-attribute-date":
         return _dispatch_patch_attribute_date(writer, action)
+    if action.verb == "patch-attribute-value":
+        return _dispatch_patch_attribute_value(writer, action)
+    if action.verb == "patch-join-date":
+        return _dispatch_patch_join_date(writer, action)
+    if action.verb == "delete-attribute-value":
+        return _dispatch_delete_attribute_value(writer, action)
+    if action.verb == "delete-join":
+        return _dispatch_delete_join(writer, action)
     if action.verb == "add-attribute":
         return _dispatch_add_attribute(writer, action)
     if action.verb == "change-subtype":
@@ -5144,6 +7437,8 @@ def main(argv=None):
             return _device_main(rest)
         if subcmd == "audit":
             return _audit_main(rest)
+        if subcmd == "station":
+            return _station_main(rest)
     return _legacy_main(argv)
 
 

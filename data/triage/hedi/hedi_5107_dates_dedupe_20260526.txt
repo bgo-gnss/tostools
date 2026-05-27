@@ -1,0 +1,68 @@
+# === HEDI follow-up: 5107 attribute-date alignment + 5106 dedupe ===
+# Drafted: 2026-05-26 (post-apply of hedi_audit_20260526.txt)
+#
+# # Why this exists
+#
+# After `tos audit apply hedi_audit_20260526.txt --apply` landed on
+# 2026-05-26, two residual issues surfaced:
+#
+# 1. Monument 5107's immutable attributes (model, serial, offsets) were
+#    written with date_from=2012-06-27 — but the monument's join is now
+#    backdated to 2006-06-29 (per Section 0 of hedi_audit). The audit
+#    `tos audit attribute-dates HEDI` flags these as inconsistent: the
+#    monument has been at HEDI since 2006-06-29, so its
+#    earliest_known is 2006-06-29 and immutable attributes should
+#    reflect that.
+#
+# 2. Connection 28749 (5106 → Hent, 0-duration) is an artifact of an
+#    accidental double-apply during the original run. The legitimate
+#    open join is 28750. Deleting 28749 removes the zero-duration
+#    artifact from `tos device show 5106 --list`.
+#
+# # Known TOS ids
+#
+#   Monument 5107 (HEDI permanent) = id_entity 5107
+#   Monument 5106 (retired)        = id_entity 5106
+#   Connection 28749               = 5106 → Hent, zero-duration artifact
+#
+# # Run
+#
+#   tos audit apply data/triage/hedi/hedi_5107_dates_dedupe_20260526.txt          # dry-run
+#   tos audit apply data/triage/hedi/hedi_5107_dates_dedupe_20260526.txt --apply  # commit
+#
+# # Verify
+#
+#   tos audit attribute-dates HEDI       # should be clean
+#   tos device show 5106 --list          # only open Hent 28750
+#   tos device show 5107 --attributes    # all date_from = 2006-06-29
+
+# ──────────────────────────────────────────────────────────────────
+# Part 1 — Backdate 5107 immutables to earliest_known (2006-06-29)
+# ──────────────────────────────────────────────────────────────────
+#
+# `start` resolves to the entity's earliest_known per the dispatcher's
+# token resolver — which for 5107 is now 2006-06-29 (the backdated
+# join's time_from). One-source-of-truth: change the join, the token
+# follows.
+
+ACTION 5107 patch-attribute-date model 2012-06-27 start
+ACTION 5107 patch-attribute-date serial_number 2012-06-27 start
+ACTION 5107 patch-attribute-date antenna_offset_north 2012-06-27 start
+ACTION 5107 patch-attribute-date antenna_offset_east 2012-06-27 start
+
+# date_start is special: both VALUE and date_from are 2012-06-27.
+# patch-attribute-date only moves date_from. Leaving it as-is for now
+# (post-apply audit will still flag it as a soft inconsistency, but
+# the value matters less than its dating). Consider in a future pass:
+#   ACTION 5107 patch-attribute-value date_start 2012-06-27 2006-06-29
+
+# ──────────────────────────────────────────────────────────────────
+# Part 2 — Delete zero-duration Hent join artifact on 5106
+# ──────────────────────────────────────────────────────────────────
+#
+# Connection 28749 was created on the first --apply, then closed
+# 0-duration by the second --apply's decommission (which re-walked
+# the open-joins cache and re-closed 5106's now-open Hent join). 28750
+# is the legitimate open join we want to keep.
+
+ACTION 5106 delete-join 28749

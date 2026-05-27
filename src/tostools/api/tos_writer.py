@@ -246,12 +246,38 @@ class TOSWriter:
         self._token: Optional[str] = None
         self._token_exp: float = 0.0
 
-        # Lazily-populated ``code → id_attribute`` map from
-        # ``GET /admin_attribute_rows``. Used by ``add_attribute_value``,
-        # which posts to the admin endpoint (the only attribute-value POST
-        # path that accepts our tokens — the public ``/attribute_values``
-        # endpoint returns confusing 401s, see :meth:`add_attribute_value`).
-        self._id_attribute_cache: Optional[Dict[str, int]] = None
+        # Lazily-populated ``(code, id_entity_type) → id_attribute`` map
+        # from ``GET /admin_attribute_rows``. Keyed by ``(code, et)`` not
+        # ``code`` alone because TOS schema has multiple rows per code
+        # (one per entity_type — e.g. ``model`` has id=27 for devices
+        # and id=59 for monuments, ``subtype`` has id=47/65/82/114 for
+        # device/monument/platform/station). Resolving without scope
+        # was the source of monument-5245's subtype writing to id=114
+        # (station scope) instead of id=65 (monument scope) on
+        # 2026-05-25. Used by ``add_attribute_value``, which posts to
+        # the admin endpoint (the only attribute-value POST path that
+        # accepts our tokens — the public ``/attribute_values`` endpoint
+        # returns confusing 401s, see :meth:`add_attribute_value`).
+        self._id_attribute_cache: Optional[Dict[tuple[str, Optional[int]], int]] = None
+
+        # Lazily-populated ``id_entity → id_entity_type`` map. One GET
+        # per entity on first reference, then served from cache. Lets
+        # :meth:`add_attribute_value` pick the entity-type-scoped
+        # ``id_attribute`` schema row without a per-write GET.
+        self._entity_type_cache: Dict[int, Optional[int]] = {}
+
+        # Lazily-populated ``entity_subtype_code → id_entity_type`` map
+        # from ``GET /entity_subtypes/``. One fetch per writer instance.
+        # Used by :meth:`_get_entity_type` to derive id_entity_type from
+        # the ``code_entity_subtype`` returned by the history endpoint
+        # (TOS doesn't surface ``id_entity_type`` directly on entities).
+        self._subtype_to_entity_type_cache: Optional[Dict[str, int]] = None
+
+        # Lazily-populated ``id_entity → earliest_known_date`` map for
+        # the ``start`` token resolver in apply dispatchers. Pinned at
+        # apply-time once; doesn't shift between ACTIONs in a single
+        # apply run. See :meth:`_get_earliest_known`.
+        self._earliest_known_cache: Dict[int, Optional[str]] = {}
 
     # ------------------------------------------------------------------
     # Authentication
@@ -731,32 +757,213 @@ class TOSWriter:
             dt = f"{dt}T00:00:00"
         return dt
 
-    def _resolve_id_attribute(self, code: str) -> int:
-        """Look up the integer ``id_attribute`` FK for an attribute ``code``.
+    def _resolve_id_attribute(
+        self, code: str, id_entity_type: Optional[int] = None
+    ) -> int:
+        """Look up the integer ``id_attribute`` FK for ``(code, id_entity_type)``.
 
-        Loads the full attribute table from ``GET /admin_attribute_rows``
-        on first call and caches it on the instance — there's no
-        ``/attributes/<code>`` lookup endpoint per the OpenAPI spec
-        (confirmed 2026-05-20), so client-side filtering is the only path.
+        TOS schema has multiple ``/admin_attribute_rows`` rows per code,
+        one per entity_type (e.g. ``model`` has id=27 for devices,
+        id=59 for monuments/infrastructure). Passing the target
+        entity's ``id_entity_type`` picks the scope-matching row.
 
-        Raises :class:`ValueError` if the code isn't present in TOS's
-        attribute catalog — surfaces typos at the boundary rather than
-        sending an unresolvable POST.
+        Fallback rules when ``id_entity_type`` is None or no exact match:
+
+          1. With ``id_entity_type`` provided: pick the row where
+             ``r['id_entity_type'] == id_entity_type``. If none match,
+             fall through to (2).
+          2. Pick the row with ``r['id_entity_type'] is None`` (a
+             cross-scope catalog entry, rare but exists).
+          3. If still no match and only one row exists for this code,
+             use it. Last-resort behavior to keep single-variant codes
+             working without callers having to plumb entity_type.
+          4. Otherwise raise :class:`ValueError` listing the variants.
+
+        Loads the full attribute table on first call and caches it
+        keyed by ``(code, id_entity_type)`` — there's no per-code
+        endpoint per the OpenAPI spec (confirmed 2026-05-20).
+
+        Raises :class:`ValueError` if the code isn't present at all
+        (typo at the boundary) or if no scope-matching row can be
+        found and the disambiguation rules above can't resolve.
         """
         if self._id_attribute_cache is None:
             rows = self._request("GET", "/admin_attribute_rows")
-            self._id_attribute_cache = {
-                r["code"]: int(r["id"])
-                for r in (rows or [])
-                if r.get("code") and r.get("id") is not None
-            }
-        if code not in self._id_attribute_cache:
+            cache: Dict[tuple[str, Optional[int]], int] = {}
+            for r in rows or []:
+                code_r = r.get("code")
+                id_r = r.get("id")
+                if not code_r or id_r is None:
+                    continue
+                et = r.get("id_entity_type")
+                cache[(code_r, et)] = int(id_r)
+            self._id_attribute_cache = cache
+
+        # Surface unknown codes BEFORE the scope-matching dance so
+        # typos get the precise "unknown code" error.
+        all_for_code = [
+            (k[1], v) for k, v in self._id_attribute_cache.items() if k[0] == code
+        ]
+        if not all_for_code:
             raise ValueError(
                 f"unknown attribute code {code!r} — not in "
                 "/admin_attribute_rows. Check spelling or refresh the "
                 "writer instance to bust the cache."
             )
-        return self._id_attribute_cache[code]
+
+        # Rule 1: exact entity_type match.
+        if id_entity_type is not None:
+            exact = self._id_attribute_cache.get((code, id_entity_type))
+            if exact is not None:
+                return exact
+
+        # Rule 2: cross-scope (entity_type=None) row.
+        none_scope = self._id_attribute_cache.get((code, None))
+        if none_scope is not None:
+            return none_scope
+
+        # Rule 3: single-variant code, take it.
+        if len(all_for_code) == 1:
+            return all_for_code[0][1]
+
+        # Rule 4: ambiguous and no scope provided — refuse rather than
+        # picking arbitrarily (the bug we're fixing).
+        variants = ", ".join(
+            f"id={id_} (entity_type={et})" for et, id_ in sorted(all_for_code)
+        )
+        raise ValueError(
+            f"ambiguous attribute code {code!r} — multiple "
+            f"entity_type variants in TOS schema ({variants}). "
+            f"Caller must supply id_entity_type to disambiguate."
+        )
+
+    def _get_earliest_known(self, id_entity: int) -> Optional[str]:
+        """Return the entity's earliest known date as ``YYYY-MM-DD``.
+
+        Resolves the ``start`` token used in apply triage files.
+        Defined (per ``audit_attribute_dates``'s ``earliest_known``
+        anchor convention) as:
+
+          1. Earliest open attribute ``date_from`` whose date is not
+             the fleet-wide 2014-10-17 cleanup-artifact (see memory
+             ``project_2014_10_17_metadata_cleanup_artifacts``).
+          2. Otherwise: the open parent-join's ``time_from``.
+          3. Otherwise: ``None`` — caller should refuse to apply.
+
+        Cached per writer instance so repeated ``start`` references
+        across many ACTIONs in one apply run cost one history GET per
+        entity. The cache is pinned at apply-time and does NOT refresh
+        between ACTIONs — `start` resolves to the same value
+        throughout a single apply run, even if earlier ACTIONs in the
+        file change the underlying entity state.
+
+        Output is always ``YYYY-MM-DD`` (date-only); the dispatcher's
+        :meth:`_tos_date` normalises to TOS's full-datetime format
+        before posting.
+        """
+        if id_entity in self._earliest_known_cache:
+            return self._earliest_known_cache[id_entity]
+
+        try:
+            history = self._request("GET", f"/history/entity/{id_entity}/")
+        except Exception:  # noqa: BLE001
+            history = None
+
+        # 1. Earliest open attribute date_from, skipping 2014-10-17 artifacts.
+        CLEANUP_ARTIFACT = "2014-10-17"
+        candidates: list[str] = []
+        if isinstance(history, dict):
+            for a in history.get("attributes") or []:
+                if a.get("date_to") is not None:
+                    continue  # closed period — not "open"
+                raw = a.get("date_from")
+                if not raw:
+                    continue
+                date_only = str(raw)[:10]
+                if date_only == CLEANUP_ARTIFACT:
+                    continue
+                if len(date_only) == 10 and date_only[4] == "-" and date_only[7] == "-":
+                    candidates.append(date_only)
+
+        result: Optional[str] = None
+        if candidates:
+            result = min(candidates)
+        else:
+            # 2. Fall back to open parent-join time_from.
+            try:
+                joins = self._request("GET", f"/entity/parent_history/{id_entity}")
+            except Exception:  # noqa: BLE001
+                joins = None
+            if isinstance(joins, list):
+                open_joins = [j for j in joins if j.get("time_to") is None]
+                tf_candidates = []
+                for j in open_joins:
+                    raw = j.get("time_from")
+                    if raw:
+                        date_only = str(raw)[:10]
+                        if (
+                            len(date_only) == 10
+                            and date_only[4] == "-"
+                            and date_only[7] == "-"
+                        ):
+                            tf_candidates.append(date_only)
+                if tf_candidates:
+                    result = min(tf_candidates)
+
+        self._earliest_known_cache[id_entity] = result
+        return result
+
+    def _get_entity_type(self, id_entity: int) -> Optional[int]:
+        """Return ``id_entity_type`` for a TOS entity, cached per id.
+
+        Two-step lookup (TOS doesn't expose ``id_entity_type`` directly
+        on entity rows):
+
+          1. ``GET /history/entity/<id>/`` → ``code_entity_subtype``
+             (e.g. 'monument', 'gnss_receiver', 'geophysical')
+          2. ``GET /entity_subtypes/`` → maps subtype code →
+             ``id_entity_type`` (e.g. 'monument' → 3, 'gnss_receiver'
+             → 4, 'geophysical' → 2). Fetched once per writer, cached.
+
+        Both caches are per-instance so :meth:`add_attribute_value`
+        doesn't pay a GET per write to the same entity. None if either
+        lookup fails — callers should treat that as "use the
+        cross-scope row if available, then fall back to ambiguity
+        error".
+        """
+        if id_entity in self._entity_type_cache:
+            return self._entity_type_cache[id_entity]
+
+        try:
+            history = self._request("GET", f"/history/entity/{id_entity}/")
+        except Exception:  # noqa: BLE001
+            history = None
+
+        subtype_code = None
+        if isinstance(history, dict):
+            subtype_code = history.get("code_entity_subtype")
+
+        et = None
+        if subtype_code:
+            if self._subtype_to_entity_type_cache is None:
+                try:
+                    rows = self._request("GET", "/entity_subtypes/")
+                except Exception:  # noqa: BLE001
+                    rows = None
+                cache: Dict[str, int] = {}
+                for r in rows or []:
+                    code = r.get("code")
+                    raw_et = r.get("id_entity_type")
+                    if code and raw_et is not None:
+                        try:
+                            cache[code] = int(raw_et)
+                        except (TypeError, ValueError):
+                            pass
+                self._subtype_to_entity_type_cache = cache
+            et = self._subtype_to_entity_type_cache.get(subtype_code)
+
+        self._entity_type_cache[id_entity] = et
+        return et
 
     def add_attribute_value(
         self,
@@ -791,7 +998,9 @@ class TOSWriter:
             "/admin_attribute_value_rows",
             data={
                 "id_entity": id_entity,
-                "id_attribute": self._resolve_id_attribute(code),
+                "id_attribute": self._resolve_id_attribute(
+                    code, self._get_entity_type(id_entity)
+                ),
                 "value_varchar": value,
                 "date_from": self._tos_date(date_from),
                 "date_to": self._tos_date(date_to),
@@ -925,17 +1134,24 @@ class TOSWriter:
         Args:
             id_parent: Parent entity id (e.g. station id_entity).
             id_child: Child entity id (e.g. gnss_receiver id_entity).
-            time_from: ISO-8601 start of the connection.
+            time_from: ISO-8601 start of the connection. Bare
+                ``YYYY-MM-DD`` is accepted and promoted to a full
+                datetime by :meth:`_tos_date` (TOS rejects date-only
+                inputs on the join endpoint with HTTP 400, same as
+                :meth:`patch_entity_connection`).
             time_to: ISO-8601 end, or ``None`` for currently active.
+                Bare ``YYYY-MM-DD`` similarly promoted.
         """
+        normalized_from = self._tos_date(time_from)
+        normalized_to = self._tos_date(time_to) if time_to is not None else None
         return self._request(
             "POST",
             "/joins",
             data={
                 "id_entity_parent": id_parent,
                 "id_entity_child": id_child,
-                "time_from": time_from,
-                "time_to": time_to,
+                "time_from": normalized_from,
+                "time_to": normalized_to,
             },
         )
 
@@ -984,6 +1200,37 @@ class TOSWriter:
             :class:`DryRunResult` in dry-run mode.
         """
         return self._request("DELETE", f"/admin_entity_connection_row/{id_connection}")
+
+    def delete_attribute_value(self, id_attribute_value: int) -> Any:
+        """Permanently remove an attribute_value row from TOS.
+
+        .. warning::
+
+           Destructive admin endpoint. Use only for cleaning up known
+           bad rows — wrong-scope id_attribute FKs (the resolver bug
+           fixed 2026-05-25), duplicate values, or orphan rows. The
+           default close-out workflow uses
+           :meth:`transition_attribute_value` (PATCH date_to + POST
+           new) — deletion erases history.
+
+        Uses ``DELETE /admin_attribute_value_row/{id}`` (singular form,
+        matching the admin DELETE convention established by
+        :meth:`delete_entity_connection` — see ``DELETE
+        /admin_entity_connection_row/{id}``). The plural form used by
+        POST (``/admin_attribute_value_rows``) returns 404 on DELETE.
+        Requires admin-level TOS access (same scope as other admin
+        endpoints — already required by other writes).
+
+        Args:
+            id_attribute_value: The ``id`` of the attribute_value row.
+
+        Returns:
+            API response (typically empty 204), or
+            :class:`DryRunResult` in dry-run mode.
+        """
+        return self._request(
+            "DELETE", f"/admin_attribute_value_row/{id_attribute_value}"
+        )
 
     def transition_attribute_value(
         self,
@@ -1154,6 +1401,12 @@ class TOSWriter:
         "at most one open parent join per child" (a receiver is at
         one location at a time); if multiple are open, the most
         recent ``time_from`` wins.
+
+        For the full open+closed timeline use
+        :meth:`TOSClient.get_parent_history` — same endpoint, lives on
+        the read-only client to avoid duplicating read methods across
+        both clients. See the "TOSWriter→TOSClient composition for
+        reads" follow-up in receivers todos.
 
         Args:
             id_child: Child entity id (e.g. a gnss_receiver's
