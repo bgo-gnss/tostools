@@ -376,6 +376,48 @@ def _list_args(**overrides):
     return Namespace(**defaults)
 
 
+def test_device_show_accepts_id_flag_form():
+    """`tos device show --id N` is the supported alternative to the
+    positional `tos device show N`. Mirrors `tos audit show --id N` so
+    the same `--id` syntax works across every drill-into-one-entity
+    verb (matters for copy-pasting drill-hint output).
+    """
+    from tostools.tos import main
+
+    captured = {}
+
+    def spy(args):
+        captured["id_entity"] = args.id_entity
+        captured["serial"] = args.serial
+        return 0
+
+    with patch("tostools.tos._device_show_main", side_effect=spy):
+        rc = main(["device", "show", "--id", "16099"])
+
+    assert rc == 0
+    assert captured["id_entity"] == 16099
+    assert captured["serial"] is None
+
+
+def test_device_show_flag_wins_when_both_forms_given():
+    """When operator provides both positional + --id, --id wins.
+    Matches argparse's last-wins convention for repeated flags."""
+    from tostools.tos import main
+
+    captured = {}
+
+    def spy(args):
+        captured["id_entity"] = args.id_entity
+        return 0
+
+    with patch("tostools.tos._device_show_main", side_effect=spy):
+        rc = main(["device", "show", "99999", "--id", "11111"])
+
+    assert rc == 0
+    # --id wins.
+    assert captured["id_entity"] == 11111
+
+
 def test_resolve_parent_id_by_station_marker_case_insensitive():
     """The TOS web UI / underlying find_station_by_marker normalize to
     lowercase. The resolver must match either case."""

@@ -310,38 +310,30 @@ data/station_config/
 - **Recovery**: `--rollback <backup-id>` for instant restoration
 - **Monitoring**: `--verify-only` for health checks and integrity validation
 
-## 🌐 TOS API Tools
-
-### Legacy TOS Queries (Icelandic Stations)
+## 🌐 TOS Subcommands
 
 ```bash
-# Station search
-tos vadla                    # Search by name
-tos ada                      # Partial name search  
-tos V89                      # Station ID search
+# Station orchestration
+tos station show <STN>              # identity + open attributes + joined devices
+tos station show <STN> --all        # adds attribute + join history
+tos station show <STN> --device     # delegate to `tos device list --station <STN>`
+tos station triage <STN>            # generate combined triage file
+tos station verify <STN>            # re-run audits, exit 0 clean / 1 findings / 2 failure
 
-# Equipment search
-tos -s 182820302             # By serial number
-tos -G 10001                 # By Galvos number
+# Device inspection
+tos device list --station <STN>     # currently-joined devices
+tos device show --id N              # full device record
 
-# Output formats
-tos vadla -o json            # JSON output
-tos vadla -o table           # Table format
-tos vadla -o pretty          # Pretty format (default)
-
-# Domain filtering
-tos ada -D geophysical       # Geophysical stations only
+# Audits
+tos audit attribute-dates <STN>     # suspicious date_from values
+tos audit missing-attributes <STN>  # required attrs with no open period
+tos audit verify-from-rinex --station <STN>   # cross-check vs cold RINEX archive
+tos audit apply <triage_file>       # apply operator-edited triage (dry-run by default)
 ```
 
-### Utility Tools
-
-```bash
-# Convert JSON to ASCII
-json2ascii input.json output.txt
-
-# Process metadata for RMQ
-metadata2rmq
-```
+The legacy flat-arg form (`tos RHOF`, `tos -s SERIAL`, `tos --fdsnxml/--sc3ml`,
+and the `json2ascii`/`metadata2rmq` helpers) was removed in v0.7. SC3/FDSN XML
+generation is not in scope for this package.
 
 ## 📊 Output Formats
 
@@ -463,7 +455,7 @@ pytest tests/ -v
 
 # Test console scripts
 tosGPS --help
-json2ascii --help
+tos --help
 ```
 
 ### Code Quality

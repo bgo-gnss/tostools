@@ -39,8 +39,6 @@ dependencies = [
 [project.scripts]
 tosGPS = "tostools.tosGPS:main"
 tos = "tostools.tos:main"
-json2ascii = "tostools.json2ascii:main"
-metadata2rmq = "tostools.metadata2rmq:main"
 
 [project.optional-dependencies]
 # black pinned to 24.x for stable formatting rules. Newer black versions
@@ -84,15 +82,10 @@ ignore = ["E501"]
 # green while new code (audit.py, api/, core/, rinex/, etc.) is held to
 # the full ruleset. Revisit when these modules are refactored or retired.
 "src/tostools/__init__.py" = ["F403"]               # wildcard re-export
-"src/tostools/tos.py" = ["F821"]                    # conditional obspy imports, master_inventoryXML
 "src/tostools/tosGPS.py" = ["F841", "E722"]
-"src/tostools/xmltools.py" = ["F841"]
 "src/tostools/gps_rinex.py" = ["F821", "F841"]
 "src/tostools/gps_metadata_qc.py" = ["F821", "F841", "E722"]
 "src/tostools/gps_metadata_functions.py" = ["F841", "F811", "E722"]
-"src/tostools/metadata_functions.py" = ["F841", "E722"]
-"src/tostools/metadata2rmq.py" = ["F821"]           # missing Decimal import
-"src/tostools/owner.py" = ["E722"]
 "src/tostools/legacy/**" = ["F821", "F841", "E722", "F811"]
 "src/tostools/core/site_log.py" = ["F841"]
 "src/tostools/core/station.py" = ["F841"]

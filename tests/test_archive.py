@@ -554,7 +554,7 @@ def test_detect_rinex_only_spans_only_rinex_returns_one_span():
 
 
 def test_infer_expected_family_recognised_models():
-    from tostools.tos import _infer_expected_family
+    from tostools.audit_verify_from_rinex import infer_expected_family as _infer_expected_family
 
     assert _infer_expected_family("TRIMBLE NETR9") == "trimble_netr9"
     assert _infer_expected_family("TRIMBLE NETRS") == "trimble_netrs"
@@ -568,7 +568,7 @@ def test_infer_expected_family_unrecognised_returns_none():
     """Unmapped models → None, so verdict treats them as 'unmapped_model'
     (informational), not 'wrong_brand' (actionable). Important: ASHTECH
     UZ-12 has no .sbf-style mapping today; don't falsely flag it."""
-    from tostools.tos import _infer_expected_family
+    from tostools.audit_verify_from_rinex import infer_expected_family as _infer_expected_family
 
     assert _infer_expected_family("ASHTECH UZ-12") is None
     assert _infer_expected_family("LEICA GR10") is None
@@ -578,7 +578,7 @@ def test_infer_expected_family_unrecognised_returns_none():
 
 def test_classify_no_archive_coverage():
     """TOS window with no archived days → no_archive_coverage."""
-    from tostools.tos import _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
 
     timeline = [_day("2010-01-01", "septentrio")]
     verdict = _classify_tos_join_against_archive(
@@ -593,7 +593,7 @@ def test_classify_no_archive_coverage():
 def test_classify_unmapped_model_surfaces_informational():
     """When the TOS model has no family mapping (ASHTECH), verdict is
     informational — neither green nor red. The operator can decide."""
-    from tostools.tos import _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
 
     timeline = [_day("2007-09-01", "septentrio")]
     verdict = _classify_tos_join_against_archive(
@@ -609,7 +609,7 @@ def test_classify_unmapped_model_surfaces_informational():
 def test_classify_rinex_only_when_only_format_neutral_days():
     """Window contains only RINEX (format-neutral) days — brand can't
     be confirmed from filenames alone. Don't flag as wrong/right."""
-    from tostools.tos import _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
 
     timeline = [_day("2010-01-01", "rinex"), _day("2010-06-01", "rinex")]
     verdict = _classify_tos_join_against_archive(
@@ -623,7 +623,7 @@ def test_classify_rinex_only_when_only_format_neutral_days():
 
 def test_classify_ok_when_expected_family_throughout():
     """Window contains only the expected family → ok."""
-    from tostools.tos import _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
 
     timeline = [
         _day("2020-01-01", "trimble_netr9"),
@@ -643,7 +643,7 @@ def test_classify_late_start_suggests_narrowing_time_from():
     """SAVI 4830 case: TOS says NETR9 2007-09-07 → 2026-05-22, but
     archive shows septentrio before 2016-07-02. Suggest patching
     time_from to 2016-07-02."""
-    from tostools.tos import _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
 
     timeline = [
         _day("2008-01-01", "septentrio"),
@@ -668,7 +668,7 @@ def test_classify_late_start_suggests_narrowing_time_from():
 def test_classify_early_end_suggests_narrowing_time_to():
     """Mirror case: TOS window extends past when the expected brand
     actually ended. Suggest patching time_to backward."""
-    from tostools.tos import _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
 
     timeline = [
         _day("2008-01-01", "septentrio"),
@@ -688,7 +688,7 @@ def test_classify_early_end_suggests_narrowing_time_to():
 
 def test_classify_wrong_brand_when_only_other_family_present():
     """Window has raw days but none match the expected family."""
-    from tostools.tos import _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
 
     timeline = [
         _day("2020-01-01", "trimble_netr9"),
@@ -708,7 +708,7 @@ def test_classify_join_too_wide_interleaved():
     """Interleaved expected + other (rare; typically detection-then-coalesce
     catches it as late_start/early_end). Surface as join_too_wide with
     suggestion to narrow to first expected day."""
-    from tostools.tos import _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
 
     timeline = [
         _day("2020-01-01", "trimble_netr9"),

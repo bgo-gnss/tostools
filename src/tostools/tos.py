@@ -1,1717 +1,16 @@
-#!/usr/bin/python3
-#
-# Project: TOSTools
-# Authors: Tryggvi Hjörvar
-# Date: Feb 2020
-#
-# Module to simplify query:ing TOS
-#
-# Usage:
-#  Command-line: tos.py <identifier> -s -o <format> -t <tablefmt>
-#  Help:  tos.py -h
-#
-# Examples:
-#   tos.py ada --schema_version 0.9 --sc3ml --compareto ..\..\gempa\sil_VI-orfeus-editedSH.xml
-#       ada asb fag gil god skr
-#
-#   TODO:
-#   Fjarlægð
-#   Næstu
-#   Myndir í PDF
-#   Devices
-#   History
-#
+"""tos — CLI for TOS station-metadata QC + write workflows.
 
+Subcommand surface only; the legacy flat-arg form (Tryggvi original)
+was removed in v0.7. XML / SC3 / FDSN export has been retired.
+"""
 
-# import os
 import argparse
-import copy
-import json
-
-# import stat
-import logging
-import re
 import sys
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import requests
-from tabulate import tabulate
-
-from .xmltools import compareSC3
-
-url_rest_tos = "https://vi-api.vedur.is:11223/tos/v1"
-
-# Set logging
-# NOTE: Commented out to avoid interfering with main logging configuration
-# logging.basicConfig(
-#     level=logging.INFO, format="%(levelname)s %(message)s"
-# )  # Formatting
-
-
-def searchStation(station_identifier, url_rest, domains=None):
-    if not isinstance(url_rest, str) or not url_rest.startswith(
-        ("http://", "https://")
-    ):
-        raise ValueError(
-            f"searchStation: url_rest must be a TOS base URL like "
-            f"{url_rest_tos!r}; got {url_rest!r}. Argument order is "
-            "(station_identifier, url_rest, domains)."
-        )
-
-    if domains is None:
-        domains = [
-            "meteorological",
-            "geophysical",
-            "hydrological",
-            "remote_sensing",
-            "remote_sensing_platform",
-            "general",
-        ]
-        logging.info("No domains specified, searcing " + str(domains))
-    else:
-        domains = list(domains.split(","))
-
-    if "remote_sensing" in domains and "remote_sensing_platform" not in domains:
-        domains.append("remote_sensing_platform")
-
-    station_identifiers = [station_identifier]
-    # Always include search for lowercase except for VM
-    if not station_identifier.islower() and not (
-        station_identifier[0].lower() == "v" and station_identifier[1].isdigit()
-    ):
-        station_identifiers += [station_identifier.lower()]
-        logging.info(f"Including lowercase search for {station_identifier.lower()}")
-
-    # Remove padding 0 in search for VM
-    if station_identifier[0:2] == "V0":
-        station_identifiers += ["V" + station_identifier[2:]]
-        logging.info("Including unpadded search for " + "V" + station_identifier[2:])
-
-    stations = []
-    for station_identifier in station_identifiers:
-        for domain in domains:
-            # Construct POST query
-            body = {"code": "marker", "value": station_identifier}
-
-            if domain == "remote_sensing_platform":
-                entity_type = "platform"
-            else:
-                entity_type = "station"
-
-            # Query TOS api
-            response = requests.post(
-                url_rest + "/entity/search/" + entity_type + "/" + domain + "/",
-                data=json.dumps(body),
-            )
-            response.raise_for_status()
-            if response.content:
-                # data={}
-                for station in response.json():
-                    # data['domain'] = domain
-                    #
-                    ##Find current attributes
-                    # data['station_identifier'] = next((item for item in station['attributes'] if (item['code'] == 'marker' and item['date_to'] is None)), None)['value']
-                    # data['subtype'] = next((item for item in station['attributes'] if (item['code'] == 'subtype' and item['date_to'] is None)), None)['value']
-                    #
-                    # if domain=='hydrological':
-                    #    value = next((item for item in station['attributes'] if (item['code'] == 'lat_isn93' and item['date_to'] is None)), {'value': None})['value']
-                    #    if value:
-                    #        data['lat_isn93'] = float(value)
-                    #    value = next((item for item in station['attributes'] if (item['code'] == 'lon_isn93' and item['date_to'] is None)), {'value': None})['value']
-                    #    if value:
-                    #        data['lon_isn93'] = float(value)
-                    # else:
-                    #    value = next((item for item in station['attributes'] if (item['code'] == 'lat' and item['date_to'] is None)), {'value': None})['value']
-                    #    if value:
-                    #        data['lat'] = float(value)
-                    #    value = next((item for item in station['attributes'] if (item['code'] == 'lon' and item['date_to'] is None)), {'value': None})['value']
-                    #    if value:
-                    #        data['lon'] = float(value)
-
-                    # Get current location for remote_sensing_platform location
-                    if (
-                        station["id_entity_parent"]
-                        and station["code_entity_subtype"] == "remote_sensing_platform"
-                    ):
-                        location = getEntity(station["id_entity_parent"])
-                        if location:
-                            station["location"] = []
-                            # station['location']=location
-                            station["location"].append(
-                                next(
-                                    (
-                                        item
-                                        for item in location["attributes"]
-                                        if (
-                                            item["code"] == "name"
-                                            and item["date_to"] is None
-                                        )
-                                    ),
-                                    {"value": None},
-                                )
-                            )
-                            station["location"].append(
-                                next(
-                                    (
-                                        item
-                                        for item in location["attributes"]
-                                        if (
-                                            item["code"] == "lat"
-                                            and item["date_to"] is None
-                                        )
-                                    ),
-                                    {"value": None},
-                                )
-                            )
-                            station["location"].append(
-                                next(
-                                    (
-                                        item
-                                        for item in location["attributes"]
-                                        if (
-                                            item["code"] == "lon"
-                                            and item["date_to"] is None
-                                        )
-                                    ),
-                                    {"value": None},
-                                )
-                            )
-                            # station['lat'] = next((item for item in location['attributes'] if (item['code'] == 'lat' and item['date_to'] is None)), {'value': None})
-                            # station['lon'] = next((item for item in location['attributes'] if (item['code'] == 'lon' and item['date_to'] is None)), {'value': None})
-                            # value = next((item for item in location['attributes'] if (item['code'] == 'lat' and item['date_to'] is None)), {'value': None})['value']
-                            # if value:
-                            #    station['lat'] = float(value)
-                            # value = next((item for item in location['attributes'] if (item['code'] == 'lon' and item['date_to'] is None)), {'value': None})['value']
-                            # if value:
-                            #    station['lon'] = float(value)
-
-                    stations.append(station)
-                    # stations.append(data)
-
-    return stations
-
-
-def getDevicesByParentEntityId(id_entity, subtypes=None):
-    devices = []
-
-    # Query TOS api
-    response = requests.get(
-        url_rest_tos + "/entity/get_children/parent/" + str(id_entity) + "/"
-    )
-    response.raise_for_status()
-    if response.content:
-        for device in response.json():
-            if subtypes:
-                if device["code_entity_subtype"] in subtypes:
-                    devices.append(device)
-            else:
-                devices.append(device)
-
-    return devices
-
-
-# def getDeviceHistoryByEntityId(id_entity, id_entity_parent):
-#    history = []
-#
-#    #Query TOS api
-#    response = requests.get(url_rest_tos+'/entity/parent_history/'+str(id_entity)+'/')
-#    response.raise_for_status()
-#    if response.content:
-#        for connection in response.json():
-#            if connection['id_entity_parent'] == id_entity_parent:
-#                history.append(connection)
-#
-#    return history
-
-
-def getDeviceSessions(id_entity):
-    sessions = []
-    devices_history = []
-    # Query TOS api
-    response = requests.get(url_rest_tos + "/history/entity/" + str(id_entity) + "/")
-    response.raise_for_status()
-    if response.content:
-        devices_history = response.json()
-
-    device_sessions = []
-    # Get devices and filter selected ['digitizer','seismometer', 'seismic_sensor']
-    if devices_history["children_connections"] is None:
-        logging.critical("No device sessions found")
-    else:
-        for connection in devices_history["children_connections"]:
-            response = requests.get(
-                url_rest_tos + "/entity/" + str(connection["id_entity_child"]) + "/"
-            )
-            response.raise_for_status()
-            if response.content:
-                device = response.json()
-                if device["code_entity_subtype"] in [
-                    "digitizer",
-                    "seismometer",
-                    "seismic_sensor",
-                ]:
-                    # serial_number = next((item for item in device['attributes'] if (item['code'] == 'serial_number' and item['date_to'] is None)), None)['value']
-                    # model = next((item for item in device['attributes'] if (item['code'] == 'model' and item['date_to'] is None)), None)['value']
-                    # sensor_sensitivity = next((item for item in device['attributes'] if (item['code'] == 'sensor_sensitivity' and item['date_to'] is None)), None)['value']
-                    # connection['device'] = device
-                    connection["device"] = {
-                        "code_entity_subtype": device["code_entity_subtype"],
-                        "serial_number": next(
-                            (
-                                item
-                                for item in device["attributes"]
-                                if (
-                                    item["code"] == "serial_number"
-                                    and item["date_to"] is None
-                                )
-                            ),
-                            {"value": None},
-                        )["value"],
-                        "model": next(
-                            (
-                                item
-                                for item in device["attributes"]
-                                if (item["code"] == "model" and item["date_to"] is None)
-                            ),
-                            {"value": None},
-                        )["value"],
-                        "sensor_sensitivity": next(
-                            (
-                                item
-                                for item in device["attributes"]
-                                if (
-                                    item["code"] == "sensor_sensitivity"
-                                    and item["date_to"] is None
-                                )
-                            ),
-                            {"value": None},
-                        )["value"],
-                    }
-                    device_sessions.append(connection)
-
-        # Sort by time_from
-        device_sessions.sort(key=lambda d: d["time_from"])
-
-        # Create sessions
-        device_slots = {
-            "digitizer": None,
-            "seismic_sensor": None,
-            "seismometer": None,
-        }
-
-        for device_session in device_sessions:
-            code_entity_subtype = device_session["device"]["code_entity_subtype"]
-            device_slots[code_entity_subtype] = device_session
-            if code_entity_subtype == "seismometer":
-                time_from = device_slots["seismometer"]["time_from"]
-                time_to = device_slots["seismometer"]["time_to"]
-                sessions.append(
-                    {
-                        "time_from": time_from,
-                        "time_to": time_to,
-                        "seismometer": device_slots["seismometer"],
-                    }
-                )
-            else:
-                if device_slots["digitizer"] and device_slots["seismic_sensor"]:
-                    time_from = datetime.strftime(
-                        max(
-                            datetime.strptime(
-                                device_slots["digitizer"]["time_from"],
-                                "%Y-%m-%dT%H:%M:%S",
-                            ),
-                            datetime.strptime(
-                                device_slots["seismic_sensor"]["time_from"],
-                                "%Y-%m-%dT%H:%M:%S",
-                            ),
-                        ),
-                        "%Y-%m-%dT%H:%M:%S",
-                    )
-                    time_to = None
-                    if device_slots["digitizer"]["time_to"]:
-                        time_to = device_slots["digitizer"]["time_to"]
-                    if device_slots["seismic_sensor"]["time_to"]:
-                        if time_to is None:
-                            time_to = device_slots["seismic_sensor"]["time_to"]
-                        else:
-                            time_to = datetime.strftime(
-                                min(
-                                    datetime.strptime(
-                                        device_slots["digitizer"]["time_to"],
-                                        "%Y-%m-%dT%H:%M:%S",
-                                    ),
-                                    datetime.strptime(
-                                        device_slots["seismic_sensor"]["time_to"],
-                                        "%Y-%m-%dT%H:%M:%S",
-                                    ),
-                                ),
-                                "%Y-%m-%dT%H:%M:%S",
-                            )
-                    sessions.append(
-                        {
-                            "time_from": time_from,
-                            "time_to": time_to,
-                            "digitizer": device_slots["digitizer"],
-                            "seismic_sensor": device_slots["seismic_sensor"],
-                        }
-                    )
-
-    return sessions
-
-
-def getEntity(id_entity):
-    response = requests.get(url_rest_tos + "/entity/" + str(id_entity) + "/")
-    response.raise_for_status()
-
-    if response.content:
-        data = response.json()
-        return data
-    else:
-        return None
-
-
-def searchDevice(serial_number=None, galvos=None):
-    devices = []
-    if serial_number:
-        search_term = serial_number
-        search_code = "serial_number"
-    elif galvos:
-        search_term = galvos
-        search_code = "galvos"
-    else:
-        logging.critical("No serial_number or Galvos number")
-        sys.exit(1)
-
-    # Construct POST query
-    body = {"search_term": str(search_term)}
-    # Query TOS api
-    response = requests.post(url_rest_tos + "/basic_search/", data=json.dumps(body))
-    response.raise_for_status()
-    if response.content:
-        # Make unique
-        unique = {}
-        for search in response.json():
-            if search["distance"] == 0 and search["code"] == search_code:
-                unique[search["value_varchar"]] = search
-
-        for value_varchar, search in unique.items():
-            if search["distance"] == 0 and search["code"] == search_code:
-                id_entity_device = search["id_lvl_three"]
-                # Query TOS api for device
-                response_device = requests.get(
-                    url_rest_tos + "/entity/" + str(id_entity_device) + "/"
-                )
-                response_device.raise_for_status()
-                if response_device.content:
-                    device = response_device.json()
-                    # Add attributes
-                    # for attribute in device['attributes']:
-                    #    #if attribute['date_to'] is None:
-                    #    device['attributes'].append(attribute)
-
-                # Get current station/platform
-                # NOTE: due to a bug in TOS we must use the result from the basic_search endpoint
-                # https://git.vedur.is/AOT/tos/issues/277
-                if "id_lvl_two" in search:
-                    device["id_entity_parent"] = search["id_lvl_two"]
-                    parent = getEntity(device["id_entity_parent"])  # station/platform
-                    if parent:
-                        device["station"] = []
-                        device["station"].append(
-                            next(
-                                (
-                                    item
-                                    for item in parent["attributes"]
-                                    if (
-                                        item["code"] == "name"
-                                        and item["date_to"] is None
-                                    )
-                                ),
-                                {"value": None},
-                            )
-                        )
-                        device["station"].append(
-                            next(
-                                (
-                                    item
-                                    for item in parent["attributes"]
-                                    if (
-                                        item["code"] == "marker"
-                                        and item["date_to"] is None
-                                    )
-                                ),
-                                {"value": None},
-                            )
-                        )
-                        # data['station_name'] = next((item for item in parent['attributes'] if (item['code'] == 'name' and item['date_to'] is None)), None)['value']
-                        # data['station_identifier'] = next((item for item in parent['attributes'] if (item['code'] == 'marker' and item['date_to'] is None)), None)['value']
-
-                        lat = next(
-                            (
-                                item
-                                for item in parent["attributes"]
-                                if (item["code"] == "lat" and item["date_to"] is None)
-                            ),
-                            None,
-                        )
-                        if lat:
-                            device["station"].append(lat)
-                        lon = next(
-                            (
-                                item
-                                for item in parent["attributes"]
-                                if (item["code"] == "lon" and item["date_to"] is None)
-                            ),
-                            None,
-                        )
-                        if lon:
-                            device["station"].append(lon)
-
-                        # device['station'].append( next((item for item in parent['attributes'] if (item['code'] == 'lat' and item['date_to'] is None)), {'value': None}) )
-                        # device['station'].append( next((item for item in parent['attributes'] if (item['code'] == 'lon' and item['date_to'] is None)), {'value': None}) )
-
-                        # NOTE: due to the code_entity_type missing from the API we must use entity_type_name_en:
-                        # https://git.vedur.is/AOT/tos/-/issues/291
-                        # if parent['entity_type_name_en']=='station':
-
-                        # value = next((item for item in parent['attributes'] if (item['code'] == 'lat' and item['date_to'] is None)), {'value': None})['value']
-                        # if value:
-                        #    data['lat'] = float(value)
-                        # value = next((item for item in parent['attributes'] if (item['code'] == 'lon' and item['date_to'] is None)), {'value': None})['value']
-                        # if value:
-                        #    data['lon'] = float(value)
-
-                        # Get current location for remote_sensing_platform
-                        if parent["code_entity_subtype"] == "remote_sensing_platform":
-                            # NOTE: due to a bug in TOS we must use the result from the basic_search endpoint
-                            # https://git.vedur.is/AOT/tos/issues/277
-                            location = getEntity(search["id_lvl_one"])
-                            if location:
-                                device["location"] = []
-                                device["location"].append(
-                                    next(
-                                        (
-                                            item
-                                            for item in location["attributes"]
-                                            if (
-                                                item["code"] == "name"
-                                                and item["date_to"] is None
-                                            )
-                                        ),
-                                        {"value": None},
-                                    )
-                                )
-                                device["location"].append(
-                                    next(
-                                        (
-                                            item
-                                            for item in location["attributes"]
-                                            if (
-                                                item["code"] == "lat"
-                                                and item["date_to"] is None
-                                            )
-                                        ),
-                                        {"value": None},
-                                    )
-                                )
-                                device["location"].append(
-                                    next(
-                                        (
-                                            item
-                                            for item in location["attributes"]
-                                            if (
-                                                item["code"] == "lon"
-                                                and item["date_to"] is None
-                                            )
-                                        ),
-                                        {"value": None},
-                                    )
-                                )
-                                # data['location_name'] = next((item for item in location['attributes'] if (item['code'] == 'name' and item['date_to'] is None)), None)['value']
-
-                            # value = next((item for item in location['attributes'] if (item['code'] == 'lat' and item['date_to'] is None)), {'value': None})['value']
-                            # if value:
-                            #    data['lat'] = float(value)
-                            # value = next((item for item in location['attributes'] if (item['code'] == 'lon' and item['date_to'] is None)), {'value': None})['value']
-                            # if value:
-                            #    data['lon'] = float(value)
-
-                devices.append(device)
-
-    return devices
-
-
-def lookupMasterDataloggerXML(device):
-    # <datalogger name="VI_Guralp_G24e_1000_500_100_MK3" publicID="Datalogger#20150925141352.76545.33138">
-    #    <description>3,2uV/bit</description>
-    #    <digitizerModel>CMG_DM24</digitizerModel>
-    #    <digitizerManufacturer>Guralp</digitizerManufacturer>
-    #    <recorderModel>MK3</recorderModel>
-    #    <recorderManufacturer>Guralp</recorderManufacturer>
-    #    <gain>1</gain>
-    #    <maxClockDrift>1</maxClockDrift>
-    #    <decimation sampleRateDenominator="1" sampleRateNumerator="100">
-    #        <digitalFilterChain>ResponseFIR#20151008175711.330075.76957 ResponseFIR#20151008175711.773266.76958 ResponseFIR#20151008175712.429604.76959 ResponseFIR#20151008175712.814358.76960 ResponseFIR#20151008175713.368669.76961 ResponseFIR#20151008175713.761908.76962 ResponseFIR#20151008175714.255511.76963 ResponseFIR#20151008175714.73044.76964 ResponseFIR#20151008175715.086604.76965</digitalFilterChain>
-    #    </decimation>
-    # </datalogger>
-
-    # print('model',device['model'])
-    # print('sensor_sensitivity',sensor_sensitivity)
-
-    regex = re.compile("({http.*})Inventory")
-    match = regex.search(master_inventoryXML.tag)
-    if match:
-        ns = match.group(1)
-    else:
-        raise ValueError("Invalid SC3ML file")
-        sys.exit(1)
-
-    dataloggers = master_inventoryXML.findall(ns + "datalogger")
-    # datalogger = master_inventory.find(ns+"datalogger[@name='VI_Guralp_G24e_1000_500_100_MK3']")
-
-    # regex = re.compile('^({http.*(\d.\d{1,2})})')
-    is_found = False
-    for dataloggerXML in dataloggers:
-        if device["model"] == "DM24-S3":
-            sensor_sensitivity = device["sensor_sensitivity"].replace(".", ",")
-            description = dataloggerXML.find(ns + "description")
-            if description is not None and description.text.startswith(
-                sensor_sensitivity
-            ):
-                dataloggerXML.attrib["name"]
-                publicID = dataloggerXML.attrib["publicID"]
-                is_found = True
-                break
-        elif device["model"] == "Minimus":
-            sensor_sensitivity = device["sensor_sensitivity"].replace(".", ",")
-            description = dataloggerXML.find(ns + "description")
-            if description is not None and description.text.startswith(
-                sensor_sensitivity
-            ):
-                dataloggerXML.attrib["name"]
-                publicID = dataloggerXML.attrib["publicID"]
-                is_found = True
-                break
-        elif device["model"] == "CMG-3TD 120s - 50Hz":
-            # Model fixes
-            model = "CMG3TD"
-            modelXML = dataloggerXML.find(ns + "model")
-
-            if modelXML is not None and modelXML.text == model:
-                dataloggerXML.attrib["name"]
-                dataloggerXML.attrib["response"]
-                publicID = dataloggerXML.attrib["publicID"]
-                is_found = True
-                break
-
-    if is_found:
-        # Copy element
-        dataloggerXML = copy.deepcopy(dataloggerXML)
-        # Strip namespace from elements
-        dataloggerXML.tag = dataloggerXML.tag[len(ns) :]
-        for child in dataloggerXML:
-            child.tag = child.tag[len(ns) :]
-            if child.tag == "decimation":
-                for grandchild in child:
-                    grandchild.tag = grandchild.tag[len(ns) :]
-
-        return {"publicID": publicID, "xml": dataloggerXML}
-    else:
-        logging.critical(
-            f"Datalogger with sensor_sensitivity {sensor_sensitivity} not found in master_inventory.xml"
-        )
-        sys.exit(1)
-
-
-def lookupMasterSensorXML(device):
-    # print('model',model)
-    # <sensor publicID="NRL/Guralp/CMG3ESP.60.2000" name="Guralp/CMG3ESP.60.2000" response="NRL/Guralp/CMG3ESP.60.2000/1">
-    #    <description>GURESPA in SIL-system</description>
-    #    <model>CMG-3ESP</model>
-    #    <manufacturer>Guralp</manufacturer>
-    #    <unit>M/S</unit>
-    # </sensor>
-
-    model = device["model"]
-    # Model fixes
-    if model.startswith("CMG-3ESPC"):
-        model = "CMG-3ESP"
-
-    # <model>LE-3D/5s</model>
-    # <model>LE-3D5s</model>
-
-    regex = re.compile("({http.*})Inventory")
-    match = regex.search(master_inventoryXML.tag)
-    if match:
-        ns = match.group(1)
-    else:
-        raise ValueError("Invalid SC3ML file")
-        sys.exit(1)
-
-    sensorsXML = master_inventoryXML.findall(ns + "sensor")
-    is_found = False
-    for sensorXML in sensorsXML:
-        modelXML = sensorXML.find(ns + "model")
-
-        if modelXML is not None and modelXML.text == model:
-            sensorXML.attrib["name"]
-            sensorXML.attrib["response"]
-            publicID = sensorXML.attrib["publicID"]
-            is_found = True
-            break
-
-    if is_found:
-        # Copy element
-        sensorXML = copy.deepcopy(sensorXML)
-        # Strip namespace from elements
-        sensorXML.tag = sensorXML.tag[len(ns) :]
-        for child in sensorXML:
-            child.tag = child.tag[len(ns) :]
-            if child.tag == "decimation":
-                for grandchild in child:
-                    grandchild.tag = grandchild.tag[len(ns) :]
-
-        return {"publicID": publicID, "xml": sensorXML}
-    else:
-        logging.critical(f"Sensor model {model} not found in master_inventory.xml")
-        sys.exit(1)
-
-
-def display(data, format="pretty", tablefmt="simple"):
-    if format == "pretty":
-        for item in data:
-            output = []
-            for attribute in item["attributes"]:
-                # Find current attributes
-                if attribute["date_to"] is None:
-                    output.append(attribute)
-
-            # Apply sort_order
-            output.sort(key=lambda d: d["sort_order"])
-
-            # Station and location specific parameters
-            if "station" in item:
-                output.append(
-                    {"name_is": "--Stöð--", "name_en": "--Station--", "value": ""}
-                )
-                for attribute in item["station"]:
-                    # Find current attributes
-                    if attribute["date_to"] is None:
-                        output.append(attribute)
-
-            if "location" in item:
-                output.append(
-                    {
-                        "name_is": "--Staðsetning--",
-                        "name_en": "--Location--",
-                        "value": "",
-                    }
-                )
-                for attribute in item["location"]:
-                    # Find current attributes
-                    if attribute["date_to"] is None:
-                        output.append(attribute)
-
-            print(
-                tabulate(
-                    [{"name_is": d["name_is"], "value": d["value"]} for d in output],
-                    tablefmt=tablefmt,
-                )
-            )
-
-            if "devices" in item:
-                print("Tæki")
-                output = []
-                for device in item["devices"]:
-                    model = ""
-                    for attribute in device["attributes"]:
-                        if attribute["code"] == "model":
-                            model = attribute["value"]
-                    output.append(
-                        {
-                            "code_entity_subtype": device["code_entity_subtype"],
-                            "entity_subtype_name_is": device["entity_subtype_name_is"],
-                            "model": model,
-                        }
-                    )
-                    # output.append({'code_entity_subtype':device['code_entity_subtype'], 'entity_subtype_name_is':device['entity_subtype_name_is']})
-                    # output.append({'serial_number': serial_number['value'], 'model': model['value'], 'name': name['value'], 'marker': marker['value']})
-
-                    # print(device['code_entity_subtype'])
-                    # print(device['entity_subtype_name_is'])
-                    # for attribute in device['attributes']:
-                    #    #if
-                    #    print(attribute)
-                print(
-                    tabulate(
-                        [
-                            {
-                                "entity_subtype_name_is": d["entity_subtype_name_is"],
-                                "code_entity_subtype": d["code_entity_subtype"],
-                                "model": d["model"],
-                            }
-                            for d in output
-                        ],
-                        tablefmt=tablefmt,
-                    )
-                )
-
-    elif format == "table":
-        for item in data:
-            output = []
-            # NOTE: due to the code_entity_type missing from the API we must use entity_type_name_en:
-            # https://git.vedur.is/AOT/tos/-/issues/291
-            headers = {}
-            row = {}
-            if item["entity_type_name_en"] in ["station", "platform"]:
-
-                name = next(
-                    (
-                        item
-                        for item in item["attributes"]
-                        if (item["code"] == "name" and item["date_to"] is None)
-                    ),
-                    {"value": None},
-                )
-                if name["value"]:
-                    headers["name"] = name["name_is"]
-                    row["name"] = name["value"]
-
-                marker = next(
-                    (
-                        item
-                        for item in item["attributes"]
-                        if (item["code"] == "marker" and item["date_to"] is None)
-                    ),
-                    {"value": None},
-                )
-                if marker["value"]:
-                    headers["marker"] = marker["name_is"]
-                    row["marker"] = marker["value"]
-
-                wmo = next(
-                    (
-                        item
-                        for item in item["attributes"]
-                        if (item["code"] == "wmo" and item["date_to"] is None)
-                    ),
-                    {"value": None},
-                )
-                if wmo["value"]:
-                    headers["wmo"] = wmo["name_is"]
-                    row["wmo"] = wmo["value"]
-
-                imo = next(
-                    (
-                        item
-                        for item in item["attributes"]
-                        if (item["code"] == "imo" and item["date_to"] is None)
-                    ),
-                    {"value": None},
-                )
-                if imo["value"]:
-                    headers["imo"] = imo["name_is"]
-                    row["imo"] = imo["value"]
-
-                subtype = next(
-                    (
-                        item
-                        for item in item["attributes"]
-                        if (item["code"] == "subtype" and item["date_to"] is None)
-                    ),
-                    {"value": None},
-                )
-                if subtype["value"]:
-                    headers["subtype"] = subtype["name_is"]
-                    row["subtype"] = subtype["value"]
-
-                if item["code_entity_subtype"] == "hydrological":
-                    lat = next(
-                        (
-                            item
-                            for item in item["attributes"]
-                            if (item["code"] == "lat_isn93" and item["date_to"] is None)
-                        ),
-                        {"value": None},
-                    )
-                    if lat["value"]:
-                        headers["lat"] = lat["name_is"]
-                        row["lat"] = lat["value"]
-                    lon = next(
-                        (
-                            item
-                            for item in item["attributes"]
-                            if (item["code"] == "lon_isn93" and item["date_to"] is None)
-                        ),
-                        {"value": None},
-                    )
-                    if lon["value"]:
-                        headers["lon"] = lon["name_is"]
-                        row["lon"] = lon["value"]
-                else:
-                    lat = next(
-                        (
-                            item
-                            for item in item["attributes"]
-                            if (item["code"] == "lat" and item["date_to"] is None)
-                        ),
-                        {"value": None},
-                    )
-                    if lat["value"]:
-                        headers["lat"] = lat["name_is"]
-                        row["lat"] = lat["value"]
-                    lon = next(
-                        (
-                            item
-                            for item in item["attributes"]
-                            if (item["code"] == "lon" and item["date_to"] is None)
-                        ),
-                        {"value": None},
-                    )
-                    if lon["value"]:
-                        headers["lon"] = lon["name_is"]
-                        row["lon"] = lon["value"]
-
-                altitude = next(
-                    (
-                        item
-                        for item in item["attributes"]
-                        if (item["code"] == "altitude" and item["date_to"] is None)
-                    ),
-                    {"value": None},
-                )
-                if altitude["value"]:
-                    headers["altitude"] = altitude["name_is"]
-                    row["altitude"] = altitude["value"]
-
-                if "location" in item:
-                    location = next(
-                        (
-                            item
-                            for item in item["location"]
-                            if (item["code"] == "name" and item["date_to"] is None)
-                        ),
-                        {"value": None},
-                    )
-                    if location["value"]:
-                        headers["location"] = location["name_is"]
-                        row["location"] = location["value"]
-
-                output.append(row)
-
-            elif item["entity_type_name_en"] == "device":
-                serial_number = next(
-                    (
-                        item
-                        for item in item["attributes"]
-                        if (item["code"] == "serial_number" and item["date_to"] is None)
-                    ),
-                    {"value": None},
-                )
-                if serial_number["value"]:
-                    headers["serial_number"] = serial_number["name_is"]
-
-                model = next(
-                    (
-                        item
-                        for item in item["attributes"]
-                        if (item["code"] == "model" and item["date_to"] is None)
-                    ),
-                    {"value": None},
-                )
-                if model["value"]:
-                    headers["model"] = model["name_is"]
-
-                name = next(
-                    (
-                        item
-                        for item in item["station"]
-                        if (item["code"] == "name" and item["date_to"] is None)
-                    ),
-                    {"value": None},
-                )
-                if name["value"]:
-                    headers["name"] = name["name_is"]
-
-                marker = next(
-                    (
-                        item
-                        for item in item["station"]
-                        if (item["code"] == "marker" and item["date_to"] is None)
-                    ),
-                    {"value": None},
-                )
-                if marker["value"]:
-                    headers["marker"] = marker["name_is"]
-
-                if "location" in item:
-                    location = next(
-                        (
-                            item
-                            for item in item["location"]
-                            if (item["code"] == "name" and item["date_to"] is None)
-                        ),
-                        {"value": None},
-                    )
-                    if location["value"]:
-                        headers["location"] = location["name_is"]
-
-                    output.append(
-                        {
-                            "serial_number": serial_number["value"],
-                            "model": model["value"],
-                            "name": name["value"],
-                            "marker": marker["value"],
-                            "location": location["value"],
-                        }
-                    )
-
-                else:
-                    output.append(
-                        {
-                            "serial_number": serial_number["value"],
-                            "model": model["value"],
-                            "name": name["value"],
-                            "marker": marker["value"],
-                        }
-                    )
-
-            print(tabulate(output, headers, tablefmt=tablefmt))
-
-    elif format == "json":
-        print(json.dumps(data, ensure_ascii=False))
-    # elif format=='table':  #Full lines for CSV
-    #    print(data)
-
-
-def indent(elem, level=0, more_sibs=False):
-    i = "\n"
-    if level:
-        i += (level - 1) * "  "
-    num_kids = len(elem)
-    if num_kids:
-        if not elem.text or not elem.text.strip():
-            elem.text = i + "  "
-            if level:
-                elem.text += "  "
-        count = 0
-        for kid in elem:
-            indent(kid, level + 1, count < num_kids - 1)
-            count += 1
-        if not elem.tail or not elem.tail.strip():
-            elem.tail = i
-            if more_sibs:
-                elem.tail += "  "
-    else:
-        if level and (not elem.tail or not elem.tail.strip()):
-            elem.tail = i
-            if more_sibs:
-                elem.tail += "  "
-
-
-def parseSeiscompInventoryXML(inventory_file):
-    # Parse inventory file
-    seiscomp = ET.parse(inventory_file).getroot()
-    schema_version = seiscomp.attrib["version"]
-    ns = "{http://geofon.gfz-potsdam.de/ns/seiscomp3-schema/" + schema_version + "}"
-    if seiscomp.tag != ns + "seiscomp":
-        logging.critical("Invalid inventory file, root element seiscomp not found")
-        sys.exit(1)
-    inventoryXML = seiscomp.find(ns + "Inventory")
-    # sensors = inventory.findall(ns+'sensor')
-    # dataloggers = inventory.findall(ns+'datalogger')
-    # responsePAZ = inventory.findall(ns+'responsePAZ')
-    # responseFIR = inventory.findall(ns+'responseFIR')
-
-    return inventoryXML
-
-
-def generatePublicID(schema_version, classname, resource, time, id):
-    map_classname = {
-        "0.11": {
-            "network": "NET",
-            "station": "STA",
-            "sensorLocation": "LOC",
-            "stream": "Stream",
-            "datalogger": "Datalogger",
-        },
-        "0.0": {
-            "network": "Network",
-            "station": "Station",
-            "sensorLocation": "SensorLocation",
-            "stream": "Stream",
-            "datalogger": "Datalogger",
-        },
-    }
-    tokens = schema_version.split(".")
-    if int(tokens[1]) >= 11:
-        # Pattern: @classname@/@time/%Y%m%d%H%M%S.%f@.@id@
-        if resource:
-            return (
-                map_classname["0.11"][classname]
-                + "/VI/"
-                + resource
-                + "/"
-                + time
-                + "000000.000000."
-                + str(id)
-            )
-        else:
-            return (
-                map_classname["0.11"][classname]
-                + "/VI/"
-                + time
-                + "000000.000000."
-                + str(id)
-            )
-    else:
-        return map_classname["0.0"][classname] + "#" + time + "000000.000000." + str(id)
-
-
-def generateSC3ML(station_list=None, schema_version=None):
-    if schema_version is None:
-        schema_version = "0.11"
-    # from xml.etree.ElementTree import Element, SubElement, Comment
-    # from ElementTree_pretty import prettify
-    # from io import BytesIO
-    # xml.etree.ElementTree.SubElement(parent, tag, attrib={}, **extra)¶
-
-    dataloggers = {}
-    sensors = {}
-
-    # <seiscomp version="0.10" xmlns="http://geofon.gfz-potsdam.de/ns/seiscomp3-schema/0.10">
-    # seiscomp = ET.SubElement(root, 'seiscomp', {'version': schema_version, 'xmlns': 'http://geofon.gfz-potsdam.de/ns/seiscomp3-schema/'+schema_version})
-    seiscompXML = ET.Element(
-        "seiscomp",
-        {
-            "version": schema_version,
-            "xmlns": "http://geofon.gfz-potsdam.de/ns/seiscomp3-schema/"
-            + schema_version,
-        },
-    )
-
-    # <Inventory>
-    inventoryXML = ET.SubElement(seiscompXML, "Inventory")
-
-    # <network code="VI" publicID="Network#20131010133839.04134.12281">
-    #    <start>1990-10-10T00:00:00.0000Z</start>
-    #    <description>SIL  Icelandic national seismic network</description>
-    #    <institutions>IMO</institutions>
-    #    <region>Iceland</region>
-    #    <type>BB, SP</type>
-    #    <restricted>false</restricted>
-    #    <shared>false</shared>
-    publicID = generatePublicID(schema_version, "network", "", "19901010", "0")
-    # network = ET.SubElement(inventory, 'network', {'code': 'VI', 'publicID': publicID})
-    networkXML = ET.Element("network", {"code": "VI", "publicID": publicID})
-    ET.SubElement(networkXML, "start").text = "1990-10-10T00:00:00.0000Z"
-    ET.SubElement(networkXML, "description").text = (
-        "SIL  Icelandic national seismic network"
-    )
-    ET.SubElement(networkXML, "institutions").text = "IMO"
-    ET.SubElement(networkXML, "region").text = "Iceland"
-    ET.SubElement(networkXML, "type").text = "BB, SP"
-    ET.SubElement(networkXML, "restricted").text = "false"
-    ET.SubElement(networkXML, "shared").text = "false"
-
-    # Get stations
-    if len(station_list) > 0:
-        for station_identifier in station_list:
-            station = searchStation(station_identifier, url_rest_tos, "geophysical")
-            if len(station) == 0:
-                logging.warning(
-                    f"Station with station_identifier {station_identifier} not found"
-                )
-            elif len(station) > 1:
-                logging.critical(
-                    f"Multiple stations with station_identifier {station_identifier} found"
-                )
-                sys.exit(1)
-            else:
-                subtype = next(
-                    (
-                        item
-                        for item in station[0]["attributes"]
-                        if (item["code"] == "subtype" and item["date_to"] is None)
-                    ),
-                    None,
-                )["value"]
-                if subtype == "SIL stöð":
-                    # <station publicID="STA/VI/ada/20201119135844.865164.24" code="ada">
-                    # <station publicID="Station#20131011220040.346443.30884" code="ada">
-                    #    <start>1998-09-19T00:00:00.0000Z</start>
-                    #    <latitude>65.01879</latitude>
-                    #    <longitude>-15.57452</longitude>
-                    #    <elevation>443</elevation>
-                    #    <place>Aðalból</place>
-                    #    <restricted>false</restricted>
-                    #    <shared>false</shared>
-                    id_entity = station[0]["id_entity"]
-                    station_identifier = next(
-                        (
-                            item
-                            for item in station[0]["attributes"]
-                            if (item["code"] == "marker" and item["date_to"] is None)
-                        ),
-                        None,
-                    )["value"]
-                    name = next(
-                        (
-                            item
-                            for item in station[0]["attributes"]
-                            if (item["code"] == "name" and item["date_to"] is None)
-                        ),
-                        None,
-                    )["value"]
-                    date_start = next(
-                        (
-                            item
-                            for item in station[0]["attributes"]
-                            if (
-                                item["code"] == "date_start" and item["date_to"] is None
-                            )
-                        ),
-                        None,
-                    )["value"]
-                    lat = next(
-                        (
-                            item
-                            for item in station[0]["attributes"]
-                            if (item["code"] == "lat" and item["date_to"] is None)
-                        ),
-                        None,
-                    )["value"]
-                    lon = next(
-                        (
-                            item
-                            for item in station[0]["attributes"]
-                            if (item["code"] == "lon" and item["date_to"] is None)
-                        ),
-                        None,
-                    )["value"]
-                    altitude = next(
-                        (
-                            item
-                            for item in station[0]["attributes"]
-                            if (item["code"] == "altitude" and item["date_to"] is None)
-                        ),
-                        None,
-                    )["value"]
-
-                    publicID = generatePublicID(
-                        schema_version,
-                        "station",
-                        station_identifier,
-                        date_start.replace("-", ""),
-                        "0",
-                    )
-                    stationXML = ET.SubElement(
-                        networkXML,
-                        "station",
-                        {"code": station_identifier, "publicID": publicID},
-                    )
-                    ET.SubElement(stationXML, "start").text = (
-                        date_start + "T00:00:00.0000Z"
-                    )
-                    ET.SubElement(stationXML, "latitude").text = lat
-                    ET.SubElement(stationXML, "longitude").text = lon
-                    ET.SubElement(stationXML, "elevation").text = altitude
-                    ET.SubElement(stationXML, "place").text = name
-                    ET.SubElement(stationXML, "restricted").text = "false"
-                    ET.SubElement(stationXML, "shared").text = "false"
-
-                    # Device sessions
-                    sessions = getDeviceSessions(id_entity)
-
-                    if sessions:
-                        for session in sessions:
-                            if "seismometer" in session:
-                                # sensor = lookupMasterDataloggerXML(session['digitizer']['sensor_sensitivity'])  #publicID, xml
-                                print("TODO seismometer")
-                                sys.exit()
-                                # datalogger = lookupMasterDataloggerXML(session['seismometer']['device'])  #publicID, xml
-                                # sensor = lookupMasterSensorXML(session['seismometer']['device'])  #publicID, xml
-                            else:
-                                if "digitizer" in session:
-                                    # print(session['digitizer']['device'])
-                                    datalogger = lookupMasterDataloggerXML(
-                                        session["digitizer"]["device"]
-                                    )  # publicID, xml
-                                if "seismic_sensor" in session:
-                                    # print(session['seismic_sensor']['device'])
-                                    sensor = lookupMasterSensorXML(
-                                        session["seismic_sensor"]["device"]
-                                    )  # publicID, xml
-
-                            # Insert into XML list
-                            if datalogger["publicID"] not in dataloggers:
-                                dataloggers[datalogger["publicID"]] = datalogger
-                            if sensor["publicID"] not in sensors:
-                                sensors[sensor["publicID"]] = sensor
-
-                        # <sensorLocation publicID="LOC/VI/ada//20201119135914.058238.323" code="">
-                        # <sensorLocation publicID="SensorLocation#20131011220040.346534.30885" code="">
-                        #    <start>1998-09-19T00:00:00.0000Z</start>
-                        #    <latitude>65.01879</latitude>
-                        #    <longitude>-15.57452</longitude>
-                        #    <elevation>443</elevation>
-                        publicID = generatePublicID(
-                            schema_version,
-                            "sensorLocation",
-                            station_identifier,
-                            date_start.replace("-", ""),
-                            "0",
-                        )
-                        sensorLocationXML = ET.SubElement(
-                            stationXML,
-                            "sensorLocation",
-                            {"code": "", "publicID": publicID},
-                        )
-                        # ET.SubElement(sensorLocationXML, 'start').text = date_start+'T00:00:00.0000Z'
-                        ET.SubElement(sensorLocationXML, "start").text = session[
-                            "time_from"
-                        ]
-                        ET.SubElement(sensorLocationXML, "latitude").text = lat
-                        ET.SubElement(sensorLocationXML, "longitude").text = lon
-                        ET.SubElement(sensorLocationXML, "elevation").text = altitude
-
-                        # <stream code="HHE" datalogger="Datalogger#20150925141352.76545.33138" sensor="NRL/Guralp/CMG3ESP.60.2000">
-                        #    <start>2015-01-01T00:00:00.0000Z</start>
-                        #    <dataloggerSerialNumber>E086</dataloggerSerialNumber>
-                        #    <dataloggerChannel>0</dataloggerChannel>
-                        #    <sensorSerialNumber>T3Y33</sensorSerialNumber>
-                        #    <sensorChannel>0</sensorChannel>
-                        #    <sampleRateNumerator>100</sampleRateNumerator>
-                        #    <sampleRateDenominator>1</sampleRateDenominator>
-                        #    <depth>0</depth>
-                        #    <azimuth>90</azimuth>
-                        #    <dip>0</dip>
-                        #    <gain>625000000</gain>
-                        #    <gainFrequency>1</gainFrequency>
-                        #    <gainUnit>M/S</gainUnit>
-                        #    <format>Steim2</format>
-                        #    <restricted>false</restricted>
-                        #    <shared>true</shared>
-                        # </stream>
-                        streamHHEXML = ET.SubElement(
-                            sensorLocationXML,
-                            "stream",
-                            {
-                                "code": "HHE",
-                                "datalogger": datalogger["publicID"],
-                                "sensor": "asdf",
-                            },
-                        )
-                        # ET.SubElement(streamHHEXML, 'start').text = date_start+'T00:00:00.0000Z'
-                        ET.SubElement(streamHHEXML, "start").text = session["time_from"]
-                        ET.SubElement(streamHHEXML, "dataloggerSerialNumber").text = (
-                            session["digitizer"]["device"]["serial_number"]
-                        )
-                        ET.SubElement(streamHHEXML, "dataloggerChannel").text = (
-                            "0"  # Always 0
-                        )
-                        ET.SubElement(streamHHEXML, "sensorSerialNumber").text = (
-                            session["seismic_sensor"]["device"]["serial_number"]
-                        )
-                        ET.SubElement(streamHHEXML, "sensorChannel").text = (
-                            "0"  # Always 0
-                        )
-                        ET.SubElement(streamHHEXML, "sampleRateNumerator").text = "xxx"
-                        ET.SubElement(streamHHEXML, "sampleRateDenominator").text = (
-                            "xxx"
-                        )
-                        ET.SubElement(streamHHEXML, "depth").text = "0"
-                        ET.SubElement(streamHHEXML, "azimuth").text = (
-                            "90"  # HHE: 90, HHN: 0, HHZ: 0
-                        )
-                        ET.SubElement(streamHHEXML, "dip").text = (
-                            "0"  # HHE:  0, HHN: 0, HHZ: -90
-                        )
-                        ET.SubElement(streamHHEXML, "gain").text = "xxx"
-                        ET.SubElement(streamHHEXML, "gainFrequency").text = "xxx"
-                        ET.SubElement(streamHHEXML, "gainUnit").text = "xxx"
-                        ET.SubElement(streamHHEXML, "format").text = "xxx"
-                        ET.SubElement(streamHHEXML, "restricted").text = "xxx"
-                        ET.SubElement(streamHHEXML, "shared").text = "xxx"
-
-                        # <stream code="HHN" datalogger="Datalogger#20150925141352.76545.33138" sensor="NRL/Guralp/CMG3ESP.60.2000">
-                        #    <start>2015-01-01T00:00:00.0000Z</start>
-                        #    <dataloggerSerialNumber>E086</dataloggerSerialNumber>
-                        #    <dataloggerChannel>0</dataloggerChannel>
-                        #    <sensorSerialNumber>T3Y33</sensorSerialNumber>
-                        #    <sensorChannel>0</sensorChannel>
-                        #    <sampleRateNumerator>100</sampleRateNumerator>
-                        #    <sampleRateDenominator>1</sampleRateDenominator>
-                        #    <depth>0</depth>
-                        #    <azimuth>0</azimuth>
-                        #    <dip>0</dip>
-                        #    <gain>625000000</gain>
-                        #    <gainFrequency>1</gainFrequency>
-                        #    <gainUnit>M/S</gainUnit>
-                        #    <format>Steim2</format>
-                        #    <restricted>false</restricted>
-                        #    <shared>true</shared>
-                        # </stream>
-                        streamHHNXML = ET.SubElement(
-                            sensorLocationXML,
-                            "stream",
-                            {
-                                "code": "HHN",
-                                "datalogger": datalogger["publicID"],
-                                "sensor": "asdf",
-                            },
-                        )
-                        # ET.SubElement(streamHHNXML, 'start').text = date_start+'T00:00:00.0000Z'
-                        # ET.SubElement(streamHHNXML, 'dataloggerSerialNumber').text = datalogger['serial_number']
-                        ET.SubElement(streamHHNXML, "start").text = session["time_from"]
-                        ET.SubElement(streamHHNXML, "dataloggerSerialNumber").text = (
-                            session["digitizer"]["device"]["serial_number"]
-                        )
-                        ET.SubElement(streamHHNXML, "dataloggerChannel").text = (
-                            "0"  # Always 0
-                        )
-                        ET.SubElement(streamHHNXML, "sensorSerialNumber").text = (
-                            session["seismic_sensor"]["device"]["serial_number"]
-                        )
-                        ET.SubElement(streamHHNXML, "sensorChannel").text = (
-                            "0"  # Always 0
-                        )
-                        ET.SubElement(streamHHNXML, "sampleRateNumerator").text = "xxx"
-                        ET.SubElement(streamHHNXML, "sampleRateDenominator").text = (
-                            "xxx"
-                        )
-                        ET.SubElement(streamHHNXML, "depth").text = "0"
-                        ET.SubElement(streamHHNXML, "azimuth").text = (
-                            "0"  # HHE: 90, HHN: 0, HHZ: 0
-                        )
-                        ET.SubElement(streamHHNXML, "dip").text = (
-                            "0"  # HHE:  0, HHN: 0, HHZ: -90
-                        )
-                        ET.SubElement(streamHHNXML, "gain").text = "xxx"
-                        ET.SubElement(streamHHNXML, "gainFrequency").text = "xxx"
-                        ET.SubElement(streamHHNXML, "gainUnit").text = "xxx"
-                        ET.SubElement(streamHHNXML, "format").text = "xxx"
-                        ET.SubElement(streamHHNXML, "restricted").text = "xxx"
-                        ET.SubElement(streamHHNXML, "shared").text = "xxx"
-
-                        # <stream code="HHZ" datalogger="Datalogger#20150925141352.76545.33138" sensor="NRL/Guralp/CMG3ESP.60.2000">
-                        #    <start>2015-01-01T00:00:00.0000Z</start>
-                        #    <dataloggerSerialNumber>E086</dataloggerSerialNumber>
-                        #    <dataloggerChannel>0</dataloggerChannel>
-                        #    <sensorSerialNumber>T3Y33</sensorSerialNumber>
-                        #    <sensorChannel>0</sensorChannel>
-                        #    <sampleRateNumerator>100</sampleRateNumerator>
-                        #    <sampleRateDenominator>1</sampleRateDenominator>
-                        #    <depth>0</depth>
-                        #    <azimuth>0</azimuth>
-                        #    <dip>-90</dip>
-                        #    <gain>625000000</gain>
-                        #    <gainFrequency>1</gainFrequency>
-                        #    <gainUnit>M/S</gainUnit>
-                        #    <format>Steim2</format>
-                        #    <restricted>false</restricted>
-                        #    <shared>true</shared>
-                        # </stream>
-                        streamHHZXML = ET.SubElement(
-                            sensorLocationXML,
-                            "stream",
-                            {
-                                "code": "HHZ",
-                                "datalogger": datalogger["publicID"],
-                                "sensor": "asdf",
-                            },
-                        )
-                        # ET.SubElement(streamHHZXML, 'start').text = date_start+'T00:00:00.0000Z'
-                        # ET.SubElement(streamHHZXML, 'dataloggerSerialNumber').text = datalogger['serial_number']
-                        ET.SubElement(streamHHZXML, "start").text = session["time_from"]
-                        ET.SubElement(streamHHZXML, "dataloggerSerialNumber").text = (
-                            session["digitizer"]["device"]["serial_number"]
-                        )
-                        ET.SubElement(streamHHZXML, "dataloggerChannel").text = (
-                            "0"  # Always 0
-                        )
-                        ET.SubElement(streamHHZXML, "sensorSerialNumber").text = (
-                            session["seismic_sensor"]["device"]["serial_number"]
-                        )
-                        ET.SubElement(streamHHZXML, "sensorChannel").text = (
-                            "0"  # Always 0
-                        )
-                        ET.SubElement(streamHHZXML, "sampleRateNumerator").text = "xxx"
-                        ET.SubElement(streamHHZXML, "sampleRateDenominator").text = (
-                            "xxx"
-                        )
-                        ET.SubElement(streamHHZXML, "depth").text = "0"
-                        ET.SubElement(streamHHZXML, "azimuth").text = (
-                            "0"  # HHE: 90, HHN: 0, HHZ: 0
-                        )
-                        ET.SubElement(streamHHZXML, "dip").text = (
-                            "-90"  # HHE:  0, HHN: 0, HHZ: -90
-                        )
-                        ET.SubElement(streamHHZXML, "gain").text = "xxx"
-                        ET.SubElement(streamHHZXML, "gainFrequency").text = "xxx"
-                        ET.SubElement(streamHHZXML, "gainUnit").text = "xxx"
-                        ET.SubElement(streamHHZXML, "format").text = "xxx"
-                        ET.SubElement(streamHHZXML, "restricted").text = "xxx"
-                        ET.SubElement(streamHHZXML, "shared").text = "xxx"
-
-    else:
-        print("TODO: all sil stations")
-        sys.exit()
-
-    # inventory.append(sensors)
-    # inventory.append(dataloggers)
-    # inventory.append(responsePAZs)
-    # inventory.append(responseFIRs)
-
-    # Compile the XML Inventory
-    # Dataloggers
-    for publicID, datalogger in dataloggers.items():
-        # print(datalogger)
-        inventoryXML.append(datalogger["xml"])
-
-    for publicID, sensor in sensors.items():
-        # print(datalogger)
-        inventoryXML.append(sensor["xml"])
-
-    inventoryXML.append(networkXML)
-
-    # Prettify
-    tree = ET.ElementTree(seiscompXML)
-    for elem in tree.iter():
-        indent(elem)
-    # ET.dump(tree)
-
-    # f = BytesIO()
-    # tree.write(f, encoding='utf-8', xml_declaration=True)
-    # print(f.getvalue())  # your XML file, encoded as UTF-8
-
-    # xml = ET.tostring(seiscomp, encoding='UTF-8', method='xml', xml_declaration=True).decode()
-    xml = ET.tostring(seiscompXML, encoding="UTF-8", method="xml").decode()
-
-    # ET.dump(top)
-    # for elem in tree.iter():
-
-    # IRIS Nomial Response Library (http://ds.iris.edu/NRL/)
-    # nrl = NRL()
-
-    # ada
-    # <stream code="HHE" datalogger="Datalogger#20150925141352.76545.33138" sensor="NRL/Guralp/CMG3ESP.60.2000">
-    #    <start>2015-01-01T00:00:00.0000Z</start>
-    #    <dataloggerSerialNumber>E086</dataloggerSerialNumber>
-    #    <dataloggerChannel>0</dataloggerChannel>
-    #    <sensorSerialNumber>T3Y33</sensorSerialNumber>
-    #    <sensorChannel>0</sensorChannel>
-    #    <sampleRateNumerator>100</sampleRateNumerator>
-    #    <sampleRateDenominator>1</sampleRateDenominator>
-    #    <depth>0</depth>
-    #    <azimuth>90</azimuth>
-    #    <dip>0</dip>
-    #    <gain>625000000</gain>
-    #    <gainFrequency>1</gainFrequency>
-    #    <gainUnit>M/S</gainUnit>
-    #    <format>Steim2</format>
-    #    <restricted>false</restricted>
-    #    <shared>true</shared>
-    # </stream>
-
-    # <dataloggerChannel> alltaf 0
-    # <sensorChannel> alltaf 0
-    # <azimuth>90 for HHE, 0 for HHN, HHZ
-    # <dip>-90 for HHZ, 0 for HHE, HHN
-
-    #    print(nrl.sensors['Guralp']['CMG-3ESP']['60 s - 50 Hz']['2000'])
-    #    #('CMG-3ESP, 60 s, 2000 V/m/s', 'http://ds.iris.edu/NRL/sensors/guralp/RESP.XX.NS029..BHZ.CMG3ESP.60.2000')
-    #
-    #    #Select the the model of your DM-24 (3 items): 'Mk1', 'Mk2', 'Mk3'
-    #    #Select whether your DM24 Mk3 preamp has fixed (1) or variable (1,2,4,8,16,32,64) gain (2 items): 'Fixed', 'Variable'
-    #    #Select a tap table lookup range (10 items): '1-10', '11-20', '21-30', '31-40', '41-50', '51-60', '61-70','71-80', '81-90', '91-95'
-    #    #Select this channel's tap table lookup number (10 items): '1', '10', '2', '3', '4', '5', '6', '7', '8', '9'
-    #    #Select this channel's sample rate in samples per second (6 items): '1000', '125', '25', '250', '5', '500'
-    #    print(nrl.dataloggers['Guralp']['CMG-DM24']['Mk3']['Fixed']['1-10']['1']['1000'])    #DM24-S3, preamp=Fixed, tap-table lookup rante=1-10, tap-table=1, sample-rate=
-    #    #('DM-24 Mk3 Fixed Gain, gain 1, 1000 sps, tap id 1, (1000 500 250 125 25 and 5 Hz)', 'http://ds.iris.edu/NRL/dataloggers/guralp/CMG_DM24/mk3/fixed/RESP.XX.G0143..HHZ.CMG_DM24_MK3_FIX.1..1000')
-    #
-    #    #response = nrl.get_response(sensor_keys=['Streckeisen', 'STS-1', '360 seconds'],datalogger_keys=['REF TEK', 'RT 130 & 130-SMA', '1', '200'])
-    #    response = nrl.get_response(sensor_keys=['Guralp', 'CMG-3ESP', '60 s - 50 Hz', '2000'],
-    #                                datalogger_keys=['Guralp','CMG-DM24','Mk3','Fixed','1-10','1','1000'] )
-    #    print(response)
-    #
-    #    #asb
-    #    #<stream code="HHN" datalogger="Datalogger#20140806133046.974009.123501" sensor="NRL/Streckeisen/STS3.120.1500">
-    #    #print(nrl.sensors['Streckeisen']['STS-3'])
-
-    #    #Get stations
-    #    if station_list==None:
-    #        logging.info("No station_identifier:s specified, Generate Gempa XML for all SIL stations")
-    #    else:
-    #        logging.info("Generate Gempa XML for stations: "+str(station_list))
-    #
-    #    #Query TOS api for SIL stations
-    #    body = {
-    #            'code': 'subtype',
-    #            'value': 'SIL stöð'
-    #        }
-    #    response = requests.post(url_rest_tos+'/entity/search/station/geophysical/', data=json.dumps(body))
-    #    response.raise_for_status()
-    #
-    #    stations=[]
-    #    for station in response.json():
-    #        data={}
-    #        data['station_identifier'] = next((item for item in station['attributes'] if (item['code'] == 'marker' and item['date_to'] is None)), None)['value']
-    #
-    #        value = next((item for item in station['attributes'] if (item['code'] == 'lat' and item['date_to'] is None)), {'value': None})['value']
-    #        if value:
-    #            data['lat'] = float(value)
-    #        value = next((item for item in station['attributes'] if (item['code'] == 'lon' and item['date_to'] is None)), {'value': None})['value']
-    #        if value:
-    #            data['lon'] = float(value)
-    #
-    #        if (station_list and data['station_identifier'] in station_list) or station_list is None:
-    #            #if data['station_identifier'] in station_list:
-    #            stations.append(data)
-    #
-    #    #print(stations)
-
-    # Valid formats: CSS, KML, SACPZ, SHAPEFILE, STATIONTXT, STATIONXML
-    # inv.write("station.response.xml", format="stationxml", validate=True)
-
-    # print(xml)
-    return xml
-    # return tree
-
-
-def generateFDSNXML(station_list=None):
-    # IRIS Nomial Response Library (http://ds.iris.edu/NRL/)
-    nrl = NRL()
-
-    # ada
-    # <stream code="HHE" datalogger="Datalogger#20150925141352.76545.33138" sensor="NRL/Guralp/CMG3ESP.60.2000">
-    #    <start>2015-01-01T00:00:00.0000Z</start>
-    #    <dataloggerSerialNumber>E086</dataloggerSerialNumber>
-    #    <dataloggerChannel>0</dataloggerChannel>
-    #    <sensorSerialNumber>T3Y33</sensorSerialNumber>
-    #    <sensorChannel>0</sensorChannel>
-    #    <sampleRateNumerator>100</sampleRateNumerator>
-    #    <sampleRateDenominator>1</sampleRateDenominator>
-    #    <depth>0</depth>
-    #    <azimuth>90</azimuth>
-    #    <dip>0</dip>
-    #    <gain>625000000</gain>
-    #    <gainFrequency>1</gainFrequency>
-    #    <gainUnit>M/S</gainUnit>
-    #    <format>Steim2</format>
-    #    <restricted>false</restricted>
-    #    <shared>true</shared>
-    # </stream>
-
-    # <dataloggerChannel> alltaf 0
-    # <sensorChannel> alltaf 0
-    # <azimuth>90 for HHE, 0 for HHN, HHZ
-    # <dip>-90 for HHZ, 0 for HHE, HHN
-
-    #    print(nrl.sensors['Guralp']['CMG-3ESP']['60 s - 50 Hz']['2000'])
-    #    #('CMG-3ESP, 60 s, 2000 V/m/s', 'http://ds.iris.edu/NRL/sensors/guralp/RESP.XX.NS029..BHZ.CMG3ESP.60.2000')
-    #
-    #    #Select the the model of your DM-24 (3 items): 'Mk1', 'Mk2', 'Mk3'
-    #    #Select whether your DM24 Mk3 preamp has fixed (1) or variable (1,2,4,8,16,32,64) gain (2 items): 'Fixed', 'Variable'
-    #    #Select a tap table lookup range (10 items): '1-10', '11-20', '21-30', '31-40', '41-50', '51-60', '61-70','71-80', '81-90', '91-95'
-    #    #Select this channel's tap table lookup number (10 items): '1', '10', '2', '3', '4', '5', '6', '7', '8', '9'
-    #    #Select this channel's sample rate in samples per second (6 items): '1000', '125', '25', '250', '5', '500'
-    #    print(nrl.dataloggers['Guralp']['CMG-DM24']['Mk3']['Fixed']['1-10']['1']['1000'])    #DM24-S3, preamp=Fixed, tap-table lookup rante=1-10, tap-table=1, sample-rate=
-    #    #('DM-24 Mk3 Fixed Gain, gain 1, 1000 sps, tap id 1, (1000 500 250 125 25 and 5 Hz)', 'http://ds.iris.edu/NRL/dataloggers/guralp/CMG_DM24/mk3/fixed/RESP.XX.G0143..HHZ.CMG_DM24_MK3_FIX.1..1000')
-    #
-    #    #response = nrl.get_response(sensor_keys=['Streckeisen', 'STS-1', '360 seconds'],datalogger_keys=['REF TEK', 'RT 130 & 130-SMA', '1', '200'])
-    #    response = nrl.get_response(sensor_keys=['Guralp', 'CMG-3ESP', '60 s - 50 Hz', '2000'],
-    #                                datalogger_keys=['Guralp','CMG-DM24','Mk3','Fixed','1-10','1','1000'] )
-    #    print(response)
-    #
-    #    #asb
-    #    #<stream code="HHN" datalogger="Datalogger#20140806133046.974009.123501" sensor="NRL/Streckeisen/STS3.120.1500">
-    #    #print(nrl.sensors['Streckeisen']['STS-3'])
-
-    #    #Get stations
-    #    if station_list==None:
-    #        logging.info("No station_identifier:s specified, Generate Gempa XML for all SIL stations")
-    #    else:
-    #        logging.info("Generate Gempa XML for stations: "+str(station_list))
-    #
-    #    #Query TOS api for SIL stations
-    #    body = {
-    #            'code': 'subtype',
-    #            'value': 'SIL stöð'
-    #        }
-    #    response = requests.post(url_rest_tos+'/entity/search/station/geophysical/', data=json.dumps(body))
-    #    response.raise_for_status()
-    #
-    #    stations=[]
-    #    for station in response.json():
-    #        data={}
-    #        data['station_identifier'] = next((item for item in station['attributes'] if (item['code'] == 'marker' and item['date_to'] is None)), None)['value']
-    #
-    #        value = next((item for item in station['attributes'] if (item['code'] == 'lat' and item['date_to'] is None)), {'value': None})['value']
-    #        if value:
-    #            data['lat'] = float(value)
-    #        value = next((item for item in station['attributes'] if (item['code'] == 'lon' and item['date_to'] is None)), {'value': None})['value']
-    #        if value:
-    #            data['lon'] = float(value)
-    #
-    #        if (station_list and data['station_identifier'] in station_list) or station_list is None:
-    #            #if data['station_identifier'] in station_list:
-    #            stations.append(data)
-    #
-    #    #print(stations)
-
-    inv = Inventory(networks=[], source="TosTOOLS")
-
-    net = Network(
-        code="VI",
-        stations=[],
-        description="SIL  Icelandic national seismic network",
-        start_date=obspy.UTCDateTime(1990, 10, 10),
-    )
-
-    sta = Station(
-        code="ada",
-        latitude=1.0,
-        longitude=2.0,
-        elevation=345.0,
-        creation_date=obspy.UTCDateTime(2016, 1, 2),
-        site=Site(name="Aðalból"),
-    )
-
-    cha = Channel(
-        code="HHZ",
-        location_code="",
-        latitude=1.0,
-        longitude=2.0,
-        elevation=345.0,
-        depth=10.0,
-        azimuth=0.0,
-        dip=-90.0,
-        sample_rate=200,
-    )
-
-    response = nrl.get_response(
-        sensor_keys=["Streckeisen", "STS-1", "360 seconds"],
-        datalogger_keys=["REF TEK", "RT 130 & 130-SMA", "1", "200"],
-    )
-
-    # Now tie it all together
-    cha.response = response
-    sta.channels.append(cha)
-    net.stations.append(sta)
-    inv.networks.append(net)
-
-    # Valid formats: CSS, KML, SACPZ, SHAPEFILE, STATIONTXT, STATIONXML
-    inv.write("station.fdsn.xml", format="stationxml", validate=True)
-    # inv.write("station", format="css")
-    # inv.write("station.txt", format="stationtxt")
-
-
-KNOWN_SUBCOMMANDS = {"owners", "device", "audit", "station"}
+KNOWN_SUBCOMMANDS = {"owners", "device", "audit", "station", "contact"}
 
 
 def _owners_main(argv):
@@ -2163,28 +462,46 @@ def _device_list_main(args) -> int:
         print("  (no matching children_connections)")
         return 0
 
-    headers = ("id", "serial", "model", "subtype", "status", "since", "until", "conn")
+    # Render via Rich so the subtype / date / id / status cells get
+    # the same color treatment as `tos station show`. Caller already
+    # printed the "Devices at ... — N <scope> join(s)" header line
+    # above (tests assert on that substring), so the table itself
+    # has no title — just the column box.
+    #
+    # ``no_wrap=True`` on text columns prevents Rich from splitting
+    # "TRIMBLE NETR9" across two lines when the terminal is narrow;
+    # horizontal overflow is preferable to wrapping for grep / tail
+    # workflows. Matches the pre-Rich plain-text behavior.
+    from rich.console import Console
+    from rich.table import Table
 
-    def _fmt_row(r: Dict[str, Any]) -> tuple:
-        return (
-            str(r["id_entity"]),
+    table = Table(box=None, show_edge=False, pad_edge=False)
+    table.add_column("id", justify="right")
+    table.add_column("serial", no_wrap=True)
+    table.add_column("model", no_wrap=True)
+    table.add_column("subtype", no_wrap=True)
+    table.add_column("status", no_wrap=True)
+    table.add_column("since", no_wrap=True)
+    table.add_column("until", no_wrap=True)
+    table.add_column("conn", justify="right")
+    for r in rows:
+        tf = str(r["time_from"])[:19]
+        tt = str(r["time_to"])[:19] if r["time_to"] else "—"
+        table.add_row(
+            _color_id(r["id_entity"]),
             str(r["serial"]),
             str(r["model"]),
-            str(r["subtype"]),
-            str(r["status"]),
-            str(r["time_from"])[:19],
-            str(r["time_to"])[:19] if r["time_to"] else "—",
-            str(r["id_connection"]) if r["id_connection"] is not None else "?",
+            _color_subtype(r["subtype"]),
+            _color_status(r["status"]),
+            _color_date(tf) if tf else "?",
+            _color_date(tt) if r["time_to"] else "—",
+            _color_id(r["id_connection"]) if r["id_connection"] is not None else "?",
         )
-
-    formatted = [_fmt_row(r) for r in rows]
-    widths = [
-        max(len(h), max((len(row[i]) for row in formatted), default=0))
-        for i, h in enumerate(headers)
-    ]
-    print("  " + "  ".join(h.ljust(widths[i]) for i, h in enumerate(headers)))
-    for row in formatted:
-        print("  " + "  ".join(c.ljust(widths[i]) for i, c in enumerate(row)))
+    # Width override matches the legacy plain-print overflow
+    # behavior: don't squeeze columns just because the terminal is
+    # narrow — let the user pipe to `less -S` or widen the window.
+    # Cap at 240 to keep tests deterministic across environments.
+    Console(width=240).print(table)
     return 0
 
 
@@ -2207,14 +524,120 @@ def _device_list_main(args) -> int:
 _CLEANUP_ARTIFACT_DATE = "2014-10-17"
 _SUSPICIOUS_STATUSES = ("bilað", "óvirkt")
 
+# Per-subtype color for the device-table subtype column. Aligned with
+# the legacy `tosGPS PrintTOS` palette in `io/rich_formatters.py`:
+# receivers green, antennas/radomes red, monuments yellow. Anything
+# else (digitizer, sim_card, ...) stays uncolored. Kept separate from
+# the more general `_color_status` / `_color_date` family because
+# subtype is identity, not condition.
+_SUBTYPE_COLOR = {
+    "gnss_receiver": "green",
+    "antenna": "red",
+    "radome": "red",
+    "monument": "yellow",
+}
+
+# Default color for attribute-value cells in the station-level
+# attribute tables (`tos station show`). Matches the legacy
+# `Property | Value` formatter (Value column = cyan).
+_STATION_VALUE_COLOR = "cyan"
+
+# Canonical display order for the GPS quartet — receiver first because it
+# carries firmware history (the most frequent drill-down target), then
+# antenna / radome / monument matching the IGS site-log convention.
+# Anything outside this set (digitizer, sim_card, ...) sorts after.
+_DEVICE_SUBTYPE_DISPLAY_ORDER = ("gnss_receiver", "antenna", "radome", "monument")
+
+# Canonical display order for station-level attribute rows. Identity
+# fields first (subtype / marker / name), then location triple
+# (lon / lat / altitude), then operational metadata. Everything
+# unlisted sorts alphabetically after this prefix — preserves a
+# predictable top-of-table even as new attribute codes are added.
+_STATION_ATTRIBUTE_DISPLAY_ORDER = (
+    "subtype",
+    "marker",
+    "name",
+    "iers_domes_number",
+    "lon",
+    "lat",
+    "altitude",
+    "operational_class",
+    "in_network_epos",
+)
+
+
+def _ordered_codes(codes: List[str], priority: tuple) -> List[str]:
+    """Sort ``codes`` by ``priority`` first, alphabetical for the rest.
+
+    ``priority`` is a tuple of canonical codes that should appear in
+    that order at the top. Any code in ``codes`` not listed in
+    ``priority`` is appended afterward, sorted alphabetically.
+    """
+    in_priority = [c for c in priority if c in codes]
+    extras = sorted(c for c in codes if c not in priority)
+    return in_priority + extras
+
+
+def _device_row_sort_key(row: Dict[str, Any]) -> tuple:
+    """Sort key for joined-device rows: (subtype priority, date_from).
+
+    Used by `tos station show` to order both the open and closed
+    joined-device tables consistently. Subtype priority follows
+    :data:`_DEVICE_SUBTYPE_DISPLAY_ORDER`; date_from sorts chronologically
+    within each subtype group so a station's history reads top-to-bottom.
+    """
+    subtype = row.get("subtype") or ""
+    try:
+        priority = _DEVICE_SUBTYPE_DISPLAY_ORDER.index(subtype)
+    except ValueError:
+        priority = len(_DEVICE_SUBTYPE_DISPLAY_ORDER)
+    date_from = row.get("time_from") or ""
+    return (priority, date_from)
+
+
+def _color_subtype(subtype: Optional[str]) -> str:
+    """Wrap a device subtype in its canonical color (see ``_SUBTYPE_COLOR``).
+
+    Falls through uncoloured for unknown subtypes so unfamiliar entity
+    kinds don't silently get repainted.
+    """
+    if not subtype:
+        return "?"
+    style = _SUBTYPE_COLOR.get(subtype)
+    if style is None:
+        return str(subtype)
+    return f"[{style}]{subtype}[/{style}]"
+
+
+def _color_value(value: Any, code: str) -> str:
+    """Render an attribute-value cell with the station-table coloring.
+
+    Status uses the existing red treatment for ``bilað`` / ``óvirkt``;
+    everything else is wrapped in :data:`_STATION_VALUE_COLOR` so the
+    Value column pops visually in `tos station show`. Used by the
+    station path only — device-show keeps plain values for now.
+    """
+    if code == "status":
+        return _color_status(value)
+    if value is None:
+        return "—"
+    return f"[{_STATION_VALUE_COLOR}]{value}[/{_STATION_VALUE_COLOR}]"
+
 
 def _color_date(date_str: Optional[str]) -> str:
-    """Wrap a date in rich markup; yellow if it's the cleanup-artifact date."""
+    """Wrap a date in rich markup.
+
+    Yellow for the fleet-wide 2014-10-17 cleanup-artifact backdate
+    (operationally suspicious). Plain blue for everything else,
+    matching the legacy `tosGPS PrintTOS` From/To column style so
+    dates pop consistently across both views. Empty / None renders
+    as an em-dash placeholder.
+    """
     if not date_str:
         return "—"
     if str(date_str)[:10] == _CLEANUP_ARTIFACT_DATE:
         return f"[yellow]{date_str}[/yellow]"
-    return str(date_str)
+    return f"[blue]{date_str}[/blue]"
 
 
 def _color_status(value: Optional[str]) -> str:
@@ -2274,6 +697,9 @@ def _render_show_open_attributes(
     console,
     history: Dict[str, Any],
     args=None,
+    *,
+    priority_codes: Optional[tuple] = None,
+    colorize_values: bool = False,
 ) -> None:
     """Render the currently-open attribute periods only (--attributes view).
 
@@ -2283,14 +709,29 @@ def _render_show_open_attributes(
     When ``args`` carries attribute filters (see
     :func:`add_attribute_filter_arguments`), only matching periods are
     shown. Filters AND'd with the implicit "open only" constraint.
+
+    ``priority_codes`` reorders the rows so the listed codes appear
+    first in that order, with everything else alphabetical afterwards.
+    Used by ``tos station show`` to surface the station-identity
+    triple (marker / name / location) above arbitrary metadata.
+    Default ``None`` preserves the legacy alphabetical-only ordering
+    for ``tos device show``.
+
+    ``colorize_values=True`` wraps each value cell (status excepted)
+    in :data:`_STATION_VALUE_COLOR` so the Value column pops. Off by
+    default — only ``tos station show`` opts in.
     """
     from rich.table import Table
 
     from .devices import attribute_periods
 
     by_code = attribute_periods(history)
+    if priority_codes is not None:
+        ordered_codes = _ordered_codes(list(by_code), priority_codes)
+    else:
+        ordered_codes = sorted(by_code)
     open_rows = []
-    for code in sorted(by_code):
+    for code in ordered_codes:
         for p in by_code[code]:
             if p.get("date_to") is None:
                 open_rows.append((code, p))
@@ -2311,11 +752,14 @@ def _render_show_open_attributes(
     table.add_column("id_attribute_value", justify="right")
     for code, p in open_rows:
         value = p.get("value")
-        rendered_value = (
-            _color_status(value)
-            if code == "status"
-            else (str(value) if value is not None else "—")
-        )
+        if colorize_values:
+            rendered_value = _color_value(value, code)
+        else:
+            rendered_value = (
+                _color_status(value)
+                if code == "status"
+                else (str(value) if value is not None else "—")
+            )
         table.add_row(
             code,
             rendered_value,
@@ -2329,16 +773,26 @@ def _render_show_attribute_history(
     console,
     history: Dict[str, Any],
     args=None,
+    *,
+    closed_only: bool = False,
+    priority_codes: Optional[tuple] = None,
+    colorize_values: bool = False,
 ) -> None:
-    """Render the full attribute history (--attributes-history view).
+    """Render the attribute history (--attributes-history view).
 
-    Mirrors the TOS web UI 'Saga eiginda tækis' panel: open + closed
-    periods, with date_to and datatype columns. Closed rows dimmed so
-    the currently-open ones stand out.
+    Mirrors the TOS web UI 'Saga eiginda tækis' panel. By default shows
+    all periods (open + closed), with closed rows dimmed so the
+    currently-open ones stand out. Pass ``closed_only=True`` to drop
+    open rows entirely — used by ``tos station show --all`` where the
+    open periods are already shown in the Current-attributes table
+    immediately above.
 
     When ``args`` carries attribute filters (see
     :func:`add_attribute_filter_arguments`), only matching periods are
     shown.
+
+    ``colorize_values=True`` opts the Value column into the station
+    coloring (see :func:`_color_value`).
     """
     from rich.table import Table
 
@@ -2359,7 +813,12 @@ def _render_show_attribute_history(
         getattr(args, "highlight_since", None) if args is not None else None
     )
 
-    table = Table(title="Attribute history (all periods)")
+    title = (
+        "Attribute history (closed periods only)"
+        if closed_only
+        else "Attribute history (all periods)"
+    )
+    table = Table(title=title)
     table.add_column("code")
     table.add_column("value")
     table.add_column("date_from")
@@ -2367,15 +826,26 @@ def _render_show_attribute_history(
     table.add_column("type")
     table.add_column("id_attribute_value", justify="right")
 
-    for code in sorted(by_code):
+    if priority_codes is not None:
+        ordered_codes = _ordered_codes(list(by_code), priority_codes)
+    else:
+        ordered_codes = sorted(by_code)
+
+    rows_added = 0
+    for code in ordered_codes:
         for p in by_code[code]:
             is_closed = p.get("date_to") is not None
+            if closed_only and not is_closed:
+                continue
             value = p.get("value")
-            rendered_value = (
-                _color_status(value)
-                if code == "status"
-                else (str(value) if value is not None else "—")
-            )
+            if colorize_values:
+                rendered_value = _color_value(value, code)
+            else:
+                rendered_value = (
+                    _color_status(value)
+                    if code == "status"
+                    else (str(value) if value is not None else "—")
+                )
             datatype = p.get("attribute_datatype_code") or "?"
 
             cells = [
@@ -2391,6 +861,12 @@ def _render_show_attribute_history(
                 # color markup intact (rich nests styles cleanly).
                 cells = [f"[dim]{c}[/dim]" for c in cells]
             table.add_row(*cells)
+            rows_added += 1
+
+    if rows_added == 0 and closed_only:
+        # Nothing to show — print a one-liner instead of an empty table.
+        console.print(f"{title}: (none)")
+        return
     console.print(table)
 
 
@@ -2713,7 +1189,27 @@ def _device_main(argv):
         "id_entity",
         nargs="?",
         type=int,
-        help="Device id_entity. Mutually exclusive with --serial.",
+        help=(
+            "Device id_entity. May also be supplied as --id (matches "
+            "the `tos audit show` calling convention). Mutually "
+            "exclusive with --serial."
+        ),
+    )
+    # Separate dest so argparse doesn't clobber `--id N` with the
+    # positional's default=None during parsing. Merged into id_entity
+    # in the dispatch handler below.
+    p_show.add_argument(
+        "--id",
+        dest="id_flag",
+        type=int,
+        default=None,
+        help=(
+            "Alternative to the positional id_entity. Equivalent — "
+            "`tos device show 16099` and `tos device show --id 16099` "
+            "do the same thing. Provided so the same `--id N` syntax "
+            "works across `tos audit show`, `tos device show`, and "
+            "the drill-hint output of `tos station show`."
+        ),
     )
     p_show.add_argument(
         "--serial",
@@ -2832,6 +1328,11 @@ def _device_main(argv):
 
     args = p.parse_args(argv)
     if args.action == "show":
+        # Merge --id (id_flag) into id_entity so the downstream lookup
+        # logic stays single-source. --id wins when both forms appear,
+        # matching argparse's last-wins convention for repeated flags.
+        if getattr(args, "id_flag", None) is not None:
+            args.id_entity = args.id_flag
         return _device_show_main(args)
     if args.action == "list":
         return _device_list_main(args)
@@ -3030,256 +1531,48 @@ def _device_main(argv):
     return 0
 
 
-# Model-substring → expected brand-family map. Keys are matched
-# case-insensitively against the device's open `model` attribute; first
-# matching rule wins. Add a rule when a new receiver model shows up.
-_MODEL_TO_FAMILY = (
-    ("netr9", "trimble_netr9"),
-    ("netrs", "trimble_netrs"),
-    ("trimble 4000", "trimble_4000"),
-    ("polarx", "septentrio"),
-    ("sept", "septentrio"),
-)
-
-
-def _infer_expected_family(model: Optional[str]) -> Optional[str]:
-    """Map a TOS-stored model string to the archive's brand-family code.
-
-    Returns ``None`` when no rule matches (e.g. ``ASHTECH UZ-12`` — no
-    .sbf-style raw extension is mapped for ASHTECH; verdict logic
-    should treat the model as 'unmapped' rather than 'wrong').
-    """
-    if not model:
-        return None
-    m = model.lower()
-    for needle, family in _MODEL_TO_FAMILY:
-        if needle in m:
-            return family
-    return None
-
-
-def _classify_tos_join_against_archive(
-    time_from: str,
-    time_to: Optional[str],
-    expected_family: Optional[str],
-    timeline,
-) -> Dict[str, Any]:
-    """Compare a TOS join window against the archive's brand timeline.
-
-    Returns a dict with ``status`` and human-readable ``detail``; when
-    the verdict implies a fixable ACTION (``join_too_wide`` is the
-    canonical case — the bulk-load placeholder dates), also includes
-    ``suggested_action_args`` so the caller can render the operator-
-    targeted suggestion.
-
-    Status values:
-      * ``no_archive_coverage`` — no archived days in window
-      * ``unmapped_model`` — TOS model doesn't map to a known family
-      * ``rinex_only`` — only RINEX (format-neutral) days in window
-      * ``ok`` — only the expected family present in the window
-      * ``late_start`` — expected family present, but starts later than
-        ``time_from``; non-expected (or no) days before; suggests
-        narrowing time_from forward
-      * ``early_end`` — expected family present, but stops earlier than
-        ``time_to``; non-expected days after; suggests narrowing
-        time_to backward
-      * ``join_too_wide`` — expected family present **and** a different
-        raw family also present in window; suggests narrowing the join
-        to match the first expected-family day
-      * ``wrong_brand`` — only non-expected raw families in window
-    """
-    tf = time_from[:10] if time_from else ""
-    tt = time_to[:10] if time_to else None
-
-    in_window = [
-        d
-        for d in timeline
-        if (not tf or str(d.obs_date) >= tf) and (tt is None or str(d.obs_date) < tt)
-    ]
-    if not in_window:
-        return {
-            "status": "no_archive_coverage",
-            "detail": "no archived data in window",
-        }
-    if expected_family is None:
-        archive_families = sorted({d.family for d in in_window if d.is_raw})
-        return {
-            "status": "unmapped_model",
-            "detail": (
-                f"model not in MODEL_TO_FAMILY map; archive shows "
-                f"{','.join(archive_families) or 'rinex-only'}"
-            ),
-        }
-    raw_days = [d for d in in_window if d.is_raw]
-    if not raw_days:
-        return {
-            "status": "rinex_only",
-            "detail": "only RINEX days in window; brand undetermined",
-        }
-    expected_days = [d for d in raw_days if d.family == expected_family]
-    other_days = [d for d in raw_days if d.family != expected_family]
-
-    if not expected_days:
-        other_families = sorted({d.family for d in other_days})
-        return {
-            "status": "wrong_brand",
-            "detail": (
-                f"expected {expected_family}; archive shows "
-                f"{','.join(other_families)} throughout"
-            ),
-        }
-    if not other_days:
-        return {
-            "status": "ok",
-            "detail": f"archive {expected_family} throughout",
-        }
-    # Both present — the SAVI-style "join too wide" case.
-    first_expected = expected_days[0].obs_date
-    last_expected = expected_days[-1].obs_date
-    first_other = other_days[0].obs_date
-    last_other = other_days[-1].obs_date
-
-    if first_other < first_expected and last_other < first_expected:
-        # Other brand fully precedes expected — TOS time_from is too early.
-        other_families = sorted({d.family for d in other_days})
-        return {
-            "status": "late_start",
-            "detail": (
-                f"expected {expected_family} starts {first_expected} "
-                f"(archive shows {','.join(other_families)} before that)"
-            ),
-            "suggested_action_args": ("time_from", str(first_expected)),
-        }
-    if first_other > last_expected and last_other > last_expected:
-        # Other brand fully follows expected — TOS time_to is too late.
-        other_families = sorted({d.family for d in other_days})
-        return {
-            "status": "early_end",
-            "detail": (
-                f"expected {expected_family} ends {last_expected} "
-                f"(archive shows {','.join(other_families)} after that)"
-            ),
-            "suggested_action_args": ("time_to", str(last_expected)),
-        }
-    # Interleaved (or other complex pattern) — surface as join_too_wide
-    # with the suggestion to narrow to first_expected_day.
-    other_families = sorted({d.family for d in other_days})
-    return {
-        "status": "join_too_wide",
-        "detail": (
-            f"join window contains both {expected_family} and "
-            f"{','.join(other_families)}; expected family first appears "
-            f"{first_expected}"
-        ),
-        "suggested_action_args": ("time_from", str(first_expected)),
-    }
-
-
 def _audit_verify_from_rinex_main(args, client) -> int:
     """Handle ``tos audit verify-from-rinex --station X``.
 
-    Reproduces the deterministic-investigation pattern from the SAVI
-    reconstruction (2026-05-24) as a one-shot verb:
+    Thin CLI handler: delegates data collection to
+    :func:`audit_verify_from_rinex.audit_station_verify_from_rinex`,
+    then renders the report either as rich tables or as JSON.
 
-    1. Resolve archive root via :func:`archive.cold_archive_prepath`
-       (CLI override → env → ``receivers.cfg`` → mount probe → error).
-    2. Walk the station's timeline in the archive
-       (:func:`archive.walk_station_timeline`).
-    3. Detect brand transitions
-       (:func:`archive.detect_brand_transitions`) — these are real
-       receiver-hardware changes per the file-extension signal.
-    4. Detect multi-day data gaps
-       (:func:`archive.detect_data_gaps`) — surfaces dormant periods.
-    5. Fetch TOS state via :func:`_resolve_parent_id` + the parent's
-       ``children_connections`` (same primitives as ``tos device list``)
-       and cross-reference against the archive timeline.
-    6. Print a rich-formatted report (or ``--json``).
-
-    Exit codes: 0 = clean (archive and TOS aligned or empty), 1 =
-    discrepancies surfaced (caller should review), 2 = lookup / usage
-    error.
+    Exit codes:
+      0 = clean (no brand transitions, no gaps, no actionable verdicts)
+      1 = discrepancies surfaced (caller should review)
+      2 = lookup / usage error (archive root missing, no timeline)
     """
     import json as _json
 
-    from rich.console import Console
-    from rich.table import Table
+    from . import audit_verify_from_rinex as avfr_mod
 
-    from . import archive as archive_mod
-    from .devices import open_attribute
-
-    # Resolve archive root with the documented fallback chain.
     try:
-        archive_root = archive_mod.cold_archive_prepath(override=args.archive_root)
+        report = avfr_mod.audit_station_verify_from_rinex(
+            client,
+            args.station,
+            archive_root=args.archive_root,
+            min_gap_days=args.min_gap_days,
+        )
     except FileNotFoundError as e:
         print(str(e), file=sys.stderr)
         return 2
 
-    # Walk the station timeline.
-    timeline = list(archive_mod.walk_station_timeline(args.station, archive_root))
-    if not timeline:
+    if report.timeline_count == 0:
         print(
-            f"No archived data for station {args.station!r} under " f"{archive_root}",
+            f"No archived data for station {args.station!r} under "
+            f"{report.archive_root}",
             file=sys.stderr,
         )
         return 2
 
-    transitions = archive_mod.detect_brand_transitions(timeline)
-    gaps = archive_mod.detect_data_gaps(timeline, min_days=args.min_gap_days)
-    # Brand-aware runs: rinex (format-neutral) days are absorbed into
-    # the surrounding brand when bracketed by the same brand. Standalone
-    # rinex runs (leading/trailing/between-different-brands) survive as
-    # ambiguous spans the operator must resolve. Absorbed-rinex counts
-    # are preserved on each BrandRun so the "raw missing" signal is
-    # never lost.
-    brand_runs = archive_mod.coalesce_brand_runs(timeline)
-    rinex_only_spans = archive_mod.detect_rinex_only_spans(timeline)
-
-    # Fetch TOS state — reuse the same primitives as `tos device list`
-    # for parent resolution + child enumeration.
-    parent_id = _resolve_parent_id(client, station_marker=args.station)
-    tos_devices: List[Dict[str, Any]] = []
-    if parent_id is not None:
-        parent = client.get_entity_history(parent_id)
-        if parent:
-            for conn in parent.get("children_connections") or []:
-                child_id_raw = conn.get("id_entity_child")
-                if child_id_raw is None:
-                    continue
-                try:
-                    child_id = int(child_id_raw)
-                except (TypeError, ValueError):
-                    continue
-                child = client.get_entity_history(child_id) or {}
-                subtype = child.get("code_entity_subtype")
-                # Only receivers contribute to brand-transition reasoning
-                # (antennas / monuments / sim cards don't show up in the
-                # raw-file extension signal). Keep them in the JSON
-                # payload for completeness but only cross-reference
-                # gnss_receiver entries against the archive timeline.
-                tos_devices.append(
-                    {
-                        "id_entity": child_id,
-                        "subtype": subtype,
-                        "serial": open_attribute(child, "serial_number"),
-                        "model": open_attribute(child, "model"),
-                        "time_from": conn.get("time_from"),
-                        "time_to": conn.get("time_to"),
-                        "id_connection": (
-                            conn.get("id_entity_connection") or conn.get("id")
-                        ),
-                    }
-                )
-
-    tos_receivers = [d for d in tos_devices if d["subtype"] == "gnss_receiver"]
-    tos_receivers.sort(key=lambda d: d.get("time_from") or "")
-
     if args.json:
         payload = {
-            "station": args.station,
-            "archive_root": str(archive_root),
-            "timeline_count": len(timeline),
-            "first": timeline[0].obs_date.isoformat() if timeline else None,
-            "last": timeline[-1].obs_date.isoformat() if timeline else None,
+            "station": report.station,
+            "archive_root": str(report.archive_root),
+            "timeline_count": report.timeline_count,
+            "first": report.first_day,
+            "last": report.last_day,
             "brand_runs": [
                 {
                     "family": r.family,
@@ -3289,7 +1582,7 @@ def _audit_verify_from_rinex_main(args, client) -> int:
                     "rinex_only_days": r.rinex_only_days,
                     "ambiguous": r.ambiguous,
                 }
-                for r in brand_runs
+                for r in report.brand_runs
             ],
             "brand_transitions": [
                 {
@@ -3298,7 +1591,7 @@ def _audit_verify_from_rinex_main(args, client) -> int:
                     "family_before": t.family_before,
                     "family_after": t.family_after,
                 }
-                for t in transitions
+                for t in report.brand_transitions
             ],
             "data_gaps": [
                 {
@@ -3306,7 +1599,7 @@ def _audit_verify_from_rinex_main(args, client) -> int:
                     "to": g.next_day_with_data.isoformat(),
                     "duration_days": g.duration_days,
                 }
-                for g in gaps
+                for g in report.data_gaps
             ],
             "rinex_only_spans": [
                 {
@@ -3314,28 +1607,52 @@ def _audit_verify_from_rinex_main(args, client) -> int:
                     "to": s.end.isoformat(),
                     "days": s.days,
                 }
-                for s in rinex_only_spans
+                for s in report.rinex_only_spans
             ],
             "tos_receivers": [
-                {**d, "time_from": d["time_from"], "time_to": d["time_to"]}
-                for d in tos_receivers
+                {
+                    "id_entity": r.id_entity,
+                    "serial": r.serial,
+                    "model": r.model,
+                    "time_from": r.time_from,
+                    "time_to": r.time_to,
+                    "id_connection": r.id_connection,
+                    "expected_family": r.expected_family,
+                    "status": r.status,
+                    "detail": r.detail,
+                }
+                for r in report.receivers
             ],
         }
         print(_json.dumps(payload, ensure_ascii=False, indent=2, default=str))
-        return 1 if (transitions or gaps) else 0
+        return 1 if report.has_findings else 0
 
-    # ---- Pretty text output ----
+    _print_rinex_audit_report(report, min_gap_days=args.min_gap_days)
+    return 1 if report.has_findings else 0
+
+
+def _print_rinex_audit_report(report, *, min_gap_days: float) -> None:
+    """Render a :class:`StationRinexReport` as rich tables.
+
+    Mirrors the byte-stable output of the pre-Phase-3 inline
+    implementation: archive header, brand timeline table, brand
+    transitions, data gaps, RINEX-only spans, TOS receiver joins
+    cross-reference, and the bottom "Suggested ACTION lines" block.
+    """
+    from rich.console import Console
+    from rich.table import Table
+
     console = Console()
     console.print(
-        f"Station [bold]{args.station}[/bold] vs archive at "
-        f"[cyan]{archive_root}[/cyan]"
+        f"Station [bold]{report.station}[/bold] vs archive at "
+        f"[cyan]{report.archive_root}[/cyan]"
     )
     console.print(
-        f"  archived days: [bold]{len(timeline)}[/bold]  |  "
-        f"first: {timeline[0].obs_date}  |  last: {timeline[-1].obs_date}"
+        f"  archived days: [bold]{report.timeline_count}[/bold]  |  "
+        f"first: {report.first_day}  |  last: {report.last_day}"
     )
 
-    if brand_runs:
+    if report.brand_runs:
         console.print()
         t_runs = Table(
             title=(
@@ -3348,7 +1665,7 @@ def _audit_verify_from_rinex_main(args, client) -> int:
         t_runs.add_column("to")
         t_runs.add_column("days", justify="right")
         t_runs.add_column("rinex-only inside", justify="right")
-        for r in brand_runs:
+        for r in report.brand_runs:
             family_label = (
                 f"[yellow]{r.family} (ambiguous)[/yellow]" if r.ambiguous else r.family
             )
@@ -3362,14 +1679,14 @@ def _audit_verify_from_rinex_main(args, client) -> int:
             )
         console.print(t_runs)
 
-    if transitions:
+    if report.brand_transitions:
         console.print()
         t_trans = Table(title="Brand transitions (real receiver swaps per archive)")
         t_trans.add_column("date_before")
         t_trans.add_column("family_before")
         t_trans.add_column("date_after")
         t_trans.add_column("family_after")
-        for t in transitions:
+        for t in report.brand_transitions:
             t_trans.add_row(
                 str(t.date_before),
                 t.family_before,
@@ -3378,13 +1695,13 @@ def _audit_verify_from_rinex_main(args, client) -> int:
             )
         console.print(t_trans)
 
-    if gaps:
+    if report.data_gaps:
         console.print()
-        t_gaps = Table(title=f"Data gaps ≥{args.min_gap_days} days")
+        t_gaps = Table(title=f"Data gaps ≥{min_gap_days} days")
         t_gaps.add_column("last day with data")
         t_gaps.add_column("next day with data")
         t_gaps.add_column("duration (days)", justify="right")
-        for g in gaps:
+        for g in report.data_gaps:
             t_gaps.add_row(
                 str(g.last_day_with_data),
                 str(g.next_day_with_data),
@@ -3392,7 +1709,7 @@ def _audit_verify_from_rinex_main(args, client) -> int:
             )
         console.print(t_gaps)
 
-    if rinex_only_spans:
+    if report.rinex_only_spans:
         console.print()
         t_ronly = Table(
             title="RINEX-only spans (raw missing — possible data-loss windows)"
@@ -3400,13 +1717,11 @@ def _audit_verify_from_rinex_main(args, client) -> int:
         t_ronly.add_column("from")
         t_ronly.add_column("to")
         t_ronly.add_column("days", justify="right")
-        for s in rinex_only_spans:
+        for s in report.rinex_only_spans:
             t_ronly.add_row(str(s.start), str(s.end), str(s.days))
         console.print(t_ronly)
 
-    # TOS-vs-archive cross-reference for the receiver timeline.
-    suggested_actions: List[str] = []
-    if tos_receivers:
+    if report.receivers:
         console.print()
         t_tos = Table(title="TOS receiver joins (all, incl. closed)")
         t_tos.add_column("id_entity", justify="right")
@@ -3415,9 +1730,6 @@ def _audit_verify_from_rinex_main(args, client) -> int:
         t_tos.add_column("time_from")
         t_tos.add_column("time_to")
         t_tos.add_column("verdict")
-        # Status → rich-markup styling. Green=clean, yellow=informational,
-        # red=actionable. Keep contractually short so the verdict column
-        # doesn't dominate the table.
         _VERDICT_STYLE = {
             "ok": "green",
             "no_archive_coverage": "yellow",
@@ -3428,74 +1740,52 @@ def _audit_verify_from_rinex_main(args, client) -> int:
             "join_too_wide": "red",
             "wrong_brand": "red",
         }
-        for d in tos_receivers:
-            tf = (d.get("time_from") or "")[:10]
-            tt_raw = d.get("time_to")
-            tt = tt_raw[:10] if tt_raw else None
-            expected_family = _infer_expected_family(d.get("model"))
-            verdict = _classify_tos_join_against_archive(
-                tf, tt, expected_family, timeline
-            )
-            style = _VERDICT_STYLE.get(verdict["status"], "white")
-            verdict_text = (
-                f"[{style}]{verdict['status']}[/{style}]: {verdict['detail']}"
-            )
-            # If the verdict implies a fixable ACTION, also collect a
-            # suggested triage line operators can paste into a triage file.
-            sug = verdict.get("suggested_action_args")
-            id_conn = d.get("id_connection")
-            if sug and id_conn is not None:
-                field, new_date = sug
-                suggested_actions.append(
-                    f"ACTION {d['id_entity']} patch-join-date "
-                    f"{id_conn} {field} {new_date}  "
-                    f"# was {tf if field == 'time_from' else (tt or 'open')}"
-                )
+        for r in report.receivers:
+            style = _VERDICT_STYLE.get(r.status, "white")
+            verdict_text = f"[{style}]{r.status}[/{style}]: {r.detail}"
             t_tos.add_row(
-                str(d["id_entity"]),
-                str(d.get("serial") or "?"),
-                str(d.get("model") or "?"),
-                tf or "?",
-                tt or "—",
+                str(r.id_entity),
+                str(r.serial or "?"),
+                str(r.model or "?"),
+                r.time_from or "?",
+                r.time_to or "—",
                 verdict_text,
             )
         console.print(t_tos)
 
-        if suggested_actions:
+        if report.suggested_actions:
             console.print()
             console.print(
                 "[bold]Suggested ACTION lines for triage[/bold] "
                 "(paste into a triage file then `tos audit apply`):"
             )
-            for line in suggested_actions:
+            for line in report.suggested_actions:
                 console.print(f"  {line}")
-
-    return 1 if (transitions or gaps) else 0
 
 
 def _station_main(argv):
     """Handle ``tos station <verb> <STN>`` — top-level station orchestration.
 
-    Currently ships one verb:
+    Verbs:
 
-      ``triage``  Run all available audits against the station + emit a
-                  single combined ACTION-style triage file consumable by
-                  ``tos audit apply``. Per-audit findings are sectioned
-                  by confidence (HIGH for cleanup-artifact backdates,
-                  MEDIUM/LOW for missing required attributes per FILL
-                  placeholders). All ACTION lines are COMMENTED OUT by
-                  default — operator opts in via uncomment + edit.
+      ``triage``  Run all audits + emit a single combined ACTION-style
+                  triage file consumable by ``tos audit apply``. All
+                  ACTION lines are commented out by default — operator
+                  opts in via uncomment + edit.
 
-    Exit codes: 0 on successful generation, 2 on usage error.
+      ``verify``  Re-run all audits as a pass/fail oracle. Exits 0 if
+                  clean (no findings), 1 if findings remain, 2 if any
+                  audit failed. Closes the ``apply → verify`` loop.
+
+      ``show``    Display the station's current TOS state: identity,
+                  open attribute periods, currently-joined child
+                  devices. ``--all`` adds attribute history + closed
+                  joins; ``--device`` delegates to ``tos device list``.
+
+    Exit codes: 0 on success / clean, 1 on findings / lookup miss,
+    2 on audit failure or usage error.
     """
     from pathlib import Path
-
-    from .api.tos_client import TOSClient
-    from .station_triage import (
-        default_triage_path,
-        format_station_triage,
-        generate_station_triage,
-    )
 
     p = argparse.ArgumentParser(
         prog="tos station",
@@ -3504,14 +1794,19 @@ def _station_main(argv):
             "audit verbs into single-command workflows.\n\n"
             "Verbs:\n"
             "  triage <STATION>    Run all audits + emit a combined "
-            "triage file (commented ACTIONs)\n\n"
+            "triage file (commented ACTIONs)\n"
+            "  verify <STATION>    Re-run audits; exit 0 clean / 1 "
+            "findings / 2 failure\n"
+            "  show <STATION>      Identity + open attributes + "
+            "joined devices (--all adds history)\n\n"
             "Example workflow:\n"
             "  tos station triage HEDI                # generates "
             "data/triage/hedi/hedi_audit_<DATE>.txt\n"
             "  $EDITOR <file>                         # uncomment / fill "
             "<FILL> placeholders\n"
             "  tos audit apply <file>                 # dry-run\n"
-            "  tos audit apply <file> --apply         # commit"
+            "  tos audit apply <file> --apply         # commit\n"
+            "  tos station verify HEDI                # confirm clean"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -3542,35 +1837,1319 @@ def _station_main(argv):
         action="store_true",
         help="Print the triage file to stdout instead of writing to disk.",
     )
+    _add_archive_arguments(p_tri)
+
+    p_ver = sub.add_parser(
+        "verify",
+        help=(
+            "Re-run all audits as a pass/fail oracle. Exits 0 clean, "
+            "1 findings remain, 2 audit failure."
+        ),
+        description=(
+            "Run every available audit (missing-attributes, "
+            "attribute-dates) against the station and aggregate the "
+            "pass/fail signal. Unlike `tos station triage`, this writes "
+            "nothing to disk — it's the verify half of the "
+            "apply → verify loop.\n\n"
+            "Exit codes:\n"
+            "  0  clean   — every audit ran and reported no violations\n"
+            "  1  findings — at least one audit has surviving violations\n"
+            "  2  failure  — at least one audit raised (e.g. TOS\n"
+            "                lookup error, malformed catalog). Distinct\n"
+            "                from `findings` so cron / CI can tell\n"
+            "                'station needs work' from 'oracle broken'."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_ver.add_argument("station", help="Station marker (e.g. HEDI) or name.")
+    p_ver.add_argument(
+        "--suppressions",
+        type=Path,
+        default=None,
+        help=(
+            "Override the suppression file path. Each audit consults its "
+            "own filename (attribute_dates.txt / missing_attributes.txt) "
+            "in this directory if given."
+        ),
+    )
+    p_ver.add_argument(
+        "--no-suppressions",
+        action="store_true",
+        help=(
+            "Bypass the per-audit SUPPRESS files entirely. Every rule "
+            "hit is reported — useful to verify what a stale SUPPRESS "
+            "line is hiding."
+        ),
+    )
+    p_ver.add_argument(
+        "--catalog",
+        type=Path,
+        default=None,
+        help="Override the attribute-codes catalog path.",
+    )
+    p_ver.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of plain text."
+    )
+    p_ver.add_argument(
+        "--verbose",
+        action="store_true",
+        help=(
+            "Pass --verbose through to the per-audit pretty-printers "
+            "(SUPPRESS hints, anchor sources, silenced entries)."
+        ),
+    )
+    _add_archive_arguments(p_ver)
+
+    p_show = sub.add_parser(
+        "show",
+        help=(
+            "Show a station's current TOS state: identity, open attribute "
+            "periods, currently-joined child devices."
+        ),
+        description=(
+            "Read-only station inspection. Modes:\n\n"
+            "  (default)    identity + open attribute periods + "
+            "currently-joined children + contacts\n"
+            "  --all        adds closed attribute periods, a separate "
+            "Past-devices table (closed joins), and a Device-attribute-"
+            "history table (closed periods on currently-joined devices — "
+            "firmware upgrades, status flips, etc.)\n"
+            "  --attributes only the attribute periods (open by default; "
+            "open + closed with --all). Suppresses joined-devices, "
+            "contacts, and the drill hint.\n"
+            "  --device     delegate to `tos device list --station "
+            "<STN>` — convenience pass-through"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_show.add_argument("station", help="Station marker (e.g. HEDI) or name.")
+    p_show.add_argument(
+        "--all",
+        dest="show_all",
+        action="store_true",
+        help=(
+            "Include attribute history (closed periods), closed joins, "
+            "and per-device closed attribute history. Without this flag "
+            "only currently-open state is shown."
+        ),
+    )
+    # --attributes and --device are mutually exclusive view modes:
+    # one prints only attributes, the other delegates entirely to
+    # `tos device list`.
+    mode_group = p_show.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--attributes",
+        dest="attributes_only",
+        action="store_true",
+        help=(
+            "Only show the attribute periods (open by default; open + "
+            "closed with --all). Suppresses joined-devices, contacts, "
+            "and the drill hint. Mirrors `tos device show --attributes`."
+        ),
+    )
+    mode_group.add_argument(
+        "--device",
+        dest="device_mode",
+        action="store_true",
+        help=(
+            "Delegate to `tos device list --station <STN>`. With --all, "
+            "passes --all through (closed joins included). Other show "
+            "flags are ignored in this mode."
+        ),
+    )
+    p_show.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of plain text."
+    )
+    p_show.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_show.add_argument("--port", type=int, default=443)
 
     args = p.parse_args(argv)
 
     if args.verb == "triage":
-        client = TOSClient()
-        report = generate_station_triage(args.station, client=client)
-        rendered = format_station_triage(report)
+        return _station_triage_main(args)
+    if args.verb == "verify":
+        return _station_verify_main(args)
+    if args.verb == "show":
+        return _station_show_main(args)
 
-        if args.stdout:
-            print(rendered, end="")
+    return 2
+
+
+def _station_triage_main(args) -> int:
+    """Generate and write a combined triage file for one station."""
+    from .api.tos_client import TOSClient
+    from .station_triage import (
+        default_triage_path,
+        format_station_triage,
+        generate_station_triage,
+    )
+
+    client = TOSClient()
+    report = generate_station_triage(
+        args.station,
+        client=client,
+        with_archive=getattr(args, "with_archive", False),
+        archive_root=getattr(args, "archive_root", None),
+        min_gap_days=getattr(args, "archive_min_gap_days", 30.0),
+    )
+    rendered = format_station_triage(report)
+
+    if args.stdout:
+        print(rendered, end="")
+        return 0
+
+    out_path = args.out or default_triage_path(args.station)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(rendered, encoding="utf-8")
+
+    print(
+        f"Wrote triage file: {out_path}\n"
+        f"  station_id: {report.station_id}\n"
+        f"  findings:   {report.total_findings}\n"
+        f"\n"
+        f"Next:\n"
+        f"  $EDITOR {out_path}\n"
+        f"  tos audit apply {out_path}            # dry-run\n"
+        f"  tos audit apply {out_path} --apply    # commit"
+    )
+    return 0
+
+
+def _station_verify_main(args) -> int:
+    """Run every audit against a station; exit 0 clean / 1 findings / 2 failure.
+
+    Reuses :func:`generate_station_triage` as the aggregator — the same
+    sub-report objects (with ``notes`` for failures) feed both the
+    triage renderer and this oracle. Output reuses the per-audit
+    pretty-printers in pretty mode and the per-audit ``_to_dict``
+    serializers in JSON mode.
+    """
+    import json as _json
+
+    from .api.tos_client import TOSClient
+    from .station_triage import generate_station_triage
+
+    client = TOSClient()
+    report = generate_station_triage(
+        args.station,
+        client=client,
+        use_suppressions=not args.no_suppressions,
+        suppressions_path=args.suppressions,
+        catalog_path=args.catalog,
+        with_archive=getattr(args, "with_archive", False),
+        archive_root=getattr(args, "archive_root", None),
+        min_gap_days=getattr(args, "archive_min_gap_days", 30.0),
+    )
+
+    has_findings = report.total_findings > 0
+    has_failure = bool(report.notes)
+    if has_failure:
+        status = "failed"
+        exit_code = 2
+    elif has_findings:
+        status = "findings"
+        exit_code = 1
+    else:
+        status = "clean"
+        exit_code = 0
+
+    if args.json:
+        audits_payload: Dict[str, Any] = {
+            "missing_attributes": (
+                _missing_attributes_report_to_dict(report.missing)
+                if report.missing is not None
+                else None
+            ),
+            "attribute_dates": (
+                _attribute_date_report_to_dict(report.dates)
+                if report.dates is not None
+                else None
+            ),
+        }
+        if getattr(args, "with_archive", False):
+            # Only surface the slot when the operator opted in — keeps
+            # the default payload shape unchanged.
+            audits_payload["verify_from_rinex"] = (
+                _rinex_report_to_dict(report.rinex)
+                if report.rinex is not None
+                else None
+            )
+        payload: Dict[str, Any] = {
+            "station": report.station,
+            "station_id": report.station_id,
+            "status": status,
+            "exit_code": exit_code,
+            "audits": audits_payload,
+            "notes": list(report.notes),
+        }
+        print(_json.dumps(payload, ensure_ascii=False, indent=2))
+        return exit_code
+
+    # ---- Pretty text output ----
+    marker = {"clean": "✓", "findings": "✗", "failed": "‽"}[status]
+    summary_bits: List[str] = []
+    if report.missing is not None:
+        summary_bits.append(
+            f"missing-attributes: {len(report.missing.violations)} violation(s)"
+        )
+    else:
+        summary_bits.append("missing-attributes: (failed)")
+    if report.dates is not None:
+        summary_bits.append(
+            f"attribute-dates: {len(report.dates.violations)} violation(s)"
+        )
+    else:
+        summary_bits.append("attribute-dates: (failed)")
+    if getattr(args, "with_archive", False):
+        if report.rinex is not None:
+            rx = report.rinex
+            rinex_count = (
+                len(rx.brand_transitions)
+                + len(rx.data_gaps)
+                + len(rx.suggested_actions)
+            )
+            summary_bits.append(f"verify-from-rinex: {rinex_count} finding(s)")
+        else:
+            summary_bits.append("verify-from-rinex: (failed)")
+
+    print(
+        f"VERIFY {report.station} (id_entity={report.station_id}): "
+        f"{marker} {status} — {report.total_findings} finding(s)"
+    )
+    for bit in summary_bits:
+        print(f"  {bit}")
+
+    if report.notes:
+        print()
+        print("Audit failures:")
+        for note in report.notes:
+            print(f"  ‽ {note}")
+
+    if report.missing is not None and report.missing.violations:
+        print()
+        _print_missing_attributes_report(report.missing, verbose=args.verbose)
+    if report.dates is not None and report.dates.violations:
+        print()
+        _print_attribute_date_report(report.dates, verbose=args.verbose)
+    if report.rinex is not None and report.rinex.has_findings:
+        print()
+        _print_rinex_audit_report(
+            report.rinex,
+            min_gap_days=getattr(args, "archive_min_gap_days", 30.0),
+        )
+
+    return exit_code
+
+
+def _rinex_report_to_dict(report) -> Dict[str, Any]:
+    """JSON-serializable view of a :class:`StationRinexReport`.
+
+    Mirrors the shape ``tos audit verify-from-rinex --json`` emits, so
+    consumers of ``tos station verify --with-archive --json`` see a
+    familiar payload nested under ``audits.verify_from_rinex``.
+    """
+    return {
+        "station": report.station,
+        "station_id": report.station_id,
+        "archive_root": str(report.archive_root),
+        "timeline_count": report.timeline_count,
+        "first": report.first_day,
+        "last": report.last_day,
+        "brand_transitions": [
+            {
+                "date_before": t.date_before.isoformat(),
+                "date_after": t.date_after.isoformat(),
+                "family_before": t.family_before,
+                "family_after": t.family_after,
+            }
+            for t in report.brand_transitions
+        ],
+        "data_gaps": [
+            {
+                "from": g.last_day_with_data.isoformat(),
+                "to": g.next_day_with_data.isoformat(),
+                "duration_days": g.duration_days,
+            }
+            for g in report.data_gaps
+        ],
+        "tos_receivers": [
+            {
+                "id_entity": r.id_entity,
+                "serial": r.serial,
+                "model": r.model,
+                "time_from": r.time_from,
+                "time_to": r.time_to,
+                "status": r.status,
+                "detail": r.detail,
+            }
+            for r in report.receivers
+        ],
+        "suggested_actions": list(report.suggested_actions),
+    }
+
+
+def _station_show_main(args) -> int:
+    """Display a station's current TOS state.
+
+    Default view: identity + open attribute periods + currently-joined
+    children. ``--all`` extends to attribute history + closed joins.
+    ``--device`` short-circuits to ``tos device list --station <STN>``.
+    """
+    import json as _json
+    from types import SimpleNamespace
+
+    from rich.console import Console
+
+    from .api.tos_client import TOSClient
+    from .devices import open_attribute
+
+    # --device delegates straight to the device-list handler. Build the
+    # namespace it expects (matches the parser in `tos device list`).
+    if args.device_mode:
+        delegated = SimpleNamespace(
+            station=args.station,
+            location=None,
+            all=args.show_all,
+            date=None,
+            subtype=None,
+            model=None,
+            status=None,
+            serial=None,
+            json=args.json,
+            server=args.server,
+            port=args.port,
+        )
+        return _device_list_main(delegated)
+
+    scheme = "https" if args.port == 443 else "http"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    client = TOSClient(base_url=base_url)
+
+    station_id = _resolve_parent_id(client, station_marker=args.station)
+    if station_id is None:
+        print(
+            f"No station found for marker {args.station!r}",
+            file=sys.stderr,
+        )
+        return 1
+
+    history = client.get_entity_history(station_id)
+    if not history:
+        print(
+            f"Station id_entity={station_id} returned no history payload",
+            file=sys.stderr,
+        )
+        return 1
+
+    station_name = open_attribute(history, "name")
+    marker = open_attribute(history, "marker")
+    include_closed = args.show_all
+    attributes_only = getattr(args, "attributes_only", False)
+
+    # In attributes-only mode we skip the child-device enumeration
+    # entirely (one HTTP per child × <up to 10 children>) since
+    # nothing downstream uses it. Saves real time on a slow link.
+    children_rows: List[Dict[str, Any]] = []
+    child_histories: Dict[int, Dict[str, Any]] = {}
+    open_rows: List[Dict[str, Any]] = []
+    closed_rows: List[Dict[str, Any]] = []
+    contacts: List[Dict[str, Any]] = []
+
+    if not attributes_only:
+        children_conns = history.get("children_connections") or []
+        if not include_closed:
+            active_conns = [c for c in children_conns if c.get("time_to") is None]
+        else:
+            active_conns = children_conns
+
+        for conn in active_conns:
+            child_id_raw = conn.get("id_entity_child")
+            if child_id_raw is None:
+                continue
+            try:
+                child_id = int(child_id_raw)
+            except (TypeError, ValueError):
+                continue
+            child = client.get_entity_history(child_id) or {}
+            child_histories[child_id] = child
+            children_rows.append(
+                {
+                    "id_entity": child_id,
+                    "subtype": child.get("code_entity_subtype") or "?",
+                    "serial": open_attribute(child, "serial_number") or "?",
+                    "model": open_attribute(child, "model") or "?",
+                    "status": open_attribute(child, "status") or "—",
+                    "time_from": conn.get("time_from") or "?",
+                    "time_to": conn.get("time_to"),
+                    "id_connection": conn.get("id_entity_connection") or conn.get("id"),
+                }
+            )
+
+        open_rows = sorted(
+            (r for r in children_rows if r["time_to"] is None),
+            key=_device_row_sort_key,
+        )
+        closed_rows = sorted(
+            (r for r in children_rows if r["time_to"] is not None),
+            key=_device_row_sort_key,
+        )
+
+        # Station contacts (owner / operator / point-of-contact). The
+        # endpoint returns an empty list when none are mapped, which the
+        # renderer surfaces as a single-line "(none)" placeholder.
+        try:
+            contacts = client.get_contacts(station_id) or []
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"warning: get_contacts({station_id}) failed: {exc}",
+                file=sys.stderr,
+            )
+            contacts = []
+
+    if args.json:
+        payload = {
+            "id_entity": station_id,
+            "marker": marker,
+            "name": station_name,
+            "subtype": history.get("code_entity_subtype"),
+            "include_closed": include_closed,
+            "attributes_only": attributes_only,
+            "history": history if include_closed else None,
+            "children": children_rows,
+            "children_open": open_rows,
+            "children_closed": closed_rows if include_closed else [],
+            "contacts": contacts,
+        }
+        print(_json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    console = Console()
+    _render_station_show_header(console, history, station_id)
+
+    console.print()
+    _render_show_open_attributes(
+        console,
+        history,
+        args=None,
+        priority_codes=_STATION_ATTRIBUTE_DISPLAY_ORDER,
+        colorize_values=True,
+    )
+
+    if include_closed:
+        console.print()
+        _render_show_attribute_history(
+            console,
+            history,
+            args=None,
+            closed_only=True,
+            priority_codes=_STATION_ATTRIBUTE_DISPLAY_ORDER,
+            colorize_values=True,
+        )
+
+    # --attributes short-circuits everything below: no devices, no
+    # contacts, no drill hint. Operator opted into a focused view.
+    if attributes_only:
+        return 0
+
+    parent_label = marker or station_name or str(station_id)
+
+    console.print()
+    _render_joined_devices_table(
+        console,
+        open_rows,
+        title=f"Joined devices — {len(open_rows)} open join(s) at {parent_label}",
+        empty_note="(no currently-open joins)",
+    )
+
+    if include_closed:
+        console.print()
+        _render_joined_devices_table(
+            console,
+            closed_rows,
+            title=(
+                f"Past devices — {len(closed_rows)} closed join(s) at "
+                f"{parent_label}"
+            ),
+            empty_note="(no closed joins)",
+        )
+
+        # Per-currently-joined-device closed attribute periods.
+        # Surfaces firmware bumps, status transitions, and any other
+        # attribute history that affected the station while a given
+        # device was deployed — the operational "what changed?" view.
+        console.print()
+        _render_device_attribute_history(console, open_rows, child_histories)
+
+    console.print()
+    _render_station_contacts(console, contacts)
+
+    console.print()
+    _render_show_drill_hint(
+        console,
+        station=args.station,
+        open_rows=open_rows,
+        contacts=contacts,
+    )
+
+    return 0
+
+
+def _render_station_contacts(
+    console,
+    contacts: List[Dict[str, Any]],
+) -> None:
+    """Render station contacts (owner / operator / point-of-contact).
+
+    Sources rows from :meth:`TOSClient.get_contacts` (one HTTP per
+    station). Shape per row: ``role``, ``role_is``, ``name``,
+    ``organization``, ``phone_primary``, ``address``,
+    ``per_time_from`` / ``per_time_to``. We surface the bare minimum
+    operationally useful subset; the JSON payload still carries the
+    full row dict for automation.
+
+    The role column is colour-coded by ``role`` so owner / operator /
+    contact pop visually — useful in IGS site-log handover context
+    where the owner agency drives the publication permissions.
+    """
+    from rich.table import Table
+
+    title = f"Contacts — {len(contacts)} record(s)"
+    if not contacts:
+        console.print(title)
+        console.print("  (no contacts mapped)")
+        return
+
+    # Stable display order: owner first, then operator, then
+    # everything else. Within each role group, sort by
+    # per_time_from ascending so the contact timeline reads
+    # chronologically.
+    role_priority = {"owner": 0, "operator": 1}
+
+    def _key(row: Dict[str, Any]) -> tuple:
+        return (
+            role_priority.get((row.get("role") or "").lower(), 99),
+            row.get("per_time_from") or "",
+        )
+
+    ordered = sorted(contacts, key=_key)
+    role_style = {"owner": "bold cyan", "operator": "bold green"}
+
+    table = Table(title=title)
+    table.add_column("id", justify="right")
+    table.add_column("role")
+    table.add_column("name / organization")
+    table.add_column("phone")
+    table.add_column("address")
+    table.add_column("since")
+    table.add_column("until")
+    for c in ordered:
+        role = (c.get("role") or "").lower()
+        role_label = c.get("role_is") or c.get("role") or "?"
+        style = role_style.get(role)
+        role_cell = f"[{style}]{role_label}[/{style}]" if style else role_label
+        name = c.get("name") or c.get("organization") or "?"
+        phone = c.get("phone_primary") or "—"
+        address = c.get("address") or "—"
+        since = (c.get("per_time_from") or "")[:10] or "?"
+        until_raw = c.get("per_time_to")
+        until = until_raw[:10] if until_raw else "—"
+        # id_contact is the canonical entity id (drilling target via
+        # /entity/<id>); id_contact_entity_relationship is the join
+        # row's id. Surface id_contact since it's the more useful
+        # value for further inspection.
+        table.add_row(
+            _color_id(c.get("id_contact")),
+            role_cell,
+            name,
+            phone,
+            address,
+            since,
+            until,
+        )
+    console.print(table)
+
+
+def _render_joined_devices_table(
+    console,
+    rows: List[Dict[str, Any]],
+    *,
+    title: str,
+    empty_note: str,
+) -> None:
+    """Render one joined-devices table. Shared by open / closed sections."""
+    from rich.table import Table
+
+    if not rows:
+        console.print(title)
+        console.print(f"  {empty_note}")
+        return
+
+    table = Table(title=title)
+    table.add_column("id", justify="right")
+    table.add_column("subtype")
+    table.add_column("serial")
+    table.add_column("model")
+    table.add_column("status")
+    table.add_column("since")
+    table.add_column("until")
+    table.add_column("conn", justify="right")
+    for r in rows:
+        tf = str(r["time_from"])[:19]
+        tt = str(r["time_to"])[:19] if r["time_to"] else "—"
+        table.add_row(
+            _color_id(r["id_entity"]),
+            _color_subtype(r["subtype"]),
+            str(r["serial"]),
+            str(r["model"]),
+            _color_status(r["status"]),
+            _color_date(tf),
+            _color_date(tt) if r["time_to"] else "—",
+            _color_id(r["id_connection"]),
+        )
+    console.print(table)
+
+
+def _render_device_attribute_history(
+    console,
+    open_rows: List[Dict[str, Any]],
+    child_histories: Dict[int, Dict[str, Any]],
+) -> None:
+    """Render closed attribute periods for currently-joined devices.
+
+    Surfaces operationally relevant device-side history (firmware
+    upgrades, status transitions, identity rewrites) for each of the
+    station's currently-joined children. Combined into one table sorted
+    by device id then date_from so a firmware-bump sequence reads
+    chronologically.
+    """
+    from rich.table import Table
+
+    from .devices import attribute_periods
+
+    table = Table(
+        title=(
+            "Device attribute history " "(closed periods on currently-joined devices)"
+        )
+    )
+    table.add_column("id", justify="right")
+    table.add_column("subtype")
+    table.add_column("code")
+    table.add_column("value")
+    table.add_column("date_from")
+    table.add_column("date_to")
+    table.add_column("id_attribute_value", justify="right")
+
+    rows_added = 0
+    for child in open_rows:
+        child_id = child["id_entity"]
+        history = child_histories.get(child_id)
+        if not history:
+            continue
+        by_code = attribute_periods(history)
+        # Flatten then filter to closed periods only; sort by date_from
+        # so per-code transitions (firmware_version 4.85 → 5.10 → 6.00)
+        # read chronologically.
+        closed: List[tuple[str, Dict[str, Any]]] = []
+        for code, periods in by_code.items():
+            for p in periods:
+                if p.get("date_to") is not None:
+                    closed.append((code, p))
+        closed.sort(key=lambda kp: (kp[1].get("date_from") or "", kp[0]))
+        for code, p in closed:
+            value = p.get("value")
+            rendered_value = (
+                _color_status(value)
+                if code == "status"
+                else (str(value) if value is not None else "—")
+            )
+            table.add_row(
+                _color_id(child_id),
+                _color_subtype(child["subtype"]),
+                code,
+                rendered_value,
+                _color_date(p.get("date_from")),
+                _color_date(p.get("date_to")),
+                _color_id(p.get("id_attribute_value")),
+            )
+            rows_added += 1
+
+    if rows_added == 0:
+        console.print(
+            "Device attribute history (closed periods on currently-joined "
+            "devices): (none)"
+        )
+        return
+    console.print(table)
+
+
+def _render_show_drill_hint(
+    console,
+    *,
+    station: str,
+    open_rows: List[Dict[str, Any]],
+    contacts: Optional[List[Dict[str, Any]]] = None,
+) -> None:
+    """Print a tail block suggesting how to drill into a child device.
+
+    Picks one representative device id per subtype seen in
+    ``open_rows`` so the suggested ``tos device show --id N`` lines
+    are copy-pasteable against the very station that was just
+    rendered. Order: gnss_receiver, antenna, monument — typically the
+    GPS quartet the operator cares about most.
+
+    ``contacts`` (optional) supplies the rows from the Contacts
+    section. When at least one contact is present, the hint includes
+    a ``tos contact show --id N`` line referencing the first contact's
+    ``id_contact`` (a different namespace from id_entity).
+    """
+    # Map subtype → first open device row of that subtype (preserves
+    # encounter order from open_rows). Lets us pick one example per
+    # subtype without dragging the whole list into the hint.
+    by_subtype: Dict[str, Dict[str, Any]] = {}
+    for r in open_rows:
+        by_subtype.setdefault(r["subtype"], r)
+
+    ordered: List[Dict[str, Any]] = []
+    for sub in _DEVICE_SUBTYPE_DISPLAY_ORDER:
+        if sub in by_subtype:
+            ordered.append(by_subtype[sub])
+    # Anything else (digitizer, sim_card, ...) tacked on after the
+    # GPS quartet, in encounter order.
+    for sub, row in by_subtype.items():
+        if sub not in _DEVICE_SUBTYPE_DISPLAY_ORDER:
+            ordered.append(row)
+
+    console.print("[bold]Drill deeper:[/bold]")
+    if ordered:
+        example = ordered[0]
+        example_id = example["id_entity"]
+        example_subtype = example["subtype"]
+        example_label = f"  # {example_subtype} {example['serial']}"
+        console.print(f"  tos device show --id {example_id}{example_label}")
+        console.print(
+            f"  tos device show --id {example_id} --attributes-history "
+            "  # firmware + status transitions"
+        )
+        console.print(
+            f"  tos audit timeline {example_id}"
+            "                   # complete join chronology"
+        )
+        if len(ordered) > 1:
+            other_ids = ", ".join(str(r["id_entity"]) for r in ordered[1:])
+            console.print(f"  # other open devices: {other_ids}")
+    if contacts:
+        first_id_contact = contacts[0].get("id_contact")
+        if first_id_contact is not None:
+            console.print(
+                f"  tos contact show --id {first_id_contact}"
+                "             # contact entity (different namespace from id_entity)"
+            )
+    console.print(
+        f"  tos station verify {station}"
+        "                # re-run audits as pass/fail oracle"
+    )
+    console.print(
+        f"  tos station triage {station}"
+        "                # emit combined triage file (commented ACTIONs)"
+    )
+
+
+def _render_station_show_header(
+    console, history: Dict[str, Any], station_id: int
+) -> None:
+    """One-line station identity summary mirroring `_render_show_header`."""
+    from .devices import open_attribute
+
+    subtype = history.get("code_entity_subtype") or "?"
+    marker = open_attribute(history, "marker") or "?"
+    name = open_attribute(history, "name") or "?"
+    status = open_attribute(history, "status")
+    console.print(
+        f"Station id={_color_id(station_id)}  subtype={subtype}  "
+        f"marker [bold]{marker}[/bold]  name [bold]{name}[/bold]  "
+        f"status {_color_status(status)}"
+    )
+
+
+def _compile_text_pattern(pattern: str):
+    """Compile a user-supplied filter string into a regex matcher.
+
+    Three input styles, detected in this order:
+
+    1. Contains glob meta (``*`` / ``?``) but no other regex specials
+       → translated via :func:`fnmatch.translate` so users can type
+       ``*veður*`` without escaping anything.
+    2. Compiles as a regex → used directly. Lets advanced operators
+       write things like ``veður|vega`` or ``\\bIMO\\b``.
+    3. Compile failure → escaped to a literal substring search.
+
+    Always case-insensitive (TOS names mix Icelandic + English; ergo
+    operators rarely care about case). Returns a compiled
+    ``re.Pattern`` whose ``.search`` is the match predicate.
+    """
+    import fnmatch
+    import re
+
+    # Glob style — `*` and `?` are unambiguously globs when no other
+    # regex metacharacters appear.
+    has_glob = "*" in pattern or "?" in pattern
+    other_regex_meta = set(".+|()[]{}^$\\") & set(pattern)
+    if has_glob and not other_regex_meta:
+        # fnmatch.translate emits a regex anchored with `\Z`; strip
+        # the anchors so .search() can match anywhere.
+        regex = fnmatch.translate(pattern)
+        # Translated form looks like "(?s:.*veður.*)\\Z" — drop the
+        # trailing anchor so we get substring semantics consistent
+        # with the plain-text path.
+        regex = regex.replace(r"\Z", "").replace(r"\\Z", "")
+        return re.compile(regex, re.IGNORECASE)
+
+    try:
+        return re.compile(pattern, re.IGNORECASE)
+    except re.error:
+        return re.compile(re.escape(pattern), re.IGNORECASE)
+
+
+def _add_archive_arguments(parser) -> None:
+    """Attach the cold-archive opt-in flags to a subparser.
+
+    Shared between ``tos station triage`` and ``tos station verify``
+    so both surface the verify-from-rinex audit identically. Off by
+    default since the cold-archive mount isn't always available
+    (offline / laptop workflows). When ``--with-archive`` is set,
+    archive-root resolution falls back through:
+      ``--archive-root`` flag → ``$TOSTOOLS_ARCHIVE_ROOT`` →
+      ``receivers.cfg`` [archive_paths] → mount probe → error.
+    """
+    parser.add_argument(
+        "--with-archive",
+        action="store_true",
+        help=(
+            "Also run `tos audit verify-from-rinex` against the cold "
+            "RINEX archive. Surfaces brand transitions, data gaps, and "
+            "TOS-vs-archive join disagreements. Off by default — archive "
+            "access isn't always available."
+        ),
+    )
+    parser.add_argument(
+        "--archive-root",
+        type=Path,
+        default=None,
+        help=(
+            "Override the cold-archive root path. Defaults to the "
+            "$TOSTOOLS_ARCHIVE_ROOT env var, then the [archive_paths] "
+            "section of receivers.cfg, then a mount probe."
+        ),
+    )
+    parser.add_argument(
+        "--archive-min-gap-days",
+        type=float,
+        default=30.0,
+        metavar="DAYS",
+        help=(
+            "Minimum gap duration to flag (default: 30). Below ~7 the "
+            "report fills with date-rounding noise."
+        ),
+    )
+
+
+def _add_contact_filter_arguments(parser) -> None:
+    """Attach the standard ``--name`` / ``--email`` filter flags to a
+    subparser.
+
+    Shared between ``tos contact list`` and ``tos contact show`` so
+    pattern semantics stay identical: plain text = case-insensitive
+    substring, ``*`` / ``?`` = glob, full regex also accepted. Rows
+    missing the filtered field are excluded when that filter is set.
+    """
+    parser.add_argument(
+        "--name",
+        default=None,
+        metavar="PATTERN",
+        help=(
+            "Filter by name / organization. Plain text = case-"
+            "insensitive substring (`veður` matches `Veðurstofa "
+            "Íslands`). Glob characters `*` and `?` are honoured "
+            "(`*stof*` matches the same). Full regex syntax is "
+            "accepted (`veður|vega`, `\\bIMO\\b`)."
+        ),
+    )
+    parser.add_argument(
+        "--email",
+        default=None,
+        metavar="PATTERN",
+        help=(
+            "Filter by email. Same matching rules as --name: "
+            "substring / glob / regex, case-insensitive. Rows with "
+            "no email value are excluded when this filter is set."
+        ),
+    )
+
+
+def _filter_contacts(
+    contacts: List[Dict[str, Any]],
+    *,
+    name: Optional[str] = None,
+    email: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Apply --name / --email filters to a contact row list.
+
+    Filters are AND'd. ``name`` matches against ``name`` or
+    ``organization`` (whichever has content). ``email`` matches
+    against the ``email`` field. Rows missing the relevant field are
+    excluded when that filter is set — "no value" can't match a
+    pattern. Order preserved.
+    """
+    name_re = _compile_text_pattern(name) if name else None
+    email_re = _compile_text_pattern(email) if email else None
+    out: List[Dict[str, Any]] = []
+    for c in contacts:
+        if name_re is not None:
+            candidate = c.get("name") or c.get("organization") or ""
+            if not name_re.search(str(candidate)):
+                continue
+        if email_re is not None:
+            value = c.get("email") or ""
+            if not email_re.search(str(value)):
+                continue
+        out.append(c)
+    return out
+
+
+def _contact_main(argv):
+    """Handle ``tos contact <verb>`` subcommands.
+
+    Contacts live in their own id namespace (``id_contact``), distinct
+    from device / station entities (``id_entity``). The Contacts table
+    in ``tos station show`` surfaces ``id_contact`` values, and this
+    subcommand is the canonical drill-down for them.
+
+    Verbs:
+
+      ``show --id N``        Fetch one contact by id_contact. Wraps
+                             ``GET /contact/{id_contact}/``.
+      ``list --station S``   Mirror the Contacts section from
+                             ``tos station show`` (current contacts
+                             for one station).
+
+    Exit codes: 0 on success, 1 on lookup miss, 2 on usage error.
+    """
+    import json as _json
+
+    from .api.tos_client import TOSClient
+
+    p = argparse.ArgumentParser(
+        prog="tos contact",
+        description=(
+            "Inspect TOS contact records. Contacts are entities in "
+            "their own right (id_contact namespace), distinct from "
+            "stations / devices (id_entity namespace) — the cyan "
+            "`id` column in `tos station show`'s Contacts table is "
+            "the value to pass here.\n\n"
+            "Verbs:\n"
+            "  show --id N         One contact record (owner / "
+            "operator / point-of-contact).\n"
+            "  list --station S    Contacts currently mapped to "
+            "station S — same data as the embedded Contacts section "
+            "in `tos station show`."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = p.add_subparsers(dest="verb", required=True)
+
+    p_show = sub.add_parser(
+        "show",
+        help=(
+            "Display one contact in detail. Look up by --id, or by "
+            "--name / --email filters (must resolve to a unique match)."
+        ),
+        description=(
+            "Detail view for a single contact. One of --id, --name, "
+            "or --email is required. With filters:\n\n"
+            "  * 1 match  → full detail, same as --id\n"
+            "  * many     → compact list of matches + 'use --id N' hint\n"
+            "  * 0        → exit 1\n\n"
+            "Filter pattern semantics match `tos contact list`: "
+            "plain text = case-insensitive substring; `*` / `?` are "
+            "glob wildcards; full regex syntax is also accepted."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_show.add_argument(
+        "--id",
+        dest="id_contact",
+        type=int,
+        default=None,
+        help=(
+            "Contact's id_contact (cyan column in `tos station show`). "
+            "Mutually exclusive with --name / --email — id is the "
+            "exact-match path."
+        ),
+    )
+    _add_contact_filter_arguments(p_show)
+    p_show.add_argument(
+        "--json", action="store_true", help="Emit raw JSON instead of pretty."
+    )
+    p_show.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_show.add_argument("--port", type=int, default=443)
+
+    p_list = sub.add_parser(
+        "list",
+        help="List contacts. With --station: contacts for that station only.",
+        description=(
+            "List contact records. Two modes:\n\n"
+            "  (default)        every contact in TOS — compact "
+            "id / name / phone / email table.\n"
+            "  --station S      contacts mapped to station S only "
+            "(same data as the embedded Contacts section in "
+            "`tos station show`).\n\n"
+            "Both modes accept --name / --email filters and --json."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_list.add_argument(
+        "--station",
+        default=None,
+        help=(
+            "Optional station marker (e.g. HEDI) or display name. "
+            "When omitted, every contact in TOS is listed."
+        ),
+    )
+    _add_contact_filter_arguments(p_list)
+    p_list.add_argument(
+        "--json", action="store_true", help="Emit raw JSON instead of pretty."
+    )
+    p_list.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_list.add_argument("--port", type=int, default=443)
+
+    args = p.parse_args(argv)
+
+    scheme = "https" if args.port == 443 else "http"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    client = TOSClient(base_url=base_url)
+
+    if args.verb == "show":
+        # Three input styles: --id (exact), --name / --email (filtered).
+        # Reject the empty case explicitly so the operator sees a
+        # clearer message than argparse's generic "required" error.
+        if args.id_contact is None and args.name is None and args.email is None:
+            print(
+                "tos contact show: one of --id, --name, --email is required",
+                file=sys.stderr,
+            )
+            return 2
+
+        # --id path: single exact lookup via /contact/{id}/. Filters
+        # are ignored when --id is given (id is the unambiguous key).
+        if args.id_contact is not None:
+            contact = client.get_contact(args.id_contact)
+            if not contact:
+                print(
+                    f"No contact found for id_contact={args.id_contact}",
+                    file=sys.stderr,
+                )
+                return 1
+            if args.json:
+                print(_json.dumps(contact, ensure_ascii=False, indent=2))
+                return 0
+            _render_contact_record(contact)
             return 0
 
-        out_path = args.out or default_triage_path(args.station)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(rendered, encoding="utf-8")
+        # Filter path: pull the full fleet list, apply name/email.
+        # Resolve by count:
+        #   1 match  → render full detail (same as --id)
+        #   many     → render compact list + hint to drill via --id
+        #   0        → exit 1 with the clearest message we can manage
+        all_contacts = client.list_all_contacts() or []
+        matches = _filter_contacts(all_contacts, name=args.name, email=args.email)
+        if not matches:
+            criteria = []
+            if args.name:
+                criteria.append(f"--name {args.name!r}")
+            if args.email:
+                criteria.append(f"--email {args.email!r}")
+            print(
+                f"No contact matches: {' '.join(criteria)}",
+                file=sys.stderr,
+            )
+            return 1
+        if len(matches) == 1:
+            contact = matches[0]
+            if args.json:
+                print(_json.dumps(contact, ensure_ascii=False, indent=2))
+                return 0
+            _render_contact_record(contact)
+            return 0
 
-        print(
-            f"Wrote triage file: {out_path}\n"
-            f"  station_id: {report.station_id}\n"
-            f"  findings:   {report.total_findings}\n"
-            f"\n"
-            f"Next:\n"
-            f"  $EDITOR {out_path}\n"
-            f"  tos audit apply {out_path}            # dry-run\n"
-            f"  tos audit apply {out_path} --apply    # commit"
+        # Multiple matches — surface the candidate list so the
+        # operator can pick by id. Same compact renderer as `list`.
+        if args.json:
+            print(_json.dumps({"contacts": matches}, ensure_ascii=False, indent=2))
+            return 0
+        from rich.console import Console
+
+        console = Console()
+        _render_all_contacts_table(console, matches)
+        first_id = matches[0].get("id") or matches[0].get("id_contact")
+        console.print()
+        console.print(
+            f"[yellow]{len(matches)} matches — narrow the filter or pick "
+            f"one with[/yellow]:  tos contact show --id {first_id}"
         )
         return 0
 
+    if args.verb == "list":
+        # Two modes: --station S (per-station relationships) vs no
+        # filter (every contact in TOS). Different endpoints, different
+        # row shapes — the renderers below diverge accordingly.
+        # --name / --email are AND'd onto either mode.
+        if args.station is None:
+            contacts = client.list_all_contacts() or []
+            contacts = _filter_contacts(contacts, name=args.name, email=args.email)
+            if args.json:
+                print(_json.dumps({"contacts": contacts}, ensure_ascii=False, indent=2))
+                return 0
+            from rich.console import Console
+
+            console = Console()
+            _render_all_contacts_table(console, contacts)
+            return 0
+
+        station_id = _resolve_parent_id(client, station_marker=args.station)
+        if station_id is None:
+            print(
+                f"No station found for marker {args.station!r}",
+                file=sys.stderr,
+            )
+            return 1
+        contacts = client.get_contacts(station_id) or []
+        contacts = _filter_contacts(contacts, name=args.name, email=args.email)
+        if args.json:
+            payload = {
+                "station": args.station,
+                "id_entity": station_id,
+                "contacts": contacts,
+            }
+            print(_json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0
+        from rich.console import Console
+
+        console = Console()
+        _render_station_contacts(console, contacts)
+        return 0
+
     return 2
+
+
+def _render_all_contacts_table(
+    console,
+    contacts: List[Dict[str, Any]],
+) -> None:
+    """Render the full TOS contact list (the `list` verb sans
+    ``--station``).
+
+    Different shape from :func:`_render_station_contacts`: rows here
+    come from ``/contact/`` directly (the contact entity, not a
+    relationship), so there is no role / per-station period to show.
+    Compact columns — id, name/organization, phone, email, start_date,
+    end_date — sized for fleet inspection.
+
+    Rows are sorted by id_contact ascending so the listing is
+    deterministic; operators usually pipe to grep / less anyway.
+    """
+    from rich.table import Table
+
+    title = f"All TOS contacts — {len(contacts)} record(s)"
+    if not contacts:
+        console.print(title)
+        console.print("  (no contacts returned)")
+        return
+
+    rows = sorted(contacts, key=lambda c: c.get("id") or c.get("id_contact") or 0)
+
+    table = Table(title=title)
+    table.add_column("id", justify="right")
+    table.add_column("name / organization")
+    table.add_column("phone")
+    table.add_column("email")
+    table.add_column("start_date")
+    table.add_column("end_date")
+    for c in rows:
+        id_contact = c.get("id") or c.get("id_contact")
+        name = c.get("name") or c.get("organization") or "?"
+        phone = c.get("phone_primary") or "—"
+        email = c.get("email") or "—"
+        start = (c.get("start_date") or "")[:10] or "?"
+        end_raw = c.get("end_date")
+        end = end_raw[:10] if end_raw else "—"
+        table.add_row(
+            _color_id(id_contact),
+            name,
+            phone,
+            email,
+            _color_date(start) if start != "?" else "?",
+            _color_date(end) if end != "—" else "—",
+        )
+    console.print(table)
+
+
+def _render_contact_record(contact: Dict[str, Any]) -> None:
+    """Pretty-print one contact record (the `show` verb's output).
+
+    The ``/contact/{id}/`` endpoint returns the *contact entity* itself
+    — name / address / phones / email — without per-station role
+    (role lives on the ``entity_contacts/{id_entity}/`` relationship
+    rows). Rendered as one (field, value) pair per row so long
+    values (address, comment) read clearly.
+    """
+    from rich.console import Console
+    from rich.table import Table
+
+    console = Console()
+    # The endpoint exposes the contact's id as `id` (not `id_contact`).
+    id_contact = contact.get("id") or contact.get("id_contact")
+    name = contact.get("name") or contact.get("organization") or "?"
+    console.print(f"Contact id={_color_id(id_contact)}  name [bold]{name}[/bold]")
+
+    # Field list matches the actual `/contact/{id}/` payload schema.
+    # Role / role_is are intentionally omitted — they're per-station
+    # relationship data, exposed by `tos contact list --station S`.
+    fields = [
+        ("organization", contact.get("organization")),
+        ("name", contact.get("name")),
+        ("job_title", contact.get("job_title")),
+        ("phone_primary", contact.get("phone_primary")),
+        ("phone_secondary", contact.get("phone_secondary")),
+        ("phone_tertiary", contact.get("phone_tertiary")),
+        ("email", contact.get("email")),
+        ("address", contact.get("address")),
+        ("comment", contact.get("comment")),
+        ("start_date", contact.get("start_date")),
+        ("end_date", contact.get("end_date")),
+        ("ssid", contact.get("ssid")),
+    ]
+    table = Table(title="Contact attributes")
+    table.add_column("field")
+    table.add_column("value")
+    for label, value in fields:
+        if value in (None, ""):
+            rendered = "—"
+        else:
+            rendered = f"[{_STATION_VALUE_COLOR}]{value}[/{_STATION_VALUE_COLOR}]"
+        table.add_row(label, rendered)
+    console.print(table)
 
 
 def _audit_main(argv):
@@ -7177,202 +6756,37 @@ def _print_station_report(report, *, verbose: bool = False):
             print("  (run with --verbose for what this means and how to fix)")
 
 
-def _legacy_main(argv):
-    """Pre-subcommand flat-arg behavior — kept for backward compatibility."""
-    parser = argparse.ArgumentParser(
-        add_help=True, description="TOS tools - Version 0.3"
-    )
-    parser.add_argument(
-        "identifiers",
-        nargs="*",
-        help="Identifiers to use, station_identifier or serial_number",
-    )
-    parser.add_argument(
-        "-D",
-        "--domain",
-        help="Only search specific domain (meteorological, geophysical, hydrological, remote_sensing, general)",
-    )
-    parser.add_argument(
-        "-s",
-        "--serial_number",
-        action="store_true",
-        help="Search for device by serial_number",
-    )
-    parser.add_argument("-d", "--devices", action="store_true", help="Include devices)")
-    parser.add_argument(
-        "-G", "--galvos", action="store_true", help="Search for device by GALVOS number"
-    )
-    parser.add_argument(
-        "-x",
-        "--exclude",
-        action="store_true",
-        help="Exclude the specified station_identifier:s instead of including",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        default="pretty",
-        help="Output format; pretty (default), table, json",
-    )
-    parser.add_argument(
-        "-t",
-        "--tablefmt",
-        default="simple",
-        help="Tableformat for output; simple (default), plain, github, grid...See https://pypi.org/project/tabulate/ for full list",
-    )
-    parser.add_argument(
-        "--fdsnxml",
-        action="store_true",
-        help="Generate FDSN XML file for SIL stations. Defaults to all SIL stations if no station_identifier is provided.",
-    )
-    parser.add_argument(
-        "--sc3ml",
-        action="store_true",
-        help="Generate SC3ML XML (Gempa Seiscomp3) file for SIL stations. Defaults to all SIL stations if no station_identifier is provided.",
-    )
-    parser.add_argument(
-        "--compareto",
-        help="Compare generated SC3ML XML file structure to the specified file",
-    )
-    parser.add_argument(
-        "--schema_version",
-        help="XML schema version. Supported versions: 0.9, 0.10, 0.11",
-    )
-    # parser.add_argument('-p', '--pdf', action="store_true", help='Export PDF')
-    # parser.add_argument('-l', '--language', help='Language for output. Default IS')
-
-    args = parser.parse_args(argv)
-
-    # Check args
-    if not argv:
-        parser.print_help(sys.stderr)
-        return 2
-
-    # Detect flag-only invocation (no action selected, no identifiers).
-    action_selected = (
-        args.serial_number
-        or args.galvos
-        or args.sc3ml
-        or args.fdsnxml
-        or bool(args.identifiers)
-    )
-    if not action_selected:
-        parser.print_help(sys.stderr)
-        return 2
-
-    if args.serial_number:
-        if args.exclude:
-            logging.warning("Ignoring option --exclude with serial_number search")
-        devices = []
-        for serial_number in args.identifiers:
-            device = searchDevice(serial_number)
-            if len(device) == 0:
-                logging.warning(f"Device with serial_number {serial_number} not found")
-            else:
-                devices += [device]
-
-        for device in devices:
-            display(device, args.output, args.tablefmt)
-
-    elif args.galvos:
-        if args.exclude:
-            logging.warning("Ignoring option --exclude with galvos search")
-        devices = []
-        for galvos in args.identifiers:
-            device = searchDevice(galvos=galvos)
-            if len(device) == 0:
-                logging.warning(f"Device with Galvos number {galvos} not found")
-            else:
-                devices += [device]
-
-        for device in devices:
-            display(device, args.output, args.tablefmt)
-
-    elif args.sc3ml:
-        # from obspy.clients.nrl import NRL
-        parseSeiscompInventoryXML("master_inventory.xml")
-        # print(inventory)
-
-        if args.schema_version:
-            if args.schema_version not in ["0.9", "0.10", "0.11"]:
-                logging.critical(
-                    f"Unsupported XML schema version {args.schema_version}"
-                )
-                return 2
-
-        if args.identifiers:
-            sc3ml = generateSC3ML(args.identifiers, args.schema_version)
-        else:
-            sc3ml = generateSC3ML(schema_version=args.schema_version)
-
-        # Write to file
-        with open("tos.sc3ml.xml", "w", encoding="utf-8") as f:
-            f.write(sc3ml)
-
-        if args.compareto is not None:
-            # from obspy import read_inventory
-            # inventory = read_inventory(args.compareto, format='SC3ML')
-            # compareXMLtoInventory(xml,inventory)
-            with open(args.compareto, encoding="utf-8") as comparefile:
-                compareSC3(sc3ml, comparefile)
-
-    elif args.fdsnxml:
-
-        # master_inventory = parseSeiscompInventoryXML('master_inventory.xml')
-        # print(inventory)
-
-        if args.identifiers:
-            generateFDSNXML(args.identifiers)
-        else:
-            generateFDSNXML()
-
-    elif args.identifiers:
-        if args.exclude:
-            logging.warning("Ignoring option --exclude with station_identifier search")
-        stations = []
-
-        for station_identifier in args.identifiers:
-            station = searchStation(station_identifier, url_rest_tos, args.domain)
-            id_entity = station[0]["id_entity"]
-            if args.devices:
-                devices = getDevicesByParentEntityId(id_entity)
-                station[0]["devices"] = devices
-
-            if len(station) == 0:
-                logging.warning(
-                    f"Station with station_identifier {station_identifier} not found"
-                )
-            else:
-                stations += [station]
-
-        for station in stations:
-            display(station, args.output, args.tablefmt)
-
-    return 0
-
-
 def _print_top_level_help() -> None:
-    """Umbrella help — lists every subcommand AND keeps the legacy form visible.
+    """Umbrella help — lists every subcommand.
 
-    The dispatch in :func:`main` accepts both subcommand-style (``tos
-    audit timeline ...``) and the original Tryggvi flat-arg form (``tos
-    RHOF -s``). Argparse's own help only knows about whichever form it
-    happens to enter, so neither view alone reflects the full surface.
-    Print our own.
+    Argparse's per-subparser help only sees its own arguments, so the bare
+    ``tos --help`` would otherwise only show what argparse rooted at the
+    top-level parser knows. Print our own overview instead.
     """
     print(
         "usage: tos <command> [args...]\n"
-        "       tos <legacy flat-arg form>   # backward-compat, see `tos legacy --help`\n"
         "\n"
-        "GPS / GNSS station-metadata tool. Two CLI generations live side\n"
-        "by side here:\n"
+        "GPS / GNSS station-metadata tool.\n"
         "\n"
-        "Subcommand-style verbs (current development surface):\n"
+        "Subcommands:\n"
         "  owners     Manage the recognised TOS device-owner allow-list.\n"
         "             Examples: `tos owners list`, `tos owners list --refresh`.\n"
         "\n"
-        "  device     Manage device entities (warehouse intake).\n"
-        "             Examples: `tos device add --subtype gnss_receiver --serial ...`.\n"
+        "  device     Manage device entities (warehouse intake + inspection).\n"
+        "             Examples: `tos device add ...`, `tos device list --station SAVI`,\n"
+        "             `tos device show --id N`.\n"
+        "\n"
+        "  station    Top-level station orchestration. Subverbs:\n"
+        "               station triage <STN>    Generate combined triage file\n"
+        "                                       (commented ACTION lines).\n"
+        "               station verify <STN>    Re-run audits; exit 0 clean,\n"
+        "                                       1 findings, 2 failure.\n"
+        "               station show <STN>      Show station identity, open\n"
+        "                                       attributes, joined devices.\n"
+        "\n"
+        "  contact    Inspect TOS contact records (id_contact namespace).\n"
+        "               contact show --id N     One contact record.\n"
+        "               contact list --station S  Contacts for a station.\n"
         "\n"
         "  audit      Read-only invariants + history reconstruction.\n"
         "             Subverbs:\n"
@@ -7398,37 +6812,21 @@ def _print_top_level_help() -> None:
         "                            change-subtype / decommission / defer.\n"
         "                            Dry-run by default.\n"
         "\n"
-        "Legacy flat-arg form (Tryggvi original, station/device lookup):\n"
-        "  tos RHOF                       # query one station\n"
-        "  tos -s 3018484                 # search by serial number\n"
-        "  tos --fdsnxml --sc3ml ...      # XML export\n"
-        "  Run `tos legacy --help` for the full legacy option list.\n"
-        "\n"
         "Per-subcommand help: `tos <subcommand> --help`.\n"
     )
 
 
 def main(argv=None):
-    """Entry point — dispatches to `tos <subcommand> ...` or the legacy CLI.
+    """Entry point — dispatches to `tos <subcommand> ...`.
 
-    Two coexisting CLI generations. The legacy flat-arg form
-    (``tos RHOF -s``) remains the default fall-through for backward
-    compatibility; the modern subcommand-style form (``tos audit ...``)
-    is routed via :data:`KNOWN_SUBCOMMANDS` before falling through.
-
-    ``tos --help`` / ``tos -h`` prints a custom umbrella help listing
-    both surfaces — argparse's per-parser help only sees its own
-    arguments, which is why the bare ``tos --help`` historically only
-    showed the legacy flags.
+    ``tos --help`` / ``tos -h`` prints a custom umbrella help listing every
+    subcommand. Unknown / missing subcommands print the umbrella and exit 2.
     """
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] in ("-h", "--help"):
+    if not argv or argv[0] in ("-h", "--help"):
         _print_top_level_help()
-        return 0
-    if argv and argv[0] == "legacy":
-        # Explicit opt-in to the legacy parser's own argparse help.
-        return _legacy_main(argv[1:])
-    if argv and argv[0] in KNOWN_SUBCOMMANDS:
+        return 0 if argv else 2
+    if argv[0] in KNOWN_SUBCOMMANDS:
         subcmd = argv[0]
         rest = argv[1:]
         if subcmd == "owners":
@@ -7439,7 +6837,11 @@ def main(argv=None):
             return _audit_main(rest)
         if subcmd == "station":
             return _station_main(rest)
-    return _legacy_main(argv)
+        if subcmd == "contact":
+            return _contact_main(rest)
+    print(f"tos: unknown subcommand {argv[0]!r}\n", file=sys.stderr)
+    _print_top_level_help()
+    return 2
 
 
 # ---------------------------------------------------------------------------

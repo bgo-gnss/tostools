@@ -8,7 +8,7 @@ This is **tostools**, a Python3 command-line toolkit for GPS/GNSS station metada
 
 **Main Application**: `tosGPS` - GPS metadata quality control tool that queries TOS API and validates against RINEX files.
 
-**Current Version**: v0.6.0 (Layers 1-6 attribute-dates audit + TOS read/write API client with move_device / add_maintenance_visit)
+**Current Version**: v0.6.0 (Layers 1-6 attribute-dates audit + TOS read/write API client with move_device / add_maintenance_visit; v0.7 in progress: station verify/show/triage, tos contact subcommand, verify-from-rinex refactored into reusable audit module + --with-archive plumbing, legacy flat-arg CLI removed)
 
 ### Core Components
 
@@ -55,6 +55,8 @@ Practical examples:
 |------|----------|-----|
 | `tos device show <id>` | `tos` | Raw attribute periods + raw joins |
 | `tos device list --station SAVI` | `tos` | Raw entity table with `id_entity` column |
+| `tos station show <STN>` | `tos` | Station identity + open attrs + joined children |
+| `tos station verify <STN>` | `tos` | Pass/fail oracle; reuses raw audit reports |
 | `tos audit fleet` | `tos` | Invariants over raw TOS state |
 | `tos audit apply file.txt` | `tos` | Writes raw entities |
 | `tosGPS PrintTOS SAVI` | `tosGPS` | GAMIT-formatted station sessions |
@@ -141,14 +143,52 @@ preserved.
 Happy-path workflow (no AI required for routine stations):
 
 ```
+tos station show HEDI                          # current state snapshot
 tos station triage HEDI                        # generate triage file
 $EDITOR data/triage/hedi/hedi_audit_*.txt      # uncomment / fill
 tos audit apply <file>                         # dry-run
 tos audit apply <file> --apply                 # commit
+tos station verify HEDI                        # exit 0 confirms clean
 git add <file> && git commit                   # provenance
 ```
 
-Pinned by `tests/test_station_triage.py`.
+Pinned by `tests/test_station_triage.py`,
+`tests/test_station_verify.py`, `tests/test_station_show.py`.
+
+### `tos station verify` — apply→verify oracle
+
+`tos station verify <STATION>` re-runs every audit and exits with a
+pass/fail signal:
+
+  * `0`  clean — every audit ran and reported no violations
+  * `1`  findings — at least one audit has surviving violations
+  * `2`  failure — at least one audit raised (TOS lookup error,
+    malformed catalog). Distinct from `findings` so cron / CI can
+    distinguish "station needs work" from "oracle broken".
+
+Reuses :func:`station_triage.generate_station_triage` as the
+aggregator; the same sub-reports feed both the triage renderer and
+this oracle. ``--no-suppressions`` bypasses the per-audit SUPPRESS
+files (forwarded through the generator to both underlying audits).
+``--json`` emits ``{station, station_id, status, exit_code, audits,
+notes}``.
+
+### `tos station show` — current-state snapshot
+
+`tos station show <STATION>` is read-only inspection:
+
+  * default: station identity (id, marker, name, status) + open
+    attribute periods + currently-joined child devices
+  * `--all`: adds attribute history (closed periods) + closed joins
+    — mirrors the TOS web UI's *Saga eiginda tækis* +
+    *Saga staðsetningar tækis* panels
+  * `--device`: delegate to ``tos device list --station <STN>``
+    (passes ``--all`` through)
+  * `--json`: full payload shape
+
+Reuses ``_render_show_open_attributes`` + ``_render_show_attribute_history``
+from the device-show family — same suspicion coloring (2014-10-17
+yellow, bilað/óvirkt red, closed dimmed, id_attribute_value cyan).
 
 **For first-time operators**: see
 `docs/tutorials/station-triage-tutorial.md` for a step-by-step
@@ -228,13 +268,19 @@ tosGPS --log-level INFO PrintTOS RHOF
 tosGPS --debug-all --log-dir logs sitelog RHOF
 ```
 
-### Legacy TOS Tools
+### `tos` subcommands
 
 ```bash
-tos vadla -o json    # Original TOS API client (Tryggvi)
-json2ascii input.json output.txt
-metadata2rmq
+tos station show <STN>             # current-state snapshot
+tos station triage <STN>           # combined triage file
+tos station verify <STN>           # apply→verify oracle
+tos device list --station <STN>    # currently-joined devices
+tos audit apply <triage_file>      # dry-run; --apply to commit
 ```
+
+Legacy flat-arg form (`tos RHOF`, `tos -s SERIAL`, `tos --fdsnxml/--sc3ml`)
+and the `json2ascii` / `metadata2rmq` console scripts were removed in
+v0.7. The SC3/FDSN XML export pipeline is out of scope for this package.
 
 ## Architecture
 
