@@ -2203,6 +2203,11 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
     overall_success = True
     results = {}
 
+    # Select the gps_metadata synthesizer once so apply + compare paths agree
+    # with PrintTOS / sitelog / rinex (new devices.station_sessions chain by
+    # default). --use-legacy-synthesis opts back into the legacy chain.
+    synthesizer = _select_synthesizer(args)
+
     for metadata_type in metadata_types:
         print(f"\n=== Processing {metadata_type} ===", file=sys.stderr)
 
@@ -2227,6 +2232,7 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
                 interactive=not args.non_interactive,
                 backup_required=args.backup or True,  # Default to backup for safety
                 production_mode=getattr(args, "production_mode", False),
+                synthesizer=synthesizer,
             )
 
             # Convert workflow result to expected format
@@ -2253,6 +2259,7 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
                 with_archive=getattr(args, "with_archive", False),
                 archive_root=getattr(args, "archive_root", None),
                 archive_min_gap_days=getattr(args, "archive_min_gap_days", 30),
+                synthesizer=synthesizer,
             )
 
         results[metadata_type] = type_results
@@ -2446,6 +2453,7 @@ def _process_metadata_type(
     with_archive=False,
     archive_root=None,
     archive_min_gap_days=30,
+    synthesizer=None,
 ):
     """Process a single metadata type for all specified stations."""
     logger = get_logger(__name__)
@@ -2490,6 +2498,7 @@ def _process_metadata_type(
                     with_archive=with_archive,
                     archive_root=archive_root,
                     archive_min_gap_days=archive_min_gap_days,
+                    synthesizer=synthesizer,
                 )
 
                 results["stations_processed"] += 1
@@ -2547,19 +2556,26 @@ def _process_single_station(
     with_archive=False,
     archive_root=None,
     archive_min_gap_days=30,
+    synthesizer=None,
 ):
     """Process a single station for a specific metadata type."""
     result = {"updated": False}
 
+    if synthesizer is None:
+        synthesizer = gpsqc.gps_metadata_via_devices
+
     if metadata_type == "gamit-station-info":
         try:
-            # Get TOS data using the exact same approach as PrintTOS
-            station_info = gpsqc.gps_metadata(station, url, loglevel=logging.CRITICAL)
+            # Use the same synthesizer PrintTOS / sitelog / rinex use (new
+            # devices.station_sessions composer chain by default). Otherwise
+            # syncMeta would silently drop sessions the legacy chain skips
+            # for "missing monument data", producing partial updates.
+            station_info = synthesizer(station, url, loglevel=logging.CRITICAL)
             if not station_info:
                 print(f"Error: No TOS data found for {station}", file=sys.stderr)
                 return result
 
-            # Generate GAMIT format using the same function as PrintTOS --format gamit
+            # Same GAMIT-line formatter as PrintTOS --format gamit
             tos_lines = gpsf.print_station_info(station_info, loglevel=logging.CRITICAL)
 
             # Get reference data
@@ -4250,6 +4266,7 @@ def _safe_update_workflow(
     interactive=True,
     backup_required=True,
     production_mode=False,
+    synthesizer=None,
 ):
     """
     Main safe update workflow orchestrator.
@@ -4262,10 +4279,17 @@ def _safe_update_workflow(
         dry_run: Test mode - no actual uploads
         interactive: Prompt for confirmations (default: True)
         backup_required: Require backup before changes
+        synthesizer: Optional gps_metadata synthesizer callable. Defaults to
+            ``gpsqc.gps_metadata_via_devices`` (the new devices.station_sessions
+            composer chain), keeping syncMeta consistent with PrintTOS / sitelog
+            / rinex. Callers should pass ``_select_synthesizer(args)`` so
+            ``--use-legacy-synthesis`` opts back into the legacy chain.
 
     Returns:
         dict: Complete workflow results
     """
+    if synthesizer is None:
+        synthesizer = gpsqc.gps_metadata_via_devices
     from pathlib import Path
 
     logger = get_logger(__name__)
@@ -4401,9 +4425,7 @@ def _safe_update_workflow(
         station_updates = {}
         for station in stations:
             try:
-                station_info = gpsqc.gps_metadata(
-                    station, url, loglevel=logging.CRITICAL
-                )
+                station_info = synthesizer(station, url, loglevel=logging.CRITICAL)
                 if station_info:
                     tos_lines = _generate_station_lines_from_tos(station_info)
                     station_updates[station] = tos_lines
@@ -4504,6 +4526,35 @@ def _safe_update_workflow(
                 if upload_result["success"]:
                     workflow_result["stations_updated"] = list(station_updates.keys())
                     if not dry_run:
+                        # Refresh the local cached copy with what we just uploaded so
+                        # subsequent no-update syncMeta runs (which read from this
+                        # local file rather than re-downloading) compare against the
+                        # same state that now lives on okada. Without this, the next
+                        # diff would still show the pre-upload state and look like
+                        # the update silently failed.
+                        try:
+                            import shutil
+
+                            local_reference = (
+                                station_config_dir / "station.info.sopac.apr05"
+                            )
+                            shutil.copy2(work_info["work_path"], local_reference)
+                            logger.info(
+                                "Local cached reference refreshed from working copy",
+                                extra={
+                                    "step": 7,
+                                    "workflow": "safe_update",
+                                    "local_reference": str(local_reference),
+                                },
+                            )
+                        except Exception as refresh_err:
+                            # Don't fail the whole workflow — upload already
+                            # succeeded; this is just a cache freshness fix.
+                            logger.warning(
+                                f"Failed to refresh local cached reference: {refresh_err}",
+                                extra={"step": 7, "workflow": "safe_update"},
+                            )
+
                         print(
                             "🎉 Update workflow completed successfully!",
                             file=sys.stderr,
