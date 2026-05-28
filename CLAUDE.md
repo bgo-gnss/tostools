@@ -8,7 +8,7 @@ This is **tostools**, a Python3 command-line toolkit for GPS/GNSS station metada
 
 **Main Application**: `tosGPS` - GPS metadata quality control tool that queries TOS API and validates against RINEX files.
 
-**Current Version**: v0.6.0 (Layers 1-6 attribute-dates audit + TOS read/write API client with move_device / add_maintenance_visit; v0.7 in progress: station verify/show/triage, tos contact subcommand, verify-from-rinex refactored into reusable audit module + --with-archive plumbing, legacy flat-arg CLI removed)
+**Current Version**: v0.6.0 (Layers 1-6 attribute-dates audit + TOS read/write API client with move_device / add_maintenance_visit; v0.7 in progress: station verify/show/triage, tos contact subcommand, verify-from-rinex refactored into reusable audit module + --with-archive plumbing, legacy flat-arg CLI removed, `tos fleet triage` / `tos fleet status` fleet-wide orchestrators)
 
 ### Core Components
 
@@ -235,6 +235,40 @@ existing diff, in one command, so operators get all three sources (TOS,
 REF, ARCHIVE) without leaving the syncMeta flow. Same `--archive-root`
 override applies; `--archive-min-gap-days` controls the gap threshold.
 
+### Fleet ops — `tos fleet triage` and `tos fleet status`
+
+Fleet-wide orchestrators that loop the single-station verbs over every
+GNSS station in `stations.cfg` (`code_subtype == "geophysical"`).
+Phase 4 of the station-triage sequence (Phases 1-3 = single-station
+triage / verify / show).
+
+  * `tos fleet status` — bulk verify oracle. No disk writes. Exit code
+    mirrors `tos station verify`: 0 all clean / 1 any findings / 2 any
+    audit failure. Default text output suppresses clean stations;
+    `--show-clean` for the full table; `--json` for automation.
+  * `tos fleet triage` — generate per-station triage files into
+    `data/triage/<STN>/<STN>_audit_<YYYYMMDD>.txt`. Clean stations are
+    **skipped by default** — `--include-clean` opts in to a full
+    inventory. Same-day re-runs overwrite that day's file.
+
+Both verbs share the standard filter set: `--include STN1 STN2`,
+`--exclude STN3`, `--limit N` (test helper), `--stations-cfg PATH`,
+`--catalog PATH`, `--no-suppressions`, `--with-archive` /
+`--archive-root` / `--archive-min-gap-days` (verify-from-rinex
+passthrough — slow at fleet scale, 173 archive walks).
+
+Implementation in `src/tostools/fleet_ops.py`:
+`enumerate_fleet_stations()` filters `enumerate_known_parents` to
+`REAL_STATION_SUBTYPES`, applies include/exclude/limit, raises
+`RuntimeError` if zero stations resolve (guards against the
+infrastructure-only fallback when `stations.cfg` is missing).
+`_iterate_fleet()` is the shared loop body — wraps
+`generate_station_triage()` per-station, captures per-station
+failures into the result, calls a side-effect callback (file write
+for triage, no-op for status). Sequential by design (~5-15 min on a
+warm cache for 173 stations); parallelism is a documented follow-up.
+Pinned by `tests/test_fleet_ops.py`.
+
 ## Quick Start
 
 ### Environment Setup
@@ -276,6 +310,8 @@ tos station triage <STN>           # combined triage file
 tos station verify <STN>           # apply→verify oracle
 tos device list --station <STN>    # currently-joined devices
 tos audit apply <triage_file>      # dry-run; --apply to commit
+tos fleet status                   # bulk verify oracle (exit 0/1/2)
+tos fleet triage                   # generate per-station triage files
 ```
 
 Legacy flat-arg form (`tos RHOF`, `tos -s SERIAL`, `tos --fdsnxml/--sc3ml`)
@@ -510,5 +546,5 @@ Integration with VS Code Todo Tree and Neovim todo-comments.nvim available.
 
 ---
 
-_Last updated: 2026-05-05_
+_Last updated: 2026-05-28_
 

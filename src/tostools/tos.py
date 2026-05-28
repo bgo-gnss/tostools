@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-KNOWN_SUBCOMMANDS = {"owners", "device", "audit", "station", "contact"}
+KNOWN_SUBCOMMANDS = {"owners", "device", "audit", "station", "contact", "fleet"}
 
 
 def _owners_main(argv):
@@ -3150,6 +3150,476 @@ def _render_contact_record(contact: Dict[str, Any]) -> None:
             rendered = f"[{_STATION_VALUE_COLOR}]{value}[/{_STATION_VALUE_COLOR}]"
         table.add_row(label, rendered)
     console.print(table)
+
+
+def _fleet_main(argv):
+    """Handle ``tos fleet <verb>`` subcommands.
+
+    Fleet-wide orchestrators that loop the single-station verbs across
+    every GNSS station in ``stations.cfg``. Phase 4 of the
+    [[station_triage_orchestrator]] sequence — see CLAUDE.md.
+
+    Verbs:
+
+      ``triage``  Generate per-station triage files across the fleet.
+                  Clean stations are skipped by default (no findings,
+                  no file). Files land under
+                  ``data/triage/<station>/<station>_audit_<DATE>.txt``.
+
+      ``status``  Run the verify oracle in bulk and emit a fleet
+                  summary table. No disk writes. Exit code mirrors
+                  ``tos station verify``: 0 clean fleet, 1 any
+                  findings, 2 any audit failure.
+
+    Both verbs share the same filter set:
+
+      ``--include STN1 STN2``  whitelist station markers
+      ``--exclude STN3``       blacklist station markers
+      ``--limit N``            stop after N stations (test helper)
+      ``--with-archive``       also run verify-from-rinex (slow at
+                               fleet scale — 173 archive walks)
+
+    A fleet run is sequential and takes 5-15 minutes on a warm cache.
+    Progress is printed to stderr; per-station summaries go to stdout.
+    """
+    import argparse as _argparse
+    import json as _json
+    import sys as _sys
+
+    p = _argparse.ArgumentParser(
+        prog="tos fleet",
+        description=(
+            "Fleet-wide orchestrators for GPS/GNSS metadata QC.\n\n"
+            "Loop the per-station audit verbs (`tos station verify` /\n"
+            "`tos station triage`) across every GNSS station listed in\n"
+            "`stations.cfg` (~173 stations on the IMO network) and\n"
+            "aggregate the results into one report.\n\n"
+            "WHEN TO USE\n"
+            "  Daily health check       → `tos fleet status` (read-only)\n"
+            "  Cron / CI gate           → `tos fleet status --json`\n"
+            "  Bulk metadata cleanup    → `tos fleet triage` → edit →\n"
+            "                             `tos audit apply`\n"
+            "  Spot check a subset      → `--include STN1 STN2 …`\n"
+            "  Archive cross-check      → `--with-archive` (slow at\n"
+            "                             fleet scale; warn auto-emits)\n\n"
+            "VERBS\n"
+            "  status   Bulk verify oracle — runs every audit against\n"
+            "           every station; emits a fleet dashboard table\n"
+            "           sorted by findings desc. No disk writes. Exit\n"
+            "           code:  0 = all clean, 1 = any findings,\n"
+            "           2 = any audit raised. Same exit semantics as\n"
+            "           single-station `tos station verify`, so cron /\n"
+            "           CI can tell 'fleet needs work' from\n"
+            "           'oracle broken'.\n\n"
+            "  triage   Generate per-station ACTION-style triage files\n"
+            "           under `data/triage/<STN>/<STN>_audit_<DATE>.txt`.\n"
+            "           Clean stations are skipped by default — the\n"
+            "           operator only sees files for stations needing\n"
+            "           attention. The generated file is the input to\n"
+            "           `tos audit apply` (dry-run first, then `--apply`).\n\n"
+            "FLEET OPERATOR WORKFLOW\n"
+            "  1. `tos fleet status`               # is anything broken?\n"
+            "  2. `tos fleet triage --include X`   # produce triage files\n"
+            "                                      # for stations of\n"
+            "                                      # interest\n"
+            "  3. `$EDITOR data/triage/x/*.txt`    # review + uncomment\n"
+            "                                      # ACTION lines\n"
+            "  4. `tos audit apply <file>`         # dry-run\n"
+            "  5. `tos audit apply <file> --apply` # commit\n"
+            "  6. `tos fleet status --include X`   # confirm clean\n"
+            "  7. `git commit data/triage/x/*.txt` # provenance\n\n"
+            "PERFORMANCE\n"
+            "  Sequential by design. A narrow run (`--include HEDI SAVI`)\n"
+            "  takes a few seconds. A full fleet sweep is 5-15 min on a\n"
+            "  warm cache; `--with-archive` adds ~10s per station for\n"
+            "  the cold-archive walk (30+ min for a full fleet sweep —\n"
+            "  consider `--limit N` for first runs).\n\n"
+            "  Progress is printed to stderr; the aggregate table /\n"
+            "  JSON payload goes to stdout, so `tos fleet status --json\n"
+            "  > today.json` works cleanly.\n\n"
+            "OUTPUT TABLE COLUMNS  (text mode)\n"
+            "  mark   ✓ clean / ✗ findings / ‽ audit raised\n"
+            "  STN    station marker (4-letter)\n"
+            "  id     id_entity in TOS\n"
+            "  find   total findings (sum of all audits)\n"
+            "  miss   missing required attributes\n"
+            "  date   suspicious attribute dates (e.g. 2014-10-17\n"
+            "         cleanup-artifact backdates)\n"
+            "  rinex  archive cross-check findings (with --with-archive)\n"
+            "  notes  first failure note if status=failed\n\n"
+            "EXAMPLES\n"
+            "  tos fleet status\n"
+            "  tos fleet status --include HEDI SAVI\n"
+            "  tos fleet status --show-clean --json > fleet.json\n"
+            "  tos fleet status --no-suppressions   # surface what\n"
+            "                                       # SUPPRESS files\n"
+            "                                       # hide\n"
+            "  tos fleet triage --include HEDI\n"
+            "  tos fleet triage --exclude OLKE SVIN  # skip known-broken\n"
+            "  tos fleet triage --limit 5           # smoke test\n"
+            "  tos fleet status --with-archive --include HOFN\n\n"
+            "SEE ALSO\n"
+            "  tos station verify <STN>   single-station oracle\n"
+            "  tos station triage <STN>   single-station triage file\n"
+            "  tos station show <STN>     current-state inspection\n"
+            "  tos audit apply <file>     consume a triage file"
+        ),
+        formatter_class=_argparse.RawDescriptionHelpFormatter,
+    )
+    sub = p.add_subparsers(dest="verb", required=True)
+
+    def _add_common_filters(sp):
+        sp.add_argument(
+            "--include",
+            nargs="+",
+            default=None,
+            metavar="STN",
+            help=(
+                "Restrict the run to these 4-letter station markers "
+                "(case-insensitive, space-separated, e.g. `--include "
+                "HEDI SAVI`). Applied BEFORE marker-to-id resolution, "
+                "so a 2-station run makes ~2 HTTP calls, not 173. "
+                "Pairs well with `--with-archive` to keep the slow "
+                "path bounded."
+            ),
+        )
+        sp.add_argument(
+            "--exclude",
+            nargs="+",
+            default=None,
+            metavar="STN",
+            help=(
+                "Skip these station markers (case-insensitive, space-"
+                "separated). Useful for stations with known-broken "
+                "audit state that you don't want polluting the fleet "
+                "summary during routine runs."
+            ),
+        )
+        sp.add_argument(
+            "--limit",
+            type=int,
+            default=None,
+            metavar="N",
+            help=(
+                "Stop after N stations (applied AFTER include/exclude "
+                "filters). Use for smoke-testing the pipeline without "
+                "waiting for the full fleet — e.g. `--limit 5` runs "
+                "in a few seconds."
+            ),
+        )
+        sp.add_argument(
+            "--stations-cfg",
+            type=Path,
+            default=None,
+            metavar="PATH",
+            help=(
+                "Override the stations.cfg path. Section names in the "
+                "cfg are the marker list — one section per station. "
+                "Defaults to $GPS_CONFIG_PATH/stations.cfg → "
+                "~/.config/gpsconfig/stations.cfg. Useful for running "
+                "against a snapshot or staging cfg."
+            ),
+        )
+        sp.add_argument(
+            "--catalog",
+            type=Path,
+            default=None,
+            help=(
+                "Override the attribute-codes catalog path "
+                "(data/attribute_codes.yaml). Audits use the catalog "
+                "to know which attributes are required + their "
+                "defaults. Override for testing against an updated "
+                "catalog without committing it."
+            ),
+        )
+        sp.add_argument(
+            "--no-suppressions",
+            action="store_true",
+            help=(
+                "Bypass per-audit SUPPRESS files entirely. SUPPRESS "
+                "lines silence known-acceptable violations (e.g. a "
+                "specific station's missing antenna_height that was "
+                "manually verified). Pass this to find out what stale "
+                "SUPPRESS lines are hiding — fleet-wide audit hygiene."
+            ),
+        )
+        sp.add_argument(
+            "--suppressions",
+            type=Path,
+            default=None,
+            help=(
+                "Override the suppression file directory. Each audit "
+                "consults its own filename (attribute_dates.txt / "
+                "missing_attributes.txt) in this dir."
+            ),
+        )
+        _add_archive_arguments(sp)
+        sp.add_argument(
+            "--json",
+            action="store_true",
+            help=(
+                "Emit machine-readable JSON instead of the text table. "
+                "Shape: {run_kind, generated_at, totals, exit_code, "
+                "results: [{station, station_id, status, "
+                "findings_count, ...}, ...]}. Designed for `jq` and "
+                "dashboard ingestion."
+            ),
+        )
+
+    p_tri = sub.add_parser(
+        "triage",
+        help=(
+            "Generate per-station triage files across the fleet. "
+            "Clean stations are skipped by default."
+        ),
+        description=(
+            "Generate combined-audit ACTION-style triage files for "
+            "every GNSS station in stations.cfg.\n\n"
+            "Each triage file aggregates every audit's findings for "
+            "ONE station: missing required attributes, suspicious "
+            "attribute dates, and (with `--with-archive`) RINEX vs TOS "
+            "discrepancies. Each finding emits a SUGGESTED, "
+            "COMMENTED-OUT ACTION line. The operator reviews + "
+            "uncomments lines they agree with, fills any `<FILL_VALUE>` "
+            "placeholders, then runs `tos audit apply <file>` to "
+            "commit. Nothing is written to TOS by this command.\n\n"
+            "BY DEFAULT only stations with at least one finding (or an "
+            "audit failure) produce a file — the operator's working "
+            "directory stays clean of empty inventory files. Pass "
+            "`--include-clean` to write a file for every station "
+            "regardless (full inventory; useful for git-tracked "
+            "snapshot work).\n\n"
+            "OUTPUT LAYOUT\n"
+            "  data/triage/<stn>/<stn>_audit_<YYYYMMDD>.txt\n"
+            "    one subdirectory per station, one dated file per\n"
+            "    run-day. Same-day re-runs overwrite that day's file;\n"
+            "    tomorrow produces a new dated file alongside (the\n"
+            "    YYYYMMDD slug is the only thing that changes).\n\n"
+            "  Override the root with `--out-dir DIR`; the per-station\n"
+            "  subdirectory structure is preserved under whatever\n"
+            "  root you pick.\n\n"
+            "TYPICAL WORKFLOW\n"
+            "  tos fleet triage --include HEDI SAVI\n"
+            "  $EDITOR data/triage/hedi/hedi_audit_20260528.txt\n"
+            "  tos audit apply data/triage/hedi/hedi_audit_20260528.txt\n"
+            "  tos audit apply data/triage/hedi/hedi_audit_20260528.txt \\\n"
+            "      --apply                       # commit to TOS\n"
+            "  tos station verify HEDI           # confirm clean\n"
+            "  git add data/triage/hedi/         # provenance trail\n\n"
+            "PROVENANCE NOTE\n"
+            "  TOS attribute_value rows have date_from/date_to but no\n"
+            "  created_at. Back-fills written today and dated to 2007\n"
+            "  are indistinguishable in TOS from contemporaneous\n"
+            "  records. Triage files committed to git ARE the audit\n"
+            "  trail for retrospective writes — that's why we keep\n"
+            "  them in the repo even after `tos audit apply` lands."
+        ),
+        formatter_class=_argparse.RawDescriptionHelpFormatter,
+    )
+    p_tri.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help=(
+            "Override the triage output root directory. Defaults to "
+            "./data/triage/ (relative to CWD). Per-station "
+            "subdirectories `<STN>/` are created under whatever root "
+            "is chosen. Useful for sending a sweep to /tmp/ when "
+            "iterating, or to a snapshot dir when reviewing."
+        ),
+    )
+    p_tri.add_argument(
+        "--include-clean",
+        action="store_true",
+        help=(
+            "Also write triage files for clean stations (which would "
+            "otherwise be skipped). Yields a complete fleet inventory "
+            "— useful for snapshot work, fleet-wide diff review, or "
+            "any time you want a file for every station regardless of "
+            "findings. Default skips clean stations to keep the "
+            "working directory uncluttered for routine runs."
+        ),
+    )
+    _add_common_filters(p_tri)
+
+    p_sta = sub.add_parser(
+        "status",
+        help=(
+            "Bulk verify across the fleet. Exit 0 clean / 1 findings "
+            "/ 2 audit failure. No disk writes."
+        ),
+        description=(
+            "Run every audit against every GNSS station and emit an "
+            "aggregate fleet dashboard. Read-only — no files written, "
+            "no TOS state mutated.\n\n"
+            "Equivalent to `tos station verify` looped across the "
+            "fleet and tallied. Useful as a daily health check, a "
+            "cron-job gate, or the verify half of the\n"
+            "`tos audit apply → verify` loop after a bulk fix.\n\n"
+            "EXIT CODES (cron / CI friendly)\n"
+            "  0   all stations clean — fleet is healthy\n"
+            "  1   at least one station has findings — bulk metadata\n"
+            "      cleanup is needed (run `tos fleet triage` next)\n"
+            "  2   at least one station's audit raised an exception\n"
+            "      (TOS lookup error, malformed catalog, transient\n"
+            "      HTTP failure). Distinct from 'findings' so cron /\n"
+            "      CI can distinguish 'fleet needs work' from\n"
+            "      'oracle broken'. ``--no-suppressions`` also tends\n"
+            "      to bump some stations into exit 1.\n\n"
+            "OUTPUT MODES\n"
+            "  default text         dashboard table (clean rows\n"
+            "                       suppressed) on stdout, progress on\n"
+            "                       stderr — pipe-friendly\n"
+            "  --show-clean         include clean rows too (full fleet\n"
+            "                       table, useful for snapshots)\n"
+            "  --json               machine-readable: totals dict +\n"
+            "                       per-station rows + exit_code.\n"
+            "                       Perfect for `jq` / dashboards.\n\n"
+            "FILTERS\n"
+            "  --include STN1 STN2  spot-check named stations only\n"
+            "                       (fast: skips marker resolution for\n"
+            "                       everything else)\n"
+            "  --exclude STN3       skip known-broken stations\n"
+            "  --limit N            stop after N stations (smoke test)\n"
+            "  --with-archive       also run RINEX archive cross-check\n"
+            "                       (slow at fleet scale — auto-warns)\n\n"
+            "EXAMPLES\n"
+            "  tos fleet status\n"
+            "      # full fleet health check, ~5-15 min\n\n"
+            "  tos fleet status --include HEDI SAVI\n"
+            "      # spot check two stations, ~5 sec\n\n"
+            "  tos fleet status --json | jq '.totals'\n"
+            "      # cron-job summary\n\n"
+            "  tos fleet status --json | jq '.results[] | "
+            'select(.status=="findings") | .station\'\n'
+            "      # list stations needing attention\n\n"
+            "  tos fleet status --no-suppressions\n"
+            "      # surface what stale SUPPRESS files are hiding"
+        ),
+        formatter_class=_argparse.RawDescriptionHelpFormatter,
+    )
+    p_sta.add_argument(
+        "--show-clean",
+        action="store_true",
+        help=(
+            "Include clean stations in the output table. Default "
+            "suppresses them since they carry no actionable signal "
+            "— most fleet runs surface only the 5-20 stations that "
+            "need attention. Use this for a full inventory snapshot, "
+            "compliance reports, or to sanity-check that the audits "
+            "actually ran against the stations you expected."
+        ),
+    )
+    _add_common_filters(p_sta)
+
+    args = p.parse_args(argv)
+
+    from .api.tos_client import TOSClient
+    from .fleet_ops import (
+        fleet_summary_to_dict,
+        format_fleet_summary,
+        run_fleet_triage,
+        run_fleet_verify,
+    )
+
+    client = TOSClient()
+
+    # Stderr progress reporter — keeps stdout clean for JSON / piping.
+    def _progress(idx, total, result):
+        mark = {"clean": "✓", "findings": "✗", "failed": "‽"}.get(result.status, "?")
+        print(
+            f"[{idx:3d}/{total}] {mark} {result.station:<10} "
+            f"{result.status:<8}  {result.findings_count} finding(s)",
+            file=_sys.stderr,
+        )
+
+    def _enum_progress(idx, total):
+        # The marker-resolution loop dominates wall-clock for the first
+        # ~100s of a cold run. Heartbeat at every 20 markers so the
+        # operator can tell it's alive without flooding.
+        if total and (idx == total or idx % 20 == 0 or idx == 1):
+            print(
+                f"resolving stations.cfg markers… {idx}/{total}",
+                file=_sys.stderr,
+            )
+
+    use_suppressions: bool = not bool(args.no_suppressions)
+    with_archive: bool = bool(getattr(args, "with_archive", False))
+    min_gap_days: float = float(getattr(args, "archive_min_gap_days", 30.0))
+    archive_root = getattr(args, "archive_root", None)
+    station_cfg_path = str(args.stations_cfg) if args.stations_cfg else None
+
+    # Surface the slow-path hazard up front. --with-archive triggers a
+    # cold-archive walk for every station; on a full 173-station sweep
+    # that's 30+ minutes of I/O before the first finding lands. Warn
+    # unless the operator has narrowed scope with --include / --limit.
+    if with_archive and not args.include and not args.limit:
+        print(
+            "warning: --with-archive on a full fleet sweep walks the cold "
+            "archive for ~173 stations (30+ min). Consider --include / "
+            "--limit to narrow scope.",
+            file=_sys.stderr,
+        )
+
+    try:
+        if args.verb == "triage":
+            summary = run_fleet_triage(
+                client,
+                out_dir=args.out_dir,
+                include_clean=args.include_clean,
+                use_suppressions=use_suppressions,
+                suppressions_path=args.suppressions,
+                catalog_path=args.catalog,
+                with_archive=with_archive,
+                archive_root=archive_root,
+                min_gap_days=min_gap_days,
+                station_cfg_path=station_cfg_path,
+                include=args.include,
+                exclude=args.exclude,
+                limit=args.limit,
+                progress=_progress,
+                enumerate_progress=_enum_progress,
+            )
+        elif args.verb == "status":
+            summary = run_fleet_verify(
+                client,
+                use_suppressions=use_suppressions,
+                suppressions_path=args.suppressions,
+                catalog_path=args.catalog,
+                with_archive=with_archive,
+                archive_root=archive_root,
+                min_gap_days=min_gap_days,
+                station_cfg_path=station_cfg_path,
+                include=args.include,
+                exclude=args.exclude,
+                limit=args.limit,
+                progress=_progress,
+                enumerate_progress=_enum_progress,
+            )
+        else:
+            return 2
+    except RuntimeError as exc:
+        # enumerate_fleet_stations raises when zero stations resolve —
+        # surface that as a clean usage error rather than a stack trace.
+        print(f"tos fleet: {exc}", file=_sys.stderr)
+        return 2
+
+    if args.json:
+        print(_json.dumps(fleet_summary_to_dict(summary), ensure_ascii=False, indent=2))
+    else:
+        show_clean = (
+            getattr(args, "show_clean", False) if args.verb == "status" else False
+        )
+        print(format_fleet_summary(summary, show_clean=show_clean), end="")
+
+    if args.verb == "status":
+        # Verify-oracle exit code: 0 clean / 1 findings / 2 failed.
+        return summary.exit_code()
+    # Triage is a build-output verb; exit 0 unless the enumeration step
+    # blew up (handled above). Per-station failures land in the summary
+    # for the operator to triage, not as a non-zero exit.
+    return 0
 
 
 def _audit_main(argv):
@@ -6788,6 +7258,22 @@ def _print_top_level_help() -> None:
         "               contact show --id N     One contact record.\n"
         "               contact list --station S  Contacts for a station.\n"
         "\n"
+        "  fleet      Fleet-wide orchestrators (loop station verbs over\n"
+        "             every GNSS station in stations.cfg ~173 sites).\n"
+        "               fleet status            Bulk verify oracle —\n"
+        "                                       exit 0 clean / 1 findings\n"
+        "                                       / 2 audit failure. No\n"
+        "                                       disk writes. Suitable\n"
+        "                                       for cron / CI.\n"
+        "               fleet triage            Generate per-station\n"
+        "                                       triage files for\n"
+        "                                       `tos audit apply` (skips\n"
+        "                                       clean stations by\n"
+        "                                       default).\n"
+        "             Filters: --include / --exclude STN1 STN2 …,\n"
+        "                      --limit N, --with-archive, --json.\n"
+        "             Use `tos fleet --help` for the full operator guide.\n"
+        "\n"
         "  audit      Read-only invariants + history reconstruction.\n"
         "             Subverbs:\n"
         "               audit device --id N | --serial SN --subtype TYPE\n"
@@ -6839,6 +7325,8 @@ def main(argv=None):
             return _station_main(rest)
         if subcmd == "contact":
             return _contact_main(rest)
+        if subcmd == "fleet":
+            return _fleet_main(rest)
     print(f"tos: unknown subcommand {argv[0]!r}\n", file=sys.stderr)
     _print_top_level_help()
     return 2
