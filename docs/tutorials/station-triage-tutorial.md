@@ -17,7 +17,7 @@ unfamiliar station from "looks broken in `tosGPS PrintTOS`" to
 | Python env with `tostools` installed | `tos --help` runs |
 | TOS credentials | env vars `TOS_USERNAME` + `TOS_PASSWORD`, OR `[tos]` in `~/.config/database.cfg`, OR interactive prompt at apply time |
 | Read access to the cold RINEX archive | `ls /mnt_data/rawgpsdata/` returns years (used by `verify-from-rinex`, optional but useful) |
-| A station that needs fixing | Run `tos audit attribute-dates <STN>` — any violation means it needs triage |
+| A station that needs fixing | Run `tos station verify <STN>` — exit 1 means findings remain, 0 means clean |
 
 If you don't have any of those, fix that first (the GPS Library hub
 in the vault has setup notes).
@@ -47,17 +47,26 @@ Routine TOS-data problems are:
 The `tos station triage` orchestrator catches the first three
 mechanically. The fourth + structural decisions are operator-knowledge.
 
-## The 6-step workflow
+## The workflow (show → triage → apply → verify → commit)
 
 ```bash
 # Pick a station that needs fixing.
 STN=HEDI
+
+# 0. Snapshot current state (read-only)
+tos station show $STN                   # identity + open attrs + joined devices
+tos station show $STN --all             # adds closed periods + past joins
 
 # 1. Generate a triage file
 tos station triage $STN
 # → writes data/triage/hedi/hedi_audit_<YYYYMMDD>.txt
 # All suggested ACTIONs are commented out by default. The orchestrator
 # tells you the path it wrote to + how many findings.
+#
+# Optional: include cold-archive evidence in the same file:
+#   tos station triage $STN --with-archive
+# (brand transitions, data gaps, TOS-vs-archive disagreements; slow,
+# requires mount access)
 
 # 2. Edit the file
 $EDITOR data/triage/hedi/hedi_audit_*.txt
@@ -73,10 +82,10 @@ tos audit apply data/triage/hedi/hedi_audit_*.txt --apply
 # Run ONCE. See "Double-apply hazard" below for why.
 
 # 5. Verify
-tos audit attribute-dates $STN          # should be CLEAN
-tos audit missing-attributes $STN       # remaining LOW-confidence items
-tos audit verify-from-rinex --station $STN
+tos station verify $STN                 # 0 clean / 1 findings / 2 oracle failure
 tosGPS PrintTOS $STN                    # session table sanity
+# Optional archive cross-check (same flag as triage):
+#   tos station verify $STN --with-archive
 
 # 6. Commit triage to git for provenance
 git add data/triage/hedi/
@@ -261,14 +270,31 @@ fresh process gets fresh credentials.
 
 ### Catalog vs TOS divergence — false positives
 
-After applying, `tos audit missing-attributes <STN>` may still flag:
+After applying, `tos station verify <STN>` (or
+`tos audit missing-attributes <STN>` directly) may still flag:
 - `infrastructure_type` (you wrote `model` — equivalent in TOS)
 - `infrastructure_subtype` (you wrote `subtype`)
 - `visit_class` (you wrote `operational_class`)
 
 These are false positives. The audit doesn't know about the
-catalog-vs-TOS code remapping. Ignore them — the underlying
-attribute is already correct in TOS.
+catalog-vs-TOS code remapping. Suppress them via the per-audit
+SUPPRESS file or ignore them — the underlying attribute is already
+correct in TOS.
+
+## Scaling up — fleet ops
+
+When you've got more than one station to chew through:
+
+| Need | Command |
+|---|---|
+| Bulk pass/fail across all 173 GNSS stations | `tos fleet status` (exit 0/1/2; no disk writes; cron-friendly) |
+| Generate triage files for every dirty station | `tos fleet triage` (writes `data/triage/<STN>/`; skips clean stations by default) |
+| Restrict to a handful | `--include HEDI HOFN SAVI` or `--exclude RHOF` |
+| Quick smoke test | `--limit 5` |
+
+Both verbs share the same `--with-archive` plumbing as the
+single-station forms — but be warned, archive walks across 173
+stations take a long time on a cold cache.
 
 ## Reference: ACTION verbs
 
@@ -322,3 +348,7 @@ Plus the SAVI references in `data/triage/savi/`.
 
 The commit messages (`git log --oneline -- data/triage/`) tell the
 story of what happened when.
+
+---
+
+*Last reviewed: 2026-05-28*
