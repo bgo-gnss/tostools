@@ -40,7 +40,7 @@ import datetime as dt
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from tostools.api.tos_client import TOSClient
 from tostools.audit_attribute_dates import (
@@ -99,11 +99,67 @@ class StationTriageReport:
             n += len(self.dates.violations)
         if self.rinex is not None:
             # Brand transitions + data gaps + actionable verdicts all
-            # count as findings for the verify oracle.
-            n += len(self.rinex.brand_transitions)
-            n += len(self.rinex.data_gaps)
-            n += len(self.rinex.suggested_actions)
+            # count as findings for the verify oracle. Delegates to
+            # the report's own ``finding_count`` so the breakdown is
+            # pinned in one place.
+            n += self.rinex.finding_count
         return n
+
+
+# Three-way station-verify verdict + the canonical glyph / exit-code
+# mappings shared between `tos station verify`, `tos fleet status`,
+# and any future verify-style verb. Pinned here (not on the dataclass)
+# so callers that already have a ``StationTriageReport`` get the
+# oracle for free, and callers that have already classified
+# (e.g. `FleetStationResult.status`) can still pull glyph + exit
+# code from the same source.
+
+#: Glyph rendered next to a station's row in fleet / verify output.
+STATUS_MARK: Dict[str, str] = {
+    "clean": "✓",
+    "findings": "✗",
+    "failed": "‽",
+}
+
+#: Verify-oracle exit code per status. 0 = clean, 1 = findings, 2 =
+#: audit raised. Distinct so cron / CI can tell "needs work" from
+#: "oracle broken". Fleet rolls these up via ``max(...)``.
+STATUS_EXIT_CODE: Dict[str, int] = {
+    "clean": 0,
+    "findings": 1,
+    "failed": 2,
+}
+
+
+def classify_station_triage(report: "StationTriageReport") -> str:
+    """Three-way verdict for one :class:`StationTriageReport`.
+
+    Order matters: ``failed`` wins over ``findings`` so an audit that
+    raised is never silently downgraded to "station needs work".
+    Returns one of :data:`STATUS_MARK` keys.
+    """
+    if report.notes:
+        return "failed"
+    if report.total_findings > 0:
+        return "findings"
+    return "clean"
+
+
+def now_iso_utc() -> str:
+    """Return the current UTC instant in the format used by triage
+    headers + fleet summaries.
+
+    Drops the ``+00:00`` suffix that ``isoformat()`` emits and
+    substitutes ``Z`` — keeps file headers byte-deterministic and
+    concise. Single definition so fleet ops and single-station
+    triage cannot drift.
+    """
+    return (
+        dt.datetime.now(dt.timezone.utc)
+        .replace(tzinfo=None)
+        .isoformat(timespec="seconds")
+        + "Z"
+    )
 
 
 def generate_station_triage(
@@ -159,10 +215,7 @@ def generate_station_triage(
         client = TOSClient()
 
     if generated_at is None:
-        # Drop the +00:00 suffix that isoformat() emits and substitute "Z"
-        # — keeps the header header byte-deterministic + concise.
-        now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
-        generated_at = now.isoformat(timespec="seconds") + "Z"
+        generated_at = now_iso_utc()
 
     notes: List[str] = []
 
@@ -287,11 +340,8 @@ def _build_header(report: StationTriageReport) -> str:
         # summary line — operators rarely need the per-signal counts
         # in the header; they're surfaced in the section body below.
         rx = report.rinex
-        rinex_findings = (
-            len(rx.brand_transitions) + len(rx.data_gaps) + len(rx.suggested_actions)
-        )
         summary_lines.append(
-            f"#   verify-from-rinex:   {rinex_findings} finding(s) "
+            f"#   verify-from-rinex:   {rx.finding_count} finding(s) "
             f"({len(rx.brand_transitions)} transitions, "
             f"{len(rx.data_gaps)} gaps, "
             f"{len(rx.suggested_actions)} suggested ACTIONs)"

@@ -21,11 +21,15 @@ from unittest.mock import patch
 from tostools.audit_attribute_dates import StationAttributeDateReport
 from tostools.audit_missing_attributes import StationMissingAttributesReport
 from tostools.station_triage import (
+    STATUS_EXIT_CODE,
+    STATUS_MARK,
     StationTriageReport,
     _substitute_fill_date_with_start,
+    classify_station_triage,
     default_triage_path,
     format_station_triage,
     generate_station_triage,
+    now_iso_utc,
 )
 
 FROZEN_TS = "2026-05-26T00:00:00Z"
@@ -467,3 +471,80 @@ def test_generate_forwards_catalog_and_suppression_paths(tmp_path):
     assert m_missing.call_args.kwargs["suppressions_path"] == sup
     assert m_dates.call_args.kwargs["catalog_path"] == cat
     assert m_dates.call_args.kwargs["suppressions_path"] == sup
+
+
+# ---------------------------------------------------------------------------
+# classify_station_triage + STATUS_MARK / STATUS_EXIT_CODE
+# ---------------------------------------------------------------------------
+
+
+def test_classify_returns_clean_when_no_findings_no_notes():
+    rpt = StationTriageReport(
+        station="X",
+        station_id=1,
+        generated_at=FROZEN_TS,
+        missing=None,
+        dates=None,
+    )
+    assert classify_station_triage(rpt) == "clean"
+
+
+def test_classify_returns_findings_when_any_violations():
+    missing = StationMissingAttributesReport(station_id=1, station_name="X")
+    missing.violations = ["v"]  # type: ignore[list-item]
+    rpt = StationTriageReport(
+        station="X",
+        station_id=1,
+        generated_at=FROZEN_TS,
+        missing=missing,
+        dates=None,
+    )
+    assert classify_station_triage(rpt) == "findings"
+
+
+def test_classify_returns_failed_when_notes_present_even_with_findings():
+    """`failed` wins over `findings` so an audit that raised is never
+    silently downgraded to 'station needs work'."""
+    missing = StationMissingAttributesReport(station_id=1, station_name="X")
+    missing.violations = ["v"]  # type: ignore[list-item]
+    rpt = StationTriageReport(
+        station="X",
+        station_id=1,
+        generated_at=FROZEN_TS,
+        missing=missing,
+        dates=None,
+        notes=["attribute-dates audit FAILED: lookup 500"],
+    )
+    assert classify_station_triage(rpt) == "failed"
+
+
+def test_status_mark_and_exit_code_keys_align():
+    """The two maps share the same keys — a status missing from either
+    would break the verify oracle / fleet renderer."""
+    assert (
+        set(STATUS_MARK)
+        == set(STATUS_EXIT_CODE)
+        == {
+            "clean",
+            "findings",
+            "failed",
+        }
+    )
+
+
+def test_status_exit_code_orders_failed_above_findings():
+    """Numeric ordering is load-bearing — fleet exit_code() takes the
+    max, so failed must outrank findings must outrank clean."""
+    assert STATUS_EXIT_CODE["clean"] < STATUS_EXIT_CODE["findings"]
+    assert STATUS_EXIT_CODE["findings"] < STATUS_EXIT_CODE["failed"]
+
+
+def test_now_iso_utc_renders_with_z_suffix_no_microseconds():
+    """Triage file headers use this — must be byte-deterministic in
+    shape so format-comparison tests don't flake."""
+    s = now_iso_utc()
+    assert s.endswith("Z")
+    assert "+" not in s  # no +00:00 tail
+    assert "." not in s  # no microsecond fraction
+    # Format: YYYY-MM-DDTHH:MM:SSZ — 20 chars
+    assert len(s) == 20

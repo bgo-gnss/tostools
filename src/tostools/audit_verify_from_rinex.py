@@ -227,6 +227,22 @@ class StationRinexReport:
             return True
         return any(r.suggested_action for r in self.receivers)
 
+    @property
+    def finding_count(self) -> int:
+        """Total findings across all surfaces.
+
+        ``has_findings`` is the boolean oracle; this is the integer
+        count for headers, fleet summaries, and the rinex slice of
+        ``StationTriageReport.total_findings``. Definition pinned in
+        one place so the three call sites (station header, fleet
+        per-station row, single-station verify summary) cannot drift.
+        """
+        return (
+            len(self.brand_transitions)
+            + len(self.data_gaps)
+            + len(self.suggested_actions)
+        )
+
 
 def audit_station_verify_from_rinex(
     client: TOSClient,

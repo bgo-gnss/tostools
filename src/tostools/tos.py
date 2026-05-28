@@ -2045,17 +2045,17 @@ def _station_verify_main(args) -> int:
         min_gap_days=getattr(args, "archive_min_gap_days", 30.0),
     )
 
-    has_findings = report.total_findings > 0
-    has_failure = bool(report.notes)
-    if has_failure:
-        status = "failed"
-        exit_code = 2
-    elif has_findings:
-        status = "findings"
-        exit_code = 1
-    else:
-        status = "clean"
-        exit_code = 0
+    # Status + exit code from the canonical oracle definitions —
+    # same mapping as `tos fleet status` so the two verbs cannot
+    # drift on what "clean" / "findings" / "failed" mean.
+    from .station_triage import (
+        STATUS_EXIT_CODE,
+        STATUS_MARK,
+        classify_station_triage,
+    )
+
+    status = classify_station_triage(report)
+    exit_code = STATUS_EXIT_CODE[status]
 
     if args.json:
         audits_payload: Dict[str, Any] = {
@@ -2090,7 +2090,7 @@ def _station_verify_main(args) -> int:
         return exit_code
 
     # ---- Pretty text output ----
-    marker = {"clean": "✓", "findings": "✗", "failed": "‽"}[status]
+    marker = STATUS_MARK[status]
     summary_bits: List[str] = []
     if report.missing is not None:
         summary_bits.append(
@@ -2106,13 +2106,9 @@ def _station_verify_main(args) -> int:
         summary_bits.append("attribute-dates: (failed)")
     if getattr(args, "with_archive", False):
         if report.rinex is not None:
-            rx = report.rinex
-            rinex_count = (
-                len(rx.brand_transitions)
-                + len(rx.data_gaps)
-                + len(rx.suggested_actions)
+            summary_bits.append(
+                f"verify-from-rinex: {report.rinex.finding_count} finding(s)"
             )
-            summary_bits.append(f"verify-from-rinex: {rinex_count} finding(s)")
         else:
             summary_bits.append("verify-from-rinex: (failed)")
 
@@ -3522,12 +3518,13 @@ def _fleet_main(argv):
         run_fleet_triage,
         run_fleet_verify,
     )
+    from .station_triage import STATUS_MARK
 
     client = TOSClient()
 
     # Stderr progress reporter — keeps stdout clean for JSON / piping.
     def _progress(idx, total, result):
-        mark = {"clean": "✓", "findings": "✗", "failed": "‽"}.get(result.status, "?")
+        mark = STATUS_MARK.get(result.status, "?")
         print(
             f"[{idx:3d}/{total}] {mark} {result.station:<10} "
             f"{result.status:<8}  {result.findings_count} finding(s)",

@@ -27,7 +27,6 @@ Design principles
 
 from __future__ import annotations
 
-import datetime as dt
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,10 +41,14 @@ from tostools.history import (
     resolve_marker_to_entity_id,
 )
 from tostools.station_triage import (
+    STATUS_EXIT_CODE,
+    STATUS_MARK,
     StationTriageReport,
+    classify_station_triage,
     default_triage_path,
     format_station_triage,
     generate_station_triage,
+    now_iso_utc,
 )
 
 logger = logging.getLogger(__name__)
@@ -122,18 +125,19 @@ class FleetRunSummary:
         return sum(r.findings_count for r in self.results)
 
     def exit_code(self) -> int:
-        """Verify-style oracle exit code.
+        """Verify-style oracle exit code rolled up across the fleet.
 
-        0 = all clean, 1 = any findings, 2 = any failed audit. ``failed``
-        wins over ``findings`` because operators usually want to know
-        "the oracle is broken on N stations" before "K stations need
-        work".
+        Uses the canonical per-status mapping from
+        :data:`station_triage.STATUS_EXIT_CODE` and takes the worst
+        seen, so a single failed audit promotes the whole run to 2
+        even if 172 stations are clean. ``failed`` (2) > ``findings``
+        (1) > ``clean`` (0) by design — operators need to know "the
+        oracle is broken" before "K stations need work".
         """
-        if self.failed:
-            return 2
-        if self.findings:
-            return 1
-        return 0
+        return max(
+            (STATUS_EXIT_CODE[r.status] for r in self.results),
+            default=0,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -269,35 +273,23 @@ def enumerate_fleet_stations(
 # ---------------------------------------------------------------------------
 
 
-def _classify_report(report: StationTriageReport) -> str:
-    """Three-way verdict for one station's :class:`StationTriageReport`."""
-    if report.notes:
-        # Notes are only ever populated by per-audit failure capture in
-        # generate_station_triage. Failed-audit > findings-found.
-        return "failed"
-    if report.total_findings > 0:
-        return "findings"
-    return "clean"
-
-
 def _result_from_report(
     station: str, report: StationTriageReport
 ) -> FleetStationResult:
-    """Build a :class:`FleetStationResult` from a triage report."""
+    """Build a :class:`FleetStationResult` from a triage report.
+
+    Status classification delegates to
+    :func:`station_triage.classify_station_triage` so single-station
+    verify + fleet status share one oracle definition. Same with the
+    rinex count via :attr:`StationRinexReport.finding_count`.
+    """
     missing_count = len(report.missing.violations) if report.missing else 0
     dates_count = len(report.dates.violations) if report.dates else 0
-    if report.rinex is not None:
-        rinex_count = (
-            len(report.rinex.brand_transitions)
-            + len(report.rinex.data_gaps)
-            + len(report.rinex.suggested_actions)
-        )
-    else:
-        rinex_count = 0
+    rinex_count = report.rinex.finding_count if report.rinex is not None else 0
     return FleetStationResult(
         station=station,
         station_id=report.station_id,
-        status=_classify_report(report),
+        status=classify_station_triage(report),
         findings_count=report.total_findings,
         missing_count=missing_count,
         dates_count=dates_count,
@@ -389,15 +381,6 @@ def _iterate_fleet(
 # ---------------------------------------------------------------------------
 
 
-def _now_iso() -> str:
-    return (
-        dt.datetime.now(dt.timezone.utc)
-        .replace(tzinfo=None)
-        .isoformat(timespec="seconds")
-        + "Z"
-    )
-
-
 def run_fleet_triage(
     client: TOSClient,
     *,
@@ -437,7 +420,7 @@ def run_fleet_triage(
     Parameters mirror :func:`station_triage.generate_station_triage`
     one-for-one; the fleet layer is a loop over them.
     """
-    generated_at = generated_at or _now_iso()
+    generated_at = generated_at or now_iso_utc()
     if out_dir is None:
         out_dir = Path.cwd() / "data" / "triage"
 
@@ -527,7 +510,7 @@ def run_fleet_verify(
     :func:`format_fleet_summary` for human-readable output and to
     :func:`fleet_summary_to_dict` for JSON.
     """
-    generated_at = generated_at or _now_iso()
+    generated_at = generated_at or now_iso_utc()
     if stations is None:
         stations = enumerate_fleet_stations(
             client,
@@ -569,9 +552,6 @@ def run_fleet_verify(
 # ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
-
-
-_STATUS_MARK = {"clean": "✓", "findings": "✗", "failed": "‽"}
 
 
 def format_fleet_summary(
@@ -620,7 +600,7 @@ def format_fleet_summary(
             f"{'find':>4}  {'miss':>4}  {'date':>4}  {'rinex':>5}  notes"
         )
         for r in rows:
-            mark = _STATUS_MARK.get(r.status, "?")
+            mark = STATUS_MARK.get(r.status, "?")
             note_blurb = ""
             if r.notes:
                 # Surface first note compactly; full set is in JSON.
