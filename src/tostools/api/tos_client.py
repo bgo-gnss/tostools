@@ -374,6 +374,37 @@ class TOSClient:
         result = self._make_request(f"entity_contacts/{entity_id}/")
         return result if result else []
 
+    def get_contact(self, id_contact: int) -> Optional[Dict[str, Any]]:
+        """Fetch a single contact record by its ``id_contact``.
+
+        Contacts live in their own id namespace, distinct from
+        ``id_entity``. Wraps ``GET /contact/{id_contact}/``. Returns
+        the contact dict or ``None`` on lookup failure (404, malformed
+        response). The endpoint shape mirrors what
+        :meth:`get_contacts` returns one element of — same fields:
+        ``id_contact``, ``role`` / ``role_is``, ``name`` /
+        ``organization``, ``phone_primary``, ``address``, etc.
+        """
+        result = self._make_request(f"contact/{id_contact}/")
+        if not result or not isinstance(result, dict):
+            return None
+        return result
+
+    def list_all_contacts(self) -> List[Dict[str, Any]]:
+        """Fetch every contact record in TOS.
+
+        Wraps ``GET /contacts/`` (plural — distinct from singular
+        ``/contact/{id}/`` for one record). Returns the full contact
+        list with the same row shape as :meth:`get_contact`. Empty
+        list on lookup failure or unexpected payload, so callers can
+        treat "no contacts" and "endpoint error" alike for inspection
+        flows.
+        """
+        result = self._make_request("contacts/")
+        if not isinstance(result, list):
+            return []
+        return result
+
     def get_entity_history(self, id_entity: int) -> Optional[Dict[str, Any]]:
         """Return the full history dict for an entity (read-only, no auth).
 

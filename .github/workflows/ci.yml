@@ -44,7 +44,7 @@ jobs:
     - name: Test console scripts
       run: |
         tosGPS --help
-        json2ascii --help
+        tos --help
         
     - name: Validate GPS/GNSS standards compliance
       continue-on-error: true

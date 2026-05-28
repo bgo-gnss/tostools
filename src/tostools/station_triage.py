@@ -40,7 +40,7 @@ import datetime as dt
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from tostools.api.tos_client import TOSClient
 from tostools.audit_attribute_dates import (
@@ -55,6 +55,11 @@ from tostools.audit_missing_attributes import (
 from tostools.audit_missing_attributes import (
     format_triage_file as format_missing_triage,
 )
+from tostools.audit_verify_from_rinex import (
+    StationRinexReport,
+    audit_station_verify_from_rinex,
+)
+from tostools.audit_verify_from_rinex import format_triage_file as format_rinex_triage
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +82,7 @@ class StationTriageReport:
     # findings worth surfacing. The renderer omits empty sections.
     missing: Optional[StationMissingAttributesReport] = None
     dates: Optional[StationAttributeDateReport] = None
+    rinex: Optional[StationRinexReport] = None
     notes: List[str] = field(default_factory=list)
 
     @property
@@ -91,7 +97,69 @@ class StationTriageReport:
             n += len(self.missing.violations)
         if self.dates is not None:
             n += len(self.dates.violations)
+        if self.rinex is not None:
+            # Brand transitions + data gaps + actionable verdicts all
+            # count as findings for the verify oracle. Delegates to
+            # the report's own ``finding_count`` so the breakdown is
+            # pinned in one place.
+            n += self.rinex.finding_count
         return n
+
+
+# Three-way station-verify verdict + the canonical glyph / exit-code
+# mappings shared between `tos station verify`, `tos fleet status`,
+# and any future verify-style verb. Pinned here (not on the dataclass)
+# so callers that already have a ``StationTriageReport`` get the
+# oracle for free, and callers that have already classified
+# (e.g. `FleetStationResult.status`) can still pull glyph + exit
+# code from the same source.
+
+#: Glyph rendered next to a station's row in fleet / verify output.
+STATUS_MARK: Dict[str, str] = {
+    "clean": "✓",
+    "findings": "✗",
+    "failed": "‽",
+}
+
+#: Verify-oracle exit code per status. 0 = clean, 1 = findings, 2 =
+#: audit raised. Distinct so cron / CI can tell "needs work" from
+#: "oracle broken". Fleet rolls these up via ``max(...)``.
+STATUS_EXIT_CODE: Dict[str, int] = {
+    "clean": 0,
+    "findings": 1,
+    "failed": 2,
+}
+
+
+def classify_station_triage(report: "StationTriageReport") -> str:
+    """Three-way verdict for one :class:`StationTriageReport`.
+
+    Order matters: ``failed`` wins over ``findings`` so an audit that
+    raised is never silently downgraded to "station needs work".
+    Returns one of :data:`STATUS_MARK` keys.
+    """
+    if report.notes:
+        return "failed"
+    if report.total_findings > 0:
+        return "findings"
+    return "clean"
+
+
+def now_iso_utc() -> str:
+    """Return the current UTC instant in the format used by triage
+    headers + fleet summaries.
+
+    Drops the ``+00:00`` suffix that ``isoformat()`` emits and
+    substitutes ``Z`` — keeps file headers byte-deterministic and
+    concise. Single definition so fleet ops and single-station
+    triage cannot drift.
+    """
+    return (
+        dt.datetime.now(dt.timezone.utc)
+        .replace(tzinfo=None)
+        .isoformat(timespec="seconds")
+        + "Z"
+    )
 
 
 def generate_station_triage(
@@ -99,6 +167,12 @@ def generate_station_triage(
     *,
     client: Optional[TOSClient] = None,
     generated_at: Optional[str] = None,
+    use_suppressions: bool = True,
+    suppressions_path: Optional[Path] = None,
+    catalog_path: Optional[Path] = None,
+    with_archive: bool = False,
+    archive_root: Optional[Path] = None,
+    min_gap_days: float = 30.0,
 ) -> StationTriageReport:
     """Run all audits on ``station`` and aggregate into a single report.
 
@@ -114,6 +188,22 @@ def generate_station_triage(
     generated_at
         Optional ISO-8601 timestamp; defaults to ``utcnow()``. Pinned
         explicitly in tests to keep the format byte-deterministic.
+    use_suppressions
+        Forwarded to both underlying audits. When ``False`` the
+        per-violation SUPPRESS files are bypassed — every rule hit is
+        reported. Useful for ``tos station verify --no-suppressions``
+        to surface what a stale SUPPRESS line is hiding.
+    suppressions_path
+        Optional override of the suppression file path. Forwarded to
+        both audits; each audit consults its own file
+        (``attribute_dates.txt`` / ``missing_attributes.txt``), so a
+        custom path only takes effect on whichever audit happens to
+        load from it. Passing the same path twice is intentional —
+        operators can keep a station-specific suppression set in one
+        file without splitting it.
+    catalog_path
+        Optional override of the attribute-codes catalog. Forwarded to
+        both audits.
 
     Returns
     -------
@@ -125,17 +215,22 @@ def generate_station_triage(
         client = TOSClient()
 
     if generated_at is None:
-        # Drop the +00:00 suffix that isoformat() emits and substitute "Z"
-        # — keeps the header header byte-deterministic + concise.
-        now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
-        generated_at = now.isoformat(timespec="seconds") + "Z"
+        generated_at = now_iso_utc()
 
     notes: List[str] = []
+
+    audit_kwargs: dict = {
+        "use_suppressions": use_suppressions,
+        "suppressions_path": suppressions_path,
+        "catalog_path": catalog_path,
+    }
 
     # === Section: missing attributes ===
     missing_report: Optional[StationMissingAttributesReport]
     try:
-        missing_report = audit_station_missing_attributes(client, name=station)
+        missing_report = audit_station_missing_attributes(
+            client, name=station, **audit_kwargs
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("missing-attributes audit failed on %s: %s", station, exc)
         notes.append(f"missing-attributes audit FAILED: {exc}")
@@ -144,19 +239,42 @@ def generate_station_triage(
     # === Section: suspicious attribute dates ===
     dates_report: Optional[StationAttributeDateReport]
     try:
-        dates_report = audit_station_attribute_dates(client, name=station)
+        dates_report = audit_station_attribute_dates(
+            client, name=station, **audit_kwargs
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("attribute-dates audit failed on %s: %s", station, exc)
         notes.append(f"attribute-dates audit FAILED: {exc}")
         dates_report = None
 
+    # === Section: archive verification (opt-in) ===
+    # Skipped by default because the cold-archive mount isn't always
+    # available (offline / laptop workflows). When opted in, failures
+    # are caught + reported in `notes` like the other audits — the
+    # triage / verify result remains usable without the rinex slice.
+    rinex_report: Optional[StationRinexReport] = None
+    if with_archive:
+        try:
+            rinex_report = audit_station_verify_from_rinex(
+                client,
+                station,
+                archive_root=archive_root,
+                min_gap_days=min_gap_days,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("verify-from-rinex audit failed on %s: %s", station, exc)
+            notes.append(f"verify-from-rinex audit FAILED: {exc}")
+            rinex_report = None
+
     # Resolve a station_id for the header. Prefer whichever sub-report
-    # successfully looked one up; both audits resolve the same way.
+    # successfully looked one up; all three audits resolve the same way.
     station_id: Optional[int] = None
     if missing_report is not None:
         station_id = missing_report.station_id
     elif dates_report is not None:
         station_id = dates_report.station_id
+    elif rinex_report is not None:
+        station_id = rinex_report.station_id
 
     return StationTriageReport(
         station=station,
@@ -164,6 +282,7 @@ def generate_station_triage(
         generated_at=generated_at,
         missing=missing_report,
         dates=dates_report,
+        rinex=rinex_report,
         notes=notes,
     )
 
@@ -193,6 +312,14 @@ def format_station_triage(report: StationTriageReport) -> str:
     if report.missing is not None and report.missing.violations:
         parts.append(_section_missing(report))
 
+    if report.rinex is not None and (
+        report.rinex.brand_transitions
+        or report.rinex.data_gaps
+        or report.rinex.suggested_actions
+        or report.rinex.rinex_only_spans
+    ):
+        parts.append(_section_rinex(report))
+
     if report.notes:
         parts.append(_section_notes(report))
 
@@ -208,6 +335,17 @@ def _build_header(report: StationTriageReport) -> str:
         f"#   attribute-dates:     "
         f"{'(failed)' if report.dates is None else f'{len(report.dates.violations)} violation(s)'}",
     ]
+    if report.rinex is not None:
+        # Combine the three independent rinex signals into one
+        # summary line — operators rarely need the per-signal counts
+        # in the header; they're surfaced in the section body below.
+        rx = report.rinex
+        summary_lines.append(
+            f"#   verify-from-rinex:   {rx.finding_count} finding(s) "
+            f"({len(rx.brand_transitions)} transitions, "
+            f"{len(rx.data_gaps)} gaps, "
+            f"{len(rx.suggested_actions)} suggested ACTIONs)"
+        )
     return (
         f"# === {report.station} station triage — auto-generated "
         f"{report.generated_at} ===\n"
@@ -263,6 +401,39 @@ def _substitute_fill_date_with_start(body: str) -> str:
     don't touch lines that already carry a concrete date.
     """
     return body.replace("<FILL_DATE>", "start")
+
+
+def _section_rinex(report: StationTriageReport) -> str:
+    """Render the verify-from-rinex section of the triage file.
+
+    Delegates the body to
+    :func:`audit_verify_from_rinex.format_triage_file` and wraps it
+    in the standard section header — same convention as
+    :func:`_section_dates` and :func:`_section_missing`.
+
+    CONFIDENCE: MEDIUM. Brand transitions and data gaps are
+    primary-source signals (file extensions on archived days), but
+    deciding whether to act on them — open a new TOS join, narrow an
+    existing one, raise a help-desk ticket about the gap — requires
+    operator judgement.
+    """
+    assert report.rinex is not None
+    body = format_rinex_triage(
+        report.rinex,
+        audit_command=f"tos audit verify-from-rinex --station {report.station}",
+        generated_at=report.generated_at,
+    )
+    header = (
+        "# ──────────────────────────────────────────────────────────────────\n"
+        "# Section: archive verification (verify-from-rinex)\n"
+        "# CONFIDENCE: MEDIUM — file-extension signal is authoritative for\n"
+        "# what was archived, but actionability depends on operator context\n"
+        "# (was the gap planned downtime? was the transition logged elsewhere?).\n"
+        "# Brand transitions + data gaps are informational; only ACTION lines\n"
+        "# carry pre-built suggestions.\n"
+        "# ──────────────────────────────────────────────────────────────────"
+    )
+    return header + "\n" + body.rstrip()
 
 
 def _section_missing(report: StationTriageReport) -> str:
