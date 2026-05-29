@@ -17,6 +17,9 @@ tmp/
 # Reference data (downloaded on demand)
 reference_data/
 data/station_config/station.info.sopac.apr05
+# Safe-update system runtime artifacts (timestamped backups + working copies of station.info)
+data/station_config/backups/
+data/station_config/work/
 
 # Python
 __pycache__/

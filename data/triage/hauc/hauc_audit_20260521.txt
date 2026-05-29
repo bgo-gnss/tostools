@@ -1,0 +1,113 @@
+# === tos audit missing-attributes — triage action file ===
+# Generated:  2026-05-21T09:19:20+00:00
+# Station:    'Haumýrar' (id_entity=4257)
+# Audit cmd:  tos audit missing-attributes HAUC --triage hauc.txt
+# Violations: 21
+#
+# Format: one ACTION per line, '#' for comments.
+#
+#   ACTION <id_entity> add-attribute \
+#          <code> <value> <date_from>
+#
+# Workflow:
+#   1. Review each block below. Replace any
+#      <FILL_VALUE> / <FILL_DATE> placeholders with the value/date you
+#      know is correct for the entity.
+#   2. Uncomment the ACTION line(s) you want to fire.
+#   3. tos audit apply <file>          # dry-run preview
+#   4. tos audit apply <file> --apply  # commit writes
+#
+# <date_from> accepts two shortcuts in addition to YYYY-MM-DD:
+#   now    — today's UTC date (use for mutable transitions)
+#   start  — entity's earliest open attribute date_from
+#            (use for inherent backfills you forgot to record)
+#
+# Alternative for known-good gaps: copy the SUPPRESS hint into
+# data/audit_suppressions/missing_attributes.txt instead.
+
+# --- monument id_entity=5104 'monument-HAUC-20070902' ---
+# missing: model  (date hint: 2007-09-02)
+#ACTION 5104 add-attribute model <FILL_VALUE> 2007-09-02
+# (or suppress: SUPPRESS 5104 model)
+
+# missing: status  (default: 'virk')
+#ACTION 5104 add-attribute status virk <FILL_DATE>
+# (or suppress: SUPPRESS 5104 status)
+
+# missing: antenna_offset_north  (default: '0.0')
+#ACTION 5104 add-attribute antenna_offset_north 0.0 2007-09-02
+# (or suppress: SUPPRESS 5104 antenna_offset_north)
+
+# missing: antenna_offset_east  (default: '0.0')
+#ACTION 5104 add-attribute antenna_offset_east 0.0 2007-09-02
+# (or suppress: SUPPRESS 5104 antenna_offset_east)
+
+# missing: infrastructure_subtype  (default: 'GPS undirstaða')
+#ACTION 5104 add-attribute infrastructure_subtype 'GPS undirstaða' 2007-09-02
+# (or suppress: SUPPRESS 5104 infrastructure_subtype)
+
+# missing: infrastructure_type  (default: 'GPS stál-fjórfótur')
+#ACTION 5104 add-attribute infrastructure_type 'GPS stál-fjórfótur' 2007-09-02
+# (or suppress: SUPPRESS 5104 infrastructure_type)
+
+# --- antenna id_entity=20513 '5401' ---
+# missing: antenna_height
+#ACTION 20513 add-attribute antenna_height <FILL_VALUE> <FILL_DATE>
+# (or suppress: SUPPRESS 20513 antenna_height)
+
+# missing: antenna_offset_north  (default: '0.0')
+#ACTION 20513 add-attribute antenna_offset_north 0.0 <FILL_DATE>
+# (or suppress: SUPPRESS 20513 antenna_offset_north)
+
+# missing: antenna_offset_east  (default: '0.0')
+#ACTION 20513 add-attribute antenna_offset_east 0.0 <FILL_DATE>
+# (or suppress: SUPPRESS 20513 antenna_offset_east)
+
+# missing: azimuth  (default: '0.0')
+#ACTION 20513 add-attribute azimuth 0.0 <FILL_DATE>
+# (or suppress: SUPPRESS 20513 azimuth)
+
+# missing: manufacturer  (date hint: 2024-08-27)
+#ACTION 20513 add-attribute manufacturer <FILL_VALUE> 2024-08-27
+# (or suppress: SUPPRESS 20513 manufacturer)
+
+# --- gnss_receiver id_entity=20516 '3099973 ' ---
+# missing: GPS  (default: 'true')
+#ACTION 20516 add-attribute GPS true <FILL_DATE>
+# (or suppress: SUPPRESS 20516 GPS)
+
+# missing: GLO  (default: 'true')
+#ACTION 20516 add-attribute GLO true <FILL_DATE>
+# (or suppress: SUPPRESS 20516 GLO)
+
+# missing: GAL
+#ACTION 20516 add-attribute GAL <FILL_VALUE> <FILL_DATE>
+# (or suppress: SUPPRESS 20516 GAL)
+
+# missing: BDS
+#ACTION 20516 add-attribute BDS <FILL_VALUE> <FILL_DATE>
+# (or suppress: SUPPRESS 20516 BDS)
+
+# missing: QZSS
+#ACTION 20516 add-attribute QZSS <FILL_VALUE> <FILL_DATE>
+# (or suppress: SUPPRESS 20516 QZSS)
+
+# missing: SBAS
+#ACTION 20516 add-attribute SBAS <FILL_VALUE> <FILL_DATE>
+# (or suppress: SUPPRESS 20516 SBAS)
+
+# missing: IRN
+#ACTION 20516 add-attribute IRN <FILL_VALUE> <FILL_DATE>
+# (or suppress: SUPPRESS 20516 IRN)
+
+# missing: http_port  (default: '80')
+#ACTION 20516 add-attribute http_port 80 <FILL_DATE>
+# (or suppress: SUPPRESS 20516 http_port)
+
+# missing: manufacturer  (date hint: 2024-08-29)
+#ACTION 20516 add-attribute manufacturer <FILL_VALUE> 2024-08-29
+# (or suppress: SUPPRESS 20516 manufacturer)
+
+# missing: ip_address  (default: '192.168.100.60')
+#ACTION 20516 add-attribute ip_address 192.168.100.60 <FILL_DATE>
+# (or suppress: SUPPRESS 20516 ip_address)
