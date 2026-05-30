@@ -10,7 +10,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-KNOWN_SUBCOMMANDS = {"owners", "device", "audit", "station", "contact", "fleet"}
+KNOWN_SUBCOMMANDS = {
+    "owners",
+    "device",
+    "audit",
+    "station",
+    "contact",
+    "fleet",
+    "visit",
+}
 
 
 def _owners_main(argv):
@@ -290,6 +298,185 @@ def apply_device_filters(
                 continue
             if tt is not None and tt <= on_date:
                 continue
+        out.append(row)
+    return out
+
+
+#: Allowed maintenance-reason codes — match
+#: :attr:`TOSWriter.MAINTENANCE_REASON_CODES` exactly so the read-side
+#: filter and the (eventual) write-side validator stay in lock-step.
+MAINTENANCE_REASON_CODES = frozenset(
+    {"change", "repairs", "inspection", "improvements", "other"}
+)
+
+#: Display strings TOS uses on the list endpoint for each reason boolean.
+#: The list endpoint flattens ``reason_change=true,reason_repairs=true``
+#: into a single ``"reason"`` field with the Icelandic display strings
+#: comma-joined ("Breyting, Viðgerð"). The detail endpoint returns the
+#: raw booleans. ``apply_visit_filters`` uses this map to translate the
+#: filter operator's English codes into the strings TOS actually emits.
+#: ``change`` / ``repairs`` / ``improvements`` were empirically verified
+#: against live data 2026-05-30; ``inspection`` / ``other`` are unused
+#: in the GPS fleet today (best-guess translations — adjust if TOS
+#: reveals them).
+MAINTENANCE_REASON_DISPLAY = {
+    "change": "Breyting",
+    "repairs": "Viðgerð",
+    "inspection": "Skoðun",
+    "improvements": "Endurbætur",
+    "other": "Annað",
+}
+
+
+def add_visit_filter_arguments(parser) -> None:
+    """Add the standard vitjun-filter argument set to a subparser.
+
+    Reusable across ``tos visit list``, future ``tos visit show``
+    multi-match, and the visit-coverage audit. Match semantics are
+    documented on :func:`apply_visit_filters`.
+
+    Adds: ``--type {on_site,remote}``, ``--reason`` (repeatable),
+    ``--since DATE``, ``--participants SUBSTR``, ``--open``,
+    ``--completed`` (mutually exclusive).
+    """
+    parser.add_argument(
+        "--type",
+        dest="visit_type",
+        choices=["on_site", "remote"],
+        default=None,
+        help=(
+            "Filter to one visit type: on_site (Staðarvitjun) or remote "
+            "(Fjarvitjun)."
+        ),
+    )
+    parser.add_argument(
+        "--reason",
+        action="append",
+        dest="reasons",
+        choices=sorted(MAINTENANCE_REASON_CODES),
+        help=(
+            "Filter to one or more reason codes (e.g. --reason change "
+            "--reason repairs). Repeatable; OR'd within the filter."
+        ),
+    )
+    parser.add_argument(
+        "--since",
+        dest="since",
+        default=None,
+        help=(
+            "Filter to visits with start_time >= this date (YYYY-MM-DD). "
+            "Compared as a date-prefix lex compare against start_time."
+        ),
+    )
+    parser.add_argument(
+        "--participants",
+        dest="participants",
+        default=None,
+        help=(
+            "Filter by participants/participants_names — case-insensitive "
+            "substring (e.g. '--participants bgo' matches "
+            "'bgo@vedur.is' OR 'Benedikt Ófeigsson')."
+        ),
+    )
+    status_group = parser.add_mutually_exclusive_group()
+    status_group.add_argument(
+        "--open",
+        dest="open_only",
+        action="store_true",
+        help="Only visits with completed=False (long-running / unresolved).",
+    )
+    status_group.add_argument(
+        "--completed",
+        dest="completed_only",
+        action="store_true",
+        help="Only visits with completed=True (closed records).",
+    )
+
+
+def apply_visit_filters(
+    rows: List[Dict[str, Any]],
+    args,
+) -> List[Dict[str, Any]]:
+    """Filter vitjun rows by the standard CLI visit-filter set.
+
+    Reads ``args.visit_type``, ``args.reasons`` (list), ``args.since``,
+    ``args.participants``, ``args.open_only``, ``args.completed_only``
+    (any missing attribute is treated as "no constraint"). Filters are
+    AND'd; preserves input order.
+
+    Expected row shape: TOS vitjun dict as returned by
+    :meth:`TOSClient.list_maintenance_visits` —
+    ``maintenance_type``, ``start_time``, ``reason`` (string with
+    embedded codes; see below), ``participants`` /
+    ``participants_names``, ``completed``.
+
+    Match semantics:
+      - ``visit_type``: exact match against ``row['maintenance_type']``
+      - ``reasons``: TOS's list endpoint flattens the per-code
+        booleans into a single ``reason`` field with Icelandic display
+        strings ("Breyting, Viðgerð"). The filter translates the
+        operator's English codes via :data:`MAINTENANCE_REASON_DISPLAY`
+        and matches if any requested display string appears in the row
+        (OR within the filter, AND against other filters).
+      - ``since``: ``row['start_time'][:10] >= since[:10]`` (lex
+        compare; YYYY-MM-DD ordering)
+      - ``participants``: case-insensitive substring against
+        ``participants_names`` OR ``participants`` (whichever has a
+        value; participants_names is the human-resolved form)
+      - ``open_only``: ``row['completed']`` is falsy
+      - ``completed_only``: ``row['completed']`` is truthy
+    """
+    visit_type = getattr(args, "visit_type", None)
+    reasons = getattr(args, "reasons", None) or None
+    since_raw = getattr(args, "since", None)
+    since = since_raw[:10] if since_raw else None
+    participants_needle = getattr(args, "participants", None)
+    open_only = bool(getattr(args, "open_only", False))
+    completed_only = bool(getattr(args, "completed_only", False))
+
+    # Translate operator codes → TOS display strings. Skip unknown
+    # codes silently — argparse choices= already constrains input.
+    reason_displays = (
+        [
+            MAINTENANCE_REASON_DISPLAY[c]
+            for c in reasons
+            if c in MAINTENANCE_REASON_DISPLAY
+        ]
+        if reasons
+        else None
+    )
+    participants_lower = participants_needle.lower() if participants_needle else None
+
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        if visit_type and row.get("maintenance_type") != visit_type:
+            continue
+        if reason_displays:
+            raw = str(row.get("reason") or "")
+            # Comma-joined display strings; match if any operator-
+            # requested display appears as a substring of the field.
+            if not any(d in raw for d in reason_displays):
+                continue
+        if since:
+            start = (row.get("start_time") or "")[:10]
+            if start and start < since:
+                continue
+            if not start:
+                # Row with no start_time can't be filtered by --since;
+                # exclude rather than silently keep it.
+                continue
+        if participants_lower is not None:
+            names = str(row.get("participants_names") or "")
+            emails = str(row.get("participants") or "")
+            if (
+                participants_lower not in names.lower()
+                and participants_lower not in emails.lower()
+            ):
+                continue
+        if open_only and row.get("completed"):
+            continue
+        if completed_only and not row.get("completed"):
+            continue
         out.append(row)
     return out
 
@@ -3146,6 +3333,372 @@ def _render_contact_record(contact: Dict[str, Any]) -> None:
             rendered = f"[{_STATION_VALUE_COLOR}]{value}[/{_STATION_VALUE_COLOR}]"
         table.add_row(label, rendered)
     console.print(table)
+
+
+def _visit_main(argv):
+    """Handle ``tos visit <verb>`` subcommands.
+
+    Vitjun (visit / maintenance) records live on an entity, alongside
+    its attribute-value periods and entity-connection joins. The schema
+    is generic on ``id_entity`` — both stations and devices can have
+    them, though in current GPS data every vitjun is station-attached
+    (device-attached vitjanir today are exclusively on meteorological
+    sensors).
+
+    Verbs:
+
+      ``list --station S | --device <id> | --entity <id> [filters]``
+                            Listing for one entity. Standard filter set
+                            (--type, --reason, --since, --participants,
+                            --open / --completed).
+      ``show <id_maintenance>``
+                            One vitjun's full detail, including the
+                            ``maintenance_attribute_values`` rows.
+
+    Exit codes: 0 success, 1 lookup miss / no records, 2 usage error.
+    """
+    import json as _json
+
+    from .api.tos_client import TOSClient
+
+    p = argparse.ArgumentParser(
+        prog="tos visit",
+        description=(
+            "Inspect TOS vitjun (visit / maintenance) records. Vitjanir "
+            "are entity-attached temporal records (id_maintenance "
+            "namespace) — every visit hangs off an id_entity (station "
+            "or device).\n\n"
+            "Verbs:\n"
+            "  list --station S        Vitjanir attached to station S.\n"
+            "  list --device <id>      Vitjanir attached to a device by id_entity.\n"
+            "  list --entity <id>      Escape hatch — any entity by id_entity.\n"
+            "  show <id_maintenance>   One vitjun's full detail.\n\n"
+            "List accepts the standard visit-filter set: --type, "
+            "--reason (repeatable), --since DATE, --participants SUBSTR, "
+            "--open / --completed."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = p.add_subparsers(dest="verb", required=True)
+
+    p_list = sub.add_parser(
+        "list",
+        help="List vitjanir attached to one entity (station / device).",
+        description=(
+            "List vitjun records for one entity. Exactly one of "
+            "--station, --device, --entity is required.\n\n"
+            "Default sort: start_time descending (most recent first). "
+            "Use --json for machine-readable output, or pass the "
+            "standard visit-filter set to narrow the listing."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    target_group = p_list.add_mutually_exclusive_group(required=True)
+    target_group.add_argument(
+        "--station",
+        default=None,
+        help="Station marker (e.g. HEDI) or display name. Primary affordance.",
+    )
+    target_group.add_argument(
+        "--device",
+        dest="device_id",
+        type=int,
+        default=None,
+        help=(
+            "Device id_entity. Useful for meteorological sensors and "
+            "(eventually) device-lifecycle vitjanir on GPS receivers."
+        ),
+    )
+    target_group.add_argument(
+        "--entity",
+        dest="entity_id",
+        type=int,
+        default=None,
+        help=(
+            "Escape hatch — any id_entity directly. Bypasses station/"
+            "device naming entirely."
+        ),
+    )
+    add_visit_filter_arguments(p_list)
+    p_list.add_argument(
+        "--json", action="store_true", help="Emit raw JSON instead of pretty."
+    )
+    p_list.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_list.add_argument("--port", type=int, default=443)
+
+    p_show = sub.add_parser(
+        "show",
+        help="Show one vitjun's full detail by id_maintenance.",
+        description=(
+            "Display all fields for one vitjun, including the "
+            "maintenance_attribute_values rows (with each row's "
+            "id_maintenance_attribute_value — needed by the writer for "
+            "updates). Use the id from `tos visit list`."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_show.add_argument(
+        "id_maintenance",
+        type=int,
+        help="The vitjun's id_maintenance (column 'id' in `tos visit list`).",
+    )
+    p_show.add_argument(
+        "--json", action="store_true", help="Emit raw JSON instead of pretty."
+    )
+    p_show.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_show.add_argument("--port", type=int, default=443)
+
+    args = p.parse_args(argv)
+
+    scheme = "https" if args.port == 443 else "http"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    client = TOSClient(base_url=base_url)
+
+    if args.verb == "list":
+        # Resolve the target entity. Three input styles:
+        #   --station S      → marker / display-name resolution
+        #   --device <id>    → direct id_entity (no resolution)
+        #   --entity <id>    → direct id_entity (no resolution)
+        # Device vs entity is semantic only — both feed the same
+        # endpoint. The split exists so `--device` reads naturally on
+        # the operator's eye for the eventual lifecycle-tracker use case.
+        if args.station is not None:
+            id_entity = _resolve_parent_id(client, station_marker=args.station)
+            if id_entity is None:
+                print(
+                    f"No station found for marker {args.station!r}",
+                    file=sys.stderr,
+                )
+                return 1
+            target_label = args.station
+            target_kind = "station"
+        elif args.device_id is not None:
+            id_entity = args.device_id
+            target_label = f"device {id_entity}"
+            target_kind = "device"
+        else:
+            id_entity = args.entity_id
+            target_label = f"entity {id_entity}"
+            target_kind = "entity"
+
+        rows = client.list_maintenance_visits(id_entity)
+        rows = apply_visit_filters(rows, args)
+        # Most recent first — operators usually want the latest visit
+        # at the top, drilling backwards in time.
+        rows = sorted(rows, key=lambda r: r.get("start_time") or "", reverse=True)
+
+        if args.json:
+            payload = {
+                "target_kind": target_kind,
+                "target_label": target_label,
+                "id_entity": id_entity,
+                "visits": rows,
+            }
+            print(_json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0
+
+        from rich.console import Console
+
+        console = Console()
+        _render_visits_table(
+            console,
+            rows,
+            title=f"Vitjanir — {len(rows)} record(s) for {target_label}",
+        )
+        if rows:
+            console.print()
+            sample_id = rows[0].get("id")
+            console.print(f"[dim]Drill: tos visit show {sample_id}[/dim]")
+        return 0
+
+    if args.verb == "show":
+        visit = client.get_maintenance_visit(args.id_maintenance)
+        if not visit:
+            print(
+                f"No vitjun found for id_maintenance={args.id_maintenance}",
+                file=sys.stderr,
+            )
+            return 1
+        if args.json:
+            print(_json.dumps(visit, ensure_ascii=False, indent=2))
+            return 0
+        from rich.console import Console
+
+        console = Console()
+        _render_visit_detail(console, visit)
+        return 0
+
+    return 2
+
+
+def _render_visits_table(
+    console,
+    visits: List[Dict[str, Any]],
+    *,
+    title: str,
+) -> None:
+    """Render a vitjun list table.
+
+    Columns: id, start_time, type, reasons, participants, completed,
+    work-summary. ``end_time`` is suppressed by default — most visits
+    are instantaneous (``end_time == start_time``) and the column adds
+    visual noise. Drill via ``tos visit show <id>`` for full detail.
+    """
+    from rich.table import Table
+
+    if not visits:
+        console.print(title)
+        console.print("  (no vitjanir on file)")
+        return
+
+    table = Table(title=title)
+    table.add_column("id", justify="right")
+    table.add_column("start")
+    table.add_column("type")
+    table.add_column("reasons")
+    table.add_column("participants")
+    table.add_column("done")
+    table.add_column("work (first line)")
+
+    for v in visits:
+        vid = v.get("id")
+        start = (v.get("start_time") or "")[:10]
+        vtype = v.get("maintenance_type") or "—"
+        type_color = "green" if vtype == "on_site" else "blue"
+        vtype_cell = f"[{type_color}]{vtype}[/{type_color}]"
+        reasons = (v.get("reason") or "").replace(",", ", ") or "—"
+        participants = v.get("participants_names") or v.get("participants") or "—"
+        completed = v.get("completed")
+        if completed is True:
+            done_cell = "[green]yes[/green]"
+        elif completed is False:
+            done_cell = "[yellow]open[/yellow]"
+        else:
+            done_cell = "—"
+        work = (v.get("work") or "").splitlines()
+        work_first = (work[0] if work else "") or "—"
+        if len(work_first) > 60:
+            work_first = work_first[:57] + "..."
+        table.add_row(
+            str(vid) if vid is not None else "?",
+            start,
+            vtype_cell,
+            reasons,
+            str(participants),
+            done_cell,
+            work_first,
+        )
+    console.print(table)
+
+
+def _render_visit_detail(console, visit: Dict[str, Any]) -> None:
+    """Render one vitjun's full detail (the `show` verb output).
+
+    Header (id / type / dates / completed / participants / reasons) +
+    a free-text panel (work / comment / remaining) + the
+    ``maintenance_attribute_values`` rows with each row's
+    ``id_maintenance_attribute_value`` (needed by the writer for
+    updates).
+
+    The detail endpoint doesn't carry ``id_entity`` or a flat
+    ``reason`` / ``work`` / ``comment`` / ``remaining`` field —
+    everything except the header columns lives in
+    ``maintenance_attribute_values``. We source from there.
+    """
+    from rich.table import Table
+
+    vid = visit.get("id_maintenance") or visit.get("id")
+    vtype = visit.get("maintenance_type") or "—"
+    start = visit.get("start_time") or "—"
+    end = visit.get("end_time") or "—"
+    completed = visit.get("completed")
+    completed_label = (
+        "yes" if completed is True else "open" if completed is False else "—"
+    )
+    completed_color = (
+        "green" if completed is True else "yellow" if completed is False else ""
+    )
+
+    # Build a code → (id_av, value) lookup from the attribute_value rows.
+    # This is the only place ``work`` / ``comment`` / ``remaining`` /
+    # ``reason_*`` actually live in the detail payload.
+    av_rows: List[Dict[str, Any]] = visit.get("maintenance_attribute_values") or []
+    by_code: Dict[str, Dict[str, Any]] = {
+        (av.get("code") or ""): av for av in av_rows if av.get("code")
+    }
+
+    # Active reason codes — booleans on the attribute_value rows.
+    active_reasons = [
+        code[len("reason_") :]
+        for code, av in by_code.items()
+        if code.startswith("reason_") and str(av.get("value")).lower() == "true"
+    ]
+    reasons_display = (
+        ", ".join(MAINTENANCE_REASON_DISPLAY.get(c, c) for c in active_reasons) or "—"
+    )
+
+    header = Table(title=f"Vitjun {vid}", show_header=False)
+    header.add_column("field", style="bold")
+    header.add_column("value")
+    header.add_row("id_maintenance", str(vid) if vid is not None else "?")
+    header.add_row(
+        "maintenance_type",
+        f"[{'green' if vtype == 'on_site' else 'blue'}]{vtype}[/]",
+    )
+    header.add_row("start_time", str(start))
+    header.add_row("end_time", str(end))
+    header.add_row(
+        "completed",
+        (
+            f"[{completed_color}]{completed_label}[/]"
+            if completed_color
+            else completed_label
+        ),
+    )
+    header.add_row(
+        "participants",
+        str(visit.get("participants_names") or visit.get("participants") or "—"),
+    )
+    header.add_row("reasons", reasons_display)
+    console.print(header)
+
+    # Free-text fields, sourced from attribute_value rows. Always render
+    # so the operator sees which slots exist on a vitjun at a glance,
+    # even when empty.
+    text_table = Table(title="Notes", show_header=False)
+    text_table.add_column("field", style="bold")
+    text_table.add_column("text")
+    for code in ("work", "comment", "remaining"):
+        av = by_code.get(code) or {}
+        val = av.get("value") or "—"
+        text_table.add_row(code, str(val))
+    console.print()
+    console.print(text_table)
+
+    # Raw attribute_value rows — same shape the writer needs for
+    # updates. Always shown (low-cost; the writer-to-be will copy
+    # id_maintenance_attribute_value values from here).
+    if av_rows:
+        av_table = Table(title=f"maintenance_attribute_values — {len(av_rows)} row(s)")
+        av_table.add_column("id_av", justify="right")
+        av_table.add_column("code")
+        av_table.add_column("value")
+        for av in av_rows:
+            av_table.add_row(
+                str(av.get("id_maintenance_attribute_value") or "?"),
+                str(av.get("code") or "?"),
+                str(av.get("value") or "—"),
+            )
+        console.print()
+        console.print(av_table)
 
 
 def _fleet_main(argv):
@@ -7255,6 +7808,13 @@ def _print_top_level_help() -> None:
         "               contact show --id N     One contact record.\n"
         "               contact list --station S  Contacts for a station.\n"
         "\n"
+        "  visit      Inspect TOS vitjun (visit / maintenance) records.\n"
+        "               visit list --station S         Vitjanir for a station.\n"
+        "               visit list --device <id>       Vitjanir for a device.\n"
+        "               visit show <id_maintenance>    One vitjun's full detail.\n"
+        "             Filters: --type, --reason, --since, --participants,\n"
+        "                      --open / --completed.\n"
+        "\n"
         "  fleet      Fleet-wide orchestrators (loop station verbs over\n"
         "             every GNSS station in stations.cfg ~173 sites).\n"
         "               fleet status            Bulk verify oracle —\n"
@@ -7324,6 +7884,8 @@ def main(argv=None):
             return _contact_main(rest)
         if subcmd == "fleet":
             return _fleet_main(rest)
+        if subcmd == "visit":
+            return _visit_main(rest)
     print(f"tos: unknown subcommand {argv[0]!r}\n", file=sys.stderr)
     _print_top_level_help()
     return 2

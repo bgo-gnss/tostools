@@ -1096,3 +1096,197 @@ def test_device_show_attributes_suspicious_only_cleanup_artifact_rows(capsys):
     # model (2007-09-07) suppressed — value AND code label both absent.
     assert "TRIMBLE NETR9" not in out
     assert "model" not in out
+
+
+# ---------------------------------------------------------------------------
+# apply_visit_filters — pins the read-side vitjun-filter semantics
+# ---------------------------------------------------------------------------
+def _visit(**overrides):
+    """Build a vitjun row matching the shape from
+    :meth:`TOSClient.list_maintenance_visits`."""
+    defaults = {
+        "id": 1000,
+        "maintenance_type": "on_site",
+        "start_time": "2024-06-15T10:00:00",
+        "end_time": "2024-06-15T11:30:00",
+        "reason": "Viðgerð",
+        "participants": "bgo@vedur.is",
+        "participants_names": "Benedikt G. Ófeigsson",
+        "work": "—",
+        "remaining": None,
+        "completed": True,
+    }
+    defaults.update(overrides)
+    return defaults
+
+
+def _visit_filter_args(**overrides):
+    from argparse import Namespace
+
+    defaults = {
+        "visit_type": None,
+        "reasons": None,
+        "since": None,
+        "participants": None,
+        "open_only": False,
+        "completed_only": False,
+    }
+    defaults.update(overrides)
+    return Namespace(**defaults)
+
+
+def test_apply_visit_filters_no_constraints_passes_through():
+    from tostools.tos import apply_visit_filters
+
+    rows = [_visit(id=1), _visit(id=2, maintenance_type="remote")]
+    assert apply_visit_filters(rows, _visit_filter_args()) == rows
+
+
+def test_apply_visit_filters_visit_type_exact_match():
+    from tostools.tos import apply_visit_filters
+
+    rows = [
+        _visit(id=1, maintenance_type="on_site"),
+        _visit(id=2, maintenance_type="remote"),
+    ]
+    out = apply_visit_filters(rows, _visit_filter_args(visit_type="on_site"))
+    assert [r["id"] for r in out] == [1]
+
+
+def test_apply_visit_filters_reason_translates_to_icelandic_display():
+    """--reason takes English codes; matches against the Icelandic
+    display strings TOS emits on the list endpoint."""
+    from tostools.tos import apply_visit_filters
+
+    rows = [
+        _visit(id=1, reason="Breyting"),
+        _visit(id=2, reason="Viðgerð"),
+        _visit(id=3, reason="Endurbætur"),
+    ]
+    out = apply_visit_filters(rows, _visit_filter_args(reasons=["repairs"]))
+    assert [r["id"] for r in out] == [2]
+    out = apply_visit_filters(
+        rows, _visit_filter_args(reasons=["change", "improvements"])
+    )
+    assert [r["id"] for r in out] == [1, 3]
+
+
+def test_apply_visit_filters_reason_substring_match_within_comma_joined():
+    """Rows with multiple active reasons get comma-joined display
+    strings — the filter should still match on substring."""
+    from tostools.tos import apply_visit_filters
+
+    rows = [_visit(id=1, reason="Breyting, Viðgerð")]
+    assert apply_visit_filters(rows, _visit_filter_args(reasons=["repairs"])) == rows
+
+
+def test_apply_visit_filters_since_lex_compare_yyyy_mm_dd():
+    from tostools.tos import apply_visit_filters
+
+    rows = [
+        _visit(id=1, start_time="2023-01-15T08:00:00"),
+        _visit(id=2, start_time="2026-05-22T15:00:00"),
+        _visit(id=3, start_time="2018-02-06T09:30:00"),
+    ]
+    out = apply_visit_filters(rows, _visit_filter_args(since="2023-01-01"))
+    assert sorted(r["id"] for r in out) == [1, 2]
+
+
+def test_apply_visit_filters_since_excludes_rows_with_missing_start():
+    """A row that has no start_time can't be range-compared — drop
+    rather than silently pass through."""
+    from tostools.tos import apply_visit_filters
+
+    rows = [_visit(id=1, start_time=None)]
+    assert apply_visit_filters(rows, _visit_filter_args(since="2023-01-01")) == []
+
+
+def test_apply_visit_filters_participants_matches_names_or_emails():
+    """--participants is case-insensitive substring against either the
+    resolved names OR the raw email list (whichever has a value)."""
+    from tostools.tos import apply_visit_filters
+
+    rows = [
+        _visit(
+            id=1,
+            participants="bgo@vedur.is",
+            participants_names="Benedikt G. Ófeigsson",
+        ),
+        _visit(
+            id=2,
+            participants="bhb@vedur.is",
+            participants_names="Bergur Hermanns Bergsson",
+        ),
+    ]
+    # Email substring
+    out = apply_visit_filters(rows, _visit_filter_args(participants="bgo"))
+    assert [r["id"] for r in out] == [1]
+    # Name substring (case-insensitive)
+    out = apply_visit_filters(rows, _visit_filter_args(participants="bergur"))
+    assert [r["id"] for r in out] == [2]
+
+
+def test_apply_visit_filters_open_vs_completed():
+    from tostools.tos import apply_visit_filters
+
+    rows = [
+        _visit(id=1, completed=True),
+        _visit(id=2, completed=False),
+        _visit(id=3, completed=None),
+    ]
+    assert [
+        r["id"] for r in apply_visit_filters(rows, _visit_filter_args(open_only=True))
+    ] == [2, 3]
+    assert [
+        r["id"]
+        for r in apply_visit_filters(rows, _visit_filter_args(completed_only=True))
+    ] == [1]
+
+
+def test_apply_visit_filters_combines_with_and():
+    from tostools.tos import apply_visit_filters
+
+    rows = [
+        _visit(
+            id=1,
+            maintenance_type="on_site",
+            reason="Viðgerð",
+            completed=True,
+            start_time="2023-05-17T08:00:00",
+        ),
+        _visit(
+            id=2,
+            maintenance_type="remote",
+            reason="Viðgerð",
+            completed=True,
+            start_time="2023-05-17T08:00:00",
+        ),
+        _visit(
+            id=3,
+            maintenance_type="on_site",
+            reason="Breyting",
+            completed=True,
+            start_time="2023-05-17T08:00:00",
+        ),
+    ]
+    out = apply_visit_filters(
+        rows,
+        _visit_filter_args(
+            visit_type="on_site",
+            reasons=["repairs"],
+            completed_only=True,
+        ),
+    )
+    assert [r["id"] for r in out] == [1]
+
+
+def test_apply_visit_filters_tolerates_missing_args_attrs():
+    """Behaves as "no constraint" when the args namespace lacks visit
+    filter attrs (e.g. helper invoked outside the standard CLI path)."""
+    from argparse import Namespace
+
+    from tostools.tos import apply_visit_filters
+
+    rows = [_visit(id=1)]
+    bare_ns = Namespace()
+    assert apply_visit_filters(rows, bare_ns) == rows

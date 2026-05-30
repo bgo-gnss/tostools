@@ -433,6 +433,34 @@ class TOSClient:
             return []
         return sorted(history, key=lambda j: j.get("time_from") or "")
 
+    def list_maintenance_visits(self, id_entity: int) -> List[Dict[str, Any]]:
+        """List vitjun (maintenance) records for an entity. Public read.
+
+        Wraps ``GET /maintenances/id_entity/{id_entity}``. Mirrors the
+        writer-side method of the same name but uses the unauthenticated
+        client path, so read verbs (``tos visit list``) don't force
+        operators to set up TOS credentials. Returns an empty list when
+        the endpoint yields no records or an unexpected payload shape.
+
+        Row shape: ``id``, ``maintenance_type``, ``start_time``,
+        ``end_time``, ``participants``, ``participants_names``,
+        ``reason``, ``work``, ``remaining``, ``completed``,
+        ``creation_time``.
+        """
+        result = self._make_request(f"/maintenances/id_entity/{id_entity}")
+        return result if isinstance(result, list) else []
+
+    def get_maintenance_visit(self, id_maintenance: int) -> Optional[Dict[str, Any]]:
+        """Return full detail for one vitjun. Public read.
+
+        Wraps ``GET /maintenance/id_maintenance/{id}``. Adds the
+        ``maintenance_attribute_values`` array (each row carries its own
+        ``id_maintenance_attribute_value`` — needed by the writer for
+        updates, useful here for the detail view).
+        """
+        result = self._make_request(f"/maintenance/id_maintenance/{id_maintenance}")
+        return result if isinstance(result, dict) else None
+
     def basic_search(self, search_term: str) -> List[Dict[str, Any]]:
         """
         Substring search across TOS attribute values.
