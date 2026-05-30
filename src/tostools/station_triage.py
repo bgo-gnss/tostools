@@ -60,6 +60,13 @@ from tostools.audit_verify_from_rinex import (
     audit_station_verify_from_rinex,
 )
 from tostools.audit_verify_from_rinex import format_triage_file as format_rinex_triage
+from tostools.audit_visit_coverage import (
+    StationVisitCoverageReport,
+    audit_station_visit_coverage,
+)
+from tostools.audit_visit_coverage import (
+    format_triage_file as format_coverage_triage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +90,7 @@ class StationTriageReport:
     missing: Optional[StationMissingAttributesReport] = None
     dates: Optional[StationAttributeDateReport] = None
     rinex: Optional[StationRinexReport] = None
+    coverage: Optional[StationVisitCoverageReport] = None
     notes: List[str] = field(default_factory=list)
 
     @property
@@ -103,6 +111,8 @@ class StationTriageReport:
             # the report's own ``finding_count`` so the breakdown is
             # pinned in one place.
             n += self.rinex.finding_count
+        if self.coverage is not None:
+            n += len(self.coverage.violations)
         return n
 
 
@@ -173,6 +183,9 @@ def generate_station_triage(
     with_archive: bool = False,
     archive_root: Optional[Path] = None,
     min_gap_days: float = 30.0,
+    with_coverage: bool = False,
+    coverage_since: Optional[str] = None,
+    coverage_window_days: int = 7,
 ) -> StationTriageReport:
     """Run all audits on ``station`` and aggregate into a single report.
 
@@ -266,8 +279,29 @@ def generate_station_triage(
             notes.append(f"verify-from-rinex audit FAILED: {exc}")
             rinex_report = None
 
+    # === Section: visit coverage (opt-in, Phase D) ===
+    # Skipped by default — pre-vitjun-era stations have huge gaps and
+    # the first run would overwhelm the operator before they've used
+    # `add-visit` enough to establish a baseline. Opt in via
+    # ``--with-coverage`` once SUPPRESS files have been written.
+    coverage_report: Optional[StationVisitCoverageReport] = None
+    if with_coverage:
+        try:
+            coverage_report = audit_station_visit_coverage(
+                client,
+                name=station,
+                since=coverage_since,
+                coverage_window_days=coverage_window_days,
+                suppressions_path=suppressions_path,
+                use_suppressions=use_suppressions,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("visit-coverage audit failed on %s: %s", station, exc)
+            notes.append(f"visit-coverage audit FAILED: {exc}")
+            coverage_report = None
+
     # Resolve a station_id for the header. Prefer whichever sub-report
-    # successfully looked one up; all three audits resolve the same way.
+    # successfully looked one up; all audits resolve the same way.
     station_id: Optional[int] = None
     if missing_report is not None:
         station_id = missing_report.station_id
@@ -275,6 +309,8 @@ def generate_station_triage(
         station_id = dates_report.station_id
     elif rinex_report is not None:
         station_id = rinex_report.station_id
+    elif coverage_report is not None:
+        station_id = coverage_report.station_id
 
     return StationTriageReport(
         station=station,
@@ -283,6 +319,7 @@ def generate_station_triage(
         missing=missing_report,
         dates=dates_report,
         rinex=rinex_report,
+        coverage=coverage_report,
         notes=notes,
     )
 
@@ -320,6 +357,9 @@ def format_station_triage(report: StationTriageReport) -> str:
     ):
         parts.append(_section_rinex(report))
 
+    if report.coverage is not None and report.coverage.violations:
+        parts.append(_section_coverage(report))
+
     if report.notes:
         parts.append(_section_notes(report))
 
@@ -345,6 +385,13 @@ def _build_header(report: StationTriageReport) -> str:
             f"({len(rx.brand_transitions)} transitions, "
             f"{len(rx.data_gaps)} gaps, "
             f"{len(rx.suggested_actions)} suggested ACTIONs)"
+        )
+    if report.coverage is not None:
+        cov = report.coverage
+        summary_lines.append(
+            f"#   visit-coverage:      {len(cov.violations)} violation(s) "
+            f"(±{cov.coverage_window_days}d window, since {cov.since}, "
+            f"{cov.audited_events} events audited)"
         )
     return (
         f"# === {report.station} station triage — auto-generated "
@@ -431,6 +478,38 @@ def _section_rinex(report: StationTriageReport) -> str:
         "# (was the gap planned downtime? was the transition logged elsewhere?).\n"
         "# Brand transitions + data gaps are informational; only ACTION lines\n"
         "# carry pre-built suggestions.\n"
+        "# ──────────────────────────────────────────────────────────────────"
+    )
+    return header + "\n" + body.rstrip()
+
+
+def _section_coverage(report: StationTriageReport) -> str:
+    """Render the visit-coverage section of the triage file.
+
+    Delegates the body to
+    :func:`audit_visit_coverage.format_triage_file` and wraps it in
+    the standard section header — same convention as
+    :func:`_section_rinex`.
+
+    CONFIDENCE: LOW. The audit flags join-open events with no vitjun
+    within ±N days — but it can't tell the operator *what happened*
+    on that date. Operator MUST replace ``<FILL_WORK>`` before
+    apply. Also: pre-vitjun-era events will dominate first runs;
+    operators should bias toward SUPPRESS rather than back-filling
+    invented work descriptions.
+    """
+    assert report.coverage is not None
+    body = format_coverage_triage(
+        report.coverage,
+        audit_command=f"tos audit visit-coverage {report.station}",
+        generated_at=report.generated_at,
+    )
+    header = (
+        "# ──────────────────────────────────────────────────────────────────\n"
+        "# Section: visit coverage (vitjun ↔ equipment-change events)\n"
+        "# CONFIDENCE: LOW — operator MUST replace <FILL_WORK> with what\n"
+        "# actually happened. Pre-vitjun-era events: prefer SUPPRESS over\n"
+        "# back-filling invented descriptions.\n"
         "# ──────────────────────────────────────────────────────────────────"
     )
     return header + "\n" + body.rstrip()

@@ -80,6 +80,7 @@ class FleetStationResult:
     missing_count: int
     dates_count: int
     rinex_count: int
+    coverage_count: int = 0
     notes: List[str] = field(default_factory=list)
     # Only populated for the triage flow: where the file landed on disk
     # (None when the station was clean and skip-clean was on).
@@ -286,6 +287,9 @@ def _result_from_report(
     missing_count = len(report.missing.violations) if report.missing else 0
     dates_count = len(report.dates.violations) if report.dates else 0
     rinex_count = report.rinex.finding_count if report.rinex is not None else 0
+    coverage_count = (
+        len(report.coverage.violations) if report.coverage is not None else 0
+    )
     return FleetStationResult(
         station=station,
         station_id=report.station_id,
@@ -294,6 +298,7 @@ def _result_from_report(
         missing_count=missing_count,
         dates_count=dates_count,
         rinex_count=rinex_count,
+        coverage_count=coverage_count,
         notes=list(report.notes),
     )
 
@@ -365,6 +370,7 @@ def _iterate_fleet(
                 missing_count=0,
                 dates_count=0,
                 rinex_count=0,
+                coverage_count=0,
                 error=str(exc),
                 notes=[f"generate_station_triage raised: {exc}"],
             )
@@ -393,6 +399,9 @@ def run_fleet_triage(
     with_archive: bool = False,
     archive_root: Optional[Path] = None,
     min_gap_days: float = 30.0,
+    with_coverage: bool = False,
+    coverage_since: Optional[str] = None,
+    coverage_window_days: int = 7,
     station_cfg_path: Optional[str] = None,
     include: Optional[Sequence[str]] = None,
     exclude: Optional[Sequence[str]] = None,
@@ -441,6 +450,9 @@ def run_fleet_triage(
         "with_archive": with_archive,
         "archive_root": archive_root,
         "min_gap_days": min_gap_days,
+        "with_coverage": with_coverage,
+        "coverage_since": coverage_since,
+        "coverage_window_days": coverage_window_days,
     }
 
     def _write_triage(
@@ -495,6 +507,9 @@ def run_fleet_verify(
     with_archive: bool = False,
     archive_root: Optional[Path] = None,
     min_gap_days: float = 30.0,
+    with_coverage: bool = False,
+    coverage_since: Optional[str] = None,
+    coverage_window_days: int = 7,
     station_cfg_path: Optional[str] = None,
     include: Optional[Sequence[str]] = None,
     exclude: Optional[Sequence[str]] = None,
@@ -528,6 +543,9 @@ def run_fleet_verify(
         "with_archive": with_archive,
         "archive_root": archive_root,
         "min_gap_days": min_gap_days,
+        "with_coverage": with_coverage,
+        "coverage_since": coverage_since,
+        "coverage_window_days": coverage_window_days,
     }
 
     # Verify is read-only — _iterate_fleet still classifies and builds
@@ -597,7 +615,8 @@ def format_fleet_summary(
         lines.append("")
         lines.append(
             f"{'':2}  {'STN':<8}  {'id':>6}  {'status':<8}  "
-            f"{'find':>4}  {'miss':>4}  {'date':>4}  {'rinex':>5}  notes"
+            f"{'find':>4}  {'miss':>4}  {'date':>4}  {'rinex':>5}  "
+            f"{'cov':>4}  notes"
         )
         for r in rows:
             mark = STATUS_MARK.get(r.status, "?")
@@ -612,7 +631,7 @@ def format_fleet_summary(
                 f"{(r.station_id if r.station_id is not None else '—'):>6}  "
                 f"{r.status:<8}  {r.findings_count:>4}  "
                 f"{r.missing_count:>4}  {r.dates_count:>4}  "
-                f"{r.rinex_count:>5}{note_blurb}"
+                f"{r.rinex_count:>5}  {r.coverage_count:>4}{note_blurb}"
             )
     elif not show_clean and summary.clean == summary.total:
         lines.append("")
@@ -645,6 +664,7 @@ def fleet_summary_to_dict(summary: FleetRunSummary) -> Dict[str, Any]:
                 "missing_count": r.missing_count,
                 "dates_count": r.dates_count,
                 "rinex_count": r.rinex_count,
+                "coverage_count": r.coverage_count,
                 "notes": list(r.notes),
                 "error": r.error,
                 "triage_path": (

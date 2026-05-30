@@ -413,6 +413,35 @@ ACTION 4830 add-visit change,repairs 2026-06-20 "back from vendor; firmware bump
 Three vitjanir document the three operator-visible states; the move +
 patch ACTIONs reflect the underlying TOS state changes.
 
+**`tos audit visit-coverage`** (Phase D — invariant audit):
+
+Cross-references a station's join history against its vitjun history
+and flags equipment-change events with no vitjun within ±N days.
+Closes the loop on the lifecycle-tracker workflow — surfaces drift
+when operators forget to leave `add-visit` entries on real device
+deployments.
+
+  * `tos audit visit-coverage <STN>` — standalone audit
+  * `tos audit visit-coverage <STN> --since 2020-01-01` — widen historical scope
+  * `tos audit visit-coverage <STN> --coverage-window-days 14` — widen tolerance
+  * `tos audit visit-coverage <STN> --triage path.txt` — emit `add-visit` ACTIONs
+
+v1 scope is intentionally narrow:
+  * **Opens only** — not closes or attribute writes
+  * **Station-attached vitjanir only** — empirically zero GPS-device vitjanir today; device-side check will land via `--include-device-visits` if usage warrants
+  * **Last 2 years by default** — older events are silently skipped; pre-vitjun-era stations would otherwise overwhelm the SUPPRESS workflow
+  * **Skips the 2014-10-17 cleanup-artifact pattern** — those aren't real install dates
+
+Integrates as opt-in third audit in the verify oracle / fleet status:
+
+  * `tos station verify HEDI --with-coverage` adds the coverage check
+  * `tos fleet status --with-coverage` runs it across all 173 stations
+  * `tos fleet triage --with-coverage` includes coverage section in per-station triage files
+
+Off by default to avoid the first-run noise problem: until operators have used `add-visit` enough to establish a baseline, every station looks broken. SUPPRESS file at `data/audit_suppressions/visit_coverage.txt` (key shape: `SUPPRESS <device_id> <event_date>`) lets operators silence pre-vitjun-era findings as they triage.
+
+Triage emitter generates one commented `#ACTION <device_id> add-visit change <event_date> "<FILL_WORK>"` per violation + a SUPPRESS hint per line. Operator replaces `<FILL_WORK>` with what actually happened, uncomments the line, runs `tos audit apply`.
+
 ## Architecture
 
 ### Current Structure
