@@ -1204,34 +1204,71 @@ def _device_show_main(args) -> int:
     did = int(history["id_entity"])
     parent_history = client.get_parent_history(did)
 
+    no_visits = bool(getattr(args, "no_visits", False))
+    # Always fetch for the JSON path; for the pretty path skip the
+    # HTTP when the operator opted out via --no-visits or picked an
+    # explicit section flag that doesn't include visits.
+    show_all_sections = not (
+        args.section_list or args.section_attributes or args.section_attributes_history
+    )
+    want_visits = args.json or (show_all_sections and not no_visits)
+    visits: List[Dict[str, Any]] = []
+    if want_visits:
+        try:
+            visits = client.list_maintenance_visits(did) or []
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"warning: list_maintenance_visits({did}) failed: {exc}",
+                file=sys.stderr,
+            )
+            visits = []
+
     if args.json:
         payload = {
             "id_entity": did,
             "history": history,
             "parent_history": parent_history,
+            "visits": visits,
         }
         print(_json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
 
     console = Console()
-    show_all = not (
-        args.section_list or args.section_attributes or args.section_attributes_history
-    )
 
-    if show_all or args.section_list or args.section_attributes:
+    if show_all_sections or args.section_list or args.section_attributes:
         _render_show_header(console, history)
 
-    if show_all or args.section_attributes:
+    if show_all_sections or args.section_attributes:
         console.print()
         _render_show_open_attributes(console, history, args)
 
-    if show_all or args.section_attributes_history:
+    if show_all_sections or args.section_attributes_history:
         console.print()
         _render_show_attribute_history(console, history, args)
 
-    if show_all or args.section_list:
+    if show_all_sections or args.section_list:
         console.print()
         _render_show_parent_history(console, client, parent_history, args)
+
+    if show_all_sections and not no_visits:
+        visible_visits, hidden = _trim_visits_for_show(visits, show_all=False)
+        console.print()
+        console.print(
+            f"Recent vitjanir — {len(visible_visits)} record(s) for device {did}"
+        )
+        if hidden:
+            console.print(
+                f"  [dim]({hidden} more closed — use "
+                f"`tos visit list --device {did}` to see them)[/dim]"
+            )
+        _render_visits_table(console, visible_visits, title="")
+        if visible_visits:
+            sample_id = visible_visits[0].get("id")
+            if sample_id:
+                console.print(
+                    f"[dim]Drill: tos visit show {sample_id}  |  "
+                    f"tos visit list --device {did}[/dim]"
+                )
 
     return 0
 
@@ -1467,6 +1504,15 @@ def _device_main(argv):
             "bulk-load sits at id_av ≈ 32000-35000; per-session writes "
             "land 5-10k higher each year. See CLAUDE.md 'Retrospective "
             "writes' section + memory project_tos_retrospective_writes_provenance_gap."
+        ),
+    )
+    p_show.add_argument(
+        "--no-visits",
+        dest="no_visits",
+        action="store_true",
+        help=(
+            "Suppress the Recent vitjanir section. Default-on; this device's "
+            "vitjanir surface alongside the attribute / parent-history panels."
         ),
     )
     add_attribute_filter_arguments(p_show)
@@ -2145,6 +2191,15 @@ def _station_main(argv):
         ),
     )
     p_show.add_argument(
+        "--no-visits",
+        dest="no_visits",
+        action="store_true",
+        help=(
+            "Suppress the Recent vitjanir section (aggregated from the "
+            "station + currently-joined devices). Default-on."
+        ),
+    )
+    p_show.add_argument(
         "--json", action="store_true", help="Emit JSON instead of plain text."
     )
     p_show.add_argument(
@@ -2493,6 +2548,51 @@ def _station_show_main(args) -> int:
             )
             contacts = []
 
+    # Aggregate vitjanir from the station + currently-joined devices.
+    # Forward-compatible with Phase C (lifecycle tracker): when device-
+    # attached vitjanir start landing on GPS receivers / antennas, they
+    # surface here automatically without an additional roundtrip beyond
+    # the per-child loop already done above. Each row gets a
+    # ``__source_label`` field so the renderer can show attribution
+    # ("station HEDI" vs "device 4830 (gnss_receiver)").
+    aggregated_visits: List[Dict[str, Any]] = []
+    no_visits = bool(getattr(args, "no_visits", False))
+    if not attributes_only and not no_visits:
+        try:
+            station_visits = client.list_maintenance_visits(station_id) or []
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"warning: list_maintenance_visits({station_id}) failed: {exc}",
+                file=sys.stderr,
+            )
+            station_visits = []
+        station_label_compact = marker or station_name or f"id={station_id}"
+        for v in station_visits:
+            v_copy = dict(v)
+            v_copy["__source_label"] = f"station {station_label_compact}"
+            v_copy["__source_kind"] = "station"
+            v_copy["__source_id"] = station_id
+            aggregated_visits.append(v_copy)
+        # Currently-joined children only — closed joins' visits are out
+        # of scope for the "what's going on at this station now" view.
+        for row in open_rows:
+            child_id = row["id_entity"]
+            try:
+                child_visits = client.list_maintenance_visits(child_id) or []
+            except Exception as exc:  # noqa: BLE001
+                print(
+                    f"warning: list_maintenance_visits({child_id}) failed: {exc}",
+                    file=sys.stderr,
+                )
+                child_visits = []
+            child_label = f"device {child_id} ({row['subtype']})"
+            for v in child_visits:
+                v_copy = dict(v)
+                v_copy["__source_label"] = child_label
+                v_copy["__source_kind"] = "device"
+                v_copy["__source_id"] = child_id
+                aggregated_visits.append(v_copy)
+
     if args.json:
         payload = {
             "id_entity": station_id,
@@ -2506,6 +2606,7 @@ def _station_show_main(args) -> int:
             "children_open": open_rows,
             "children_closed": closed_rows if include_closed else [],
             "contacts": contacts,
+            "visits": aggregated_visits,
         }
         print(_json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
@@ -2569,6 +2670,33 @@ def _station_show_main(args) -> int:
 
     console.print()
     _render_station_contacts(console, contacts)
+
+    if not no_visits:
+        visible_visits, hidden = _trim_visits_for_show(
+            aggregated_visits, show_all=include_closed
+        )
+        console.print()
+        console.print(
+            f"Recent vitjanir — {len(visible_visits)} record(s) "
+            f"(aggregated from station + {len(open_rows)} joined device(s))"
+        )
+        if hidden:
+            console.print(
+                f"  [dim]({hidden} more closed — use --all to see them)[/dim]"
+            )
+        _render_visits_table(
+            console,
+            visible_visits,
+            title="",
+            source_label_col="source",
+        )
+        if aggregated_visits:
+            sample_id = visible_visits[0].get("id") if visible_visits else None
+            if sample_id:
+                console.print(
+                    f"[dim]Drill: tos visit show {sample_id}  |  "
+                    f"tos visit list --station {args.station}[/dim]"
+                )
 
     console.print()
     _render_show_drill_hint(
@@ -3544,6 +3672,7 @@ def _render_visits_table(
     visits: List[Dict[str, Any]],
     *,
     title: str,
+    source_label_col: Optional[str] = None,
 ) -> None:
     """Render a vitjun list table.
 
@@ -3551,6 +3680,13 @@ def _render_visits_table(
     work-summary. ``end_time`` is suppressed by default — most visits
     are instantaneous (``end_time == start_time``) and the column adds
     visual noise. Drill via ``tos visit show <id>`` for full detail.
+
+    When ``source_label_col`` is given, a second column with that
+    header is inserted between ``id`` and ``start``; each row's value
+    comes from the per-row ``__source_label`` key (added by the
+    aggregator in ``_station_show_main``). Used to show "station HEDI"
+    vs "device 4830 (gnss_receiver)" attribution in the station-show
+    aggregated view.
     """
     from rich.table import Table
 
@@ -3561,6 +3697,8 @@ def _render_visits_table(
 
     table = Table(title=title)
     table.add_column("id", justify="right")
+    if source_label_col is not None:
+        table.add_column(source_label_col)
     table.add_column("start")
     table.add_column("type")
     table.add_column("reasons")
@@ -3587,16 +3725,41 @@ def _render_visits_table(
         work_first = (work[0] if work else "") or "—"
         if len(work_first) > 60:
             work_first = work_first[:57] + "..."
-        table.add_row(
-            str(vid) if vid is not None else "?",
-            start,
-            vtype_cell,
-            reasons,
-            str(participants),
-            done_cell,
-            work_first,
+        row_cells = [str(vid) if vid is not None else "?"]
+        if source_label_col is not None:
+            row_cells.append(str(v.get("__source_label") or "?"))
+        row_cells.extend(
+            [start, vtype_cell, reasons, str(participants), done_cell, work_first]
         )
+        table.add_row(*row_cells)
     console.print(table)
+
+
+def _trim_visits_for_show(
+    visits: List[Dict[str, Any]],
+    *,
+    show_all: bool,
+    max_closed: int = 3,
+) -> "tuple[List[Dict[str, Any]], int]":
+    """Trim a visit list for the per-entity 'Recent visits' section.
+
+    Default view (``show_all=False``): every open visit + the
+    ``max_closed`` most-recent closed visits. ``show_all=True``:
+    every visit, no trim. Returns ``(visible_rows, hidden_count)``
+    so the caller can hint at how many more visits exist.
+
+    Sort within each group: start_time descending (most-recent first).
+    The composed return list preserves "open first, then closed
+    newest-first" — same operator-eye ordering as `tos visit list`.
+    """
+    by_recency = sorted(visits, key=lambda v: v.get("start_time") or "", reverse=True)
+    if show_all:
+        return by_recency, 0
+    open_rows = [v for v in by_recency if not v.get("completed")]
+    closed_rows = [v for v in by_recency if v.get("completed")]
+    visible_closed = closed_rows[:max_closed]
+    hidden = len(closed_rows) - len(visible_closed)
+    return open_rows + visible_closed, hidden
 
 
 def _render_visit_detail(console, visit: Dict[str, Any]) -> None:
