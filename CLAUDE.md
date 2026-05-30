@@ -313,6 +313,7 @@ tos device show --id <id>          # device detail (with Recent vitjanir)
 tos visit list --station <STN>     # vitjanir attached to a station
 tos visit list --device <id>       # vitjanir attached to a device
 tos visit show <id_maintenance>    # one vitjun, full detail
+tos visit add  --station <STN> --start DATE [opts]  # new vitjun (dry-run default)
 tos audit apply <triage_file>      # dry-run; --apply to commit
 tos fleet status                   # bulk verify oracle (exit 0/1/2)
 tos fleet triage                   # generate per-station triage files
@@ -353,6 +354,16 @@ closed. Station show aggregates from the station + currently-joined
 devices with a `source` column for attribution (forward-compatible
 with Phase C). `--no-visits` suppresses the section (and skips the
 HTTP); `--all` on station show extends to full visit history.
+
+**`tos visit add`** (Phase B — record-forward write verb):
+
+  * `tos visit add --station S --start DATE [--end DATE] [--type {on_site,remote}] [--participants EMAIL ...] [--reason CODE ...] [--work TEXT] [--comment TEXT] [--remaining TEXT] [--no-completed] [--no-dry-run]`
+  * Dry-run by default — payloads are logged but no writes are sent (matches `tos device add`). `--no-dry-run` commits (requires TOS credentials).
+  * Target: `--station S` (resolved via marker), `--device <id>` (direct id_entity, semantically a device — the Phase C lifecycle tracker's main path), or `--entity <id>` (escape hatch).
+  * Validation: `--reason` choices restricted to `MAINTENANCE_REASON_CODES`; argparse rejects bad codes before the writer. The writer additionally validates `maintenance_type` and date format; on `ValueError` the CLI exits 1 with the writer's message.
+  * `--participants` is repeatable (joined comma-separated for TOS). `--reason` is repeatable (multiple reasons true on one vitjun).
+  * `--no-completed` marks the visit open (long-running repair / ongoing investigation).
+  * Implementation wraps `TOSWriter.add_maintenance_visit` (the existing 3-call POST + GET + PUT flow that handles auto-seeded `maintenance_attribute_value` rows).
 
 ## Architecture
 
