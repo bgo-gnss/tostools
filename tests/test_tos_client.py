@@ -1518,6 +1518,309 @@ def test_visit_show_json_emits_raw_detail(capsys):
 
 
 # ---------------------------------------------------------------------------
+# `tos visit add` — Phase B write verb
+# ---------------------------------------------------------------------------
+
+
+def test_visit_add_dry_run_does_not_call_writer_post(capsys):
+    """Default (dry-run): TOSWriter still gets instantiated with
+    dry_run=True, but the writer itself short-circuits mutating
+    requests. From the CLI's perspective we verify the writer was
+    constructed correctly and `add_maintenance_visit` got called with
+    the right kwargs."""
+    from tostools.api.tos_writer import TOSWriter
+    from tostools.tos import _visit_main
+
+    with (
+        patch("tostools.tos._resolve_parent_id", return_value=4316),
+        patch.object(
+            TOSWriter,
+            "add_maintenance_visit",
+            autospec=True,
+            return_value={
+                "id_maintenance": "<dry-run>",
+                "created": None,
+                "updated": None,
+            },
+        ) as add_visit,
+    ):
+        rc = _visit_main(["add", "--station", "HEDI", "--start", "2026-05-30"])
+
+    assert rc == 0
+    # Writer.add_maintenance_visit called once with id_entity=4316.
+    add_visit.assert_called_once()
+    call = add_visit.call_args
+    assert call.args[1] == 4316  # id_entity positional after self
+    # Defaults flowed through correctly.
+    assert call.kwargs["start_time"] == "2026-05-30"
+    assert call.kwargs["end_time"] is None  # writer defaults to start
+    assert call.kwargs["maintenance_type"] == "on_site"
+    assert call.kwargs["participants"] == ""
+    assert call.kwargs["reasons"] is None
+    assert call.kwargs["completed"] is True
+    # Dry-run preview surfaced.
+    out = capsys.readouterr().out
+    assert "DRY RUN: would add vitjun on station HEDI" in out
+    assert "id_maintenance=<dry-run>" in out
+    assert "(dry-run)" in out
+
+
+def test_visit_add_no_dry_run_commits(capsys):
+    """--no-dry-run instantiates the writer with dry_run=False (no
+    short-circuit). The writer call returns a real id_maintenance which
+    the CLI surfaces with a drill hint."""
+    from tostools.api.tos_writer import TOSWriter
+    from tostools.tos import _visit_main
+
+    real_result = {
+        "id_maintenance": 5491,
+        "created": {"id_maintenance": 5491},
+        "updated": {"updated": True},
+    }
+    with (
+        patch("tostools.tos._resolve_parent_id", return_value=4316),
+        patch.object(
+            TOSWriter, "add_maintenance_visit", autospec=True, return_value=real_result
+        ) as add_visit,
+        # Don't actually authenticate.
+        patch.object(TOSWriter, "_ensure_authenticated", autospec=True),
+    ):
+        rc = _visit_main(
+            [
+                "add",
+                "--station",
+                "HEDI",
+                "--start",
+                "2026-05-30",
+                "--no-dry-run",
+            ]
+        )
+
+    assert rc == 0
+    add_visit.assert_called_once()
+    out = capsys.readouterr().out
+    # No DRY RUN preamble.
+    assert "DRY RUN" not in out
+    # Real id surfaced + drill hint.
+    assert "id_maintenance=5491" in out
+    assert "Drill: tos visit show 5491" in out
+
+
+def test_visit_add_repeatable_participants_and_reasons_passed_to_writer():
+    """--participants is repeatable and joined comma-separated for TOS.
+    --reason is repeatable and passed as a list."""
+    from tostools.api.tos_writer import TOSWriter
+    from tostools.tos import _visit_main
+
+    with (
+        patch("tostools.tos._resolve_parent_id", return_value=4316),
+        patch.object(
+            TOSWriter,
+            "add_maintenance_visit",
+            autospec=True,
+            return_value={"id_maintenance": "<dry-run>"},
+        ) as add_visit,
+    ):
+        rc = _visit_main(
+            [
+                "add",
+                "--station",
+                "HEDI",
+                "--start",
+                "2026-05-30",
+                "--participants",
+                "bgo@vedur.is",
+                "--participants",
+                "bhb@vedur.is",
+                "--reason",
+                "repairs",
+                "--reason",
+                "change",
+            ]
+        )
+
+    assert rc == 0
+    call = add_visit.call_args
+    assert call.kwargs["participants"] == "bgo@vedur.is,bhb@vedur.is"
+    assert call.kwargs["reasons"] == ["repairs", "change"]
+
+
+def test_visit_add_no_completed_passes_false():
+    """--no-completed → completed=False for the long-running-repair use case."""
+    from tostools.api.tos_writer import TOSWriter
+    from tostools.tos import _visit_main
+
+    with (
+        patch("tostools.tos._resolve_parent_id", return_value=4316),
+        patch.object(
+            TOSWriter,
+            "add_maintenance_visit",
+            autospec=True,
+            return_value={"id_maintenance": "<dry-run>"},
+        ) as add_visit,
+    ):
+        rc = _visit_main(
+            [
+                "add",
+                "--station",
+                "HEDI",
+                "--start",
+                "2026-05-30",
+                "--no-completed",
+                "--remaining",
+                "vendor diagnosing",
+            ]
+        )
+
+    assert rc == 0
+    call = add_visit.call_args
+    assert call.kwargs["completed"] is False
+    assert call.kwargs["remaining"] == "vendor diagnosing"
+
+
+def test_visit_add_device_skips_resolver(capsys):
+    """--device <id> takes id_entity directly — no marker resolution.
+    Primary use case for the Phase C lifecycle tracker."""
+    from tostools.api.tos_writer import TOSWriter
+    from tostools.tos import _visit_main
+
+    with (
+        patch("tostools.tos._resolve_parent_id") as resolver,
+        patch.object(
+            TOSWriter,
+            "add_maintenance_visit",
+            autospec=True,
+            return_value={"id_maintenance": "<dry-run>"},
+        ) as add_visit,
+    ):
+        rc = _visit_main(["add", "--device", "21044", "--start", "2026-05-30"])
+
+    assert rc == 0
+    resolver.assert_not_called()
+    assert add_visit.call_args.args[1] == 21044
+    assert "DRY RUN: would add vitjun on device 21044" in capsys.readouterr().out
+
+
+def test_visit_add_unresolvable_station_returns_1(capsys):
+    from tostools.tos import _visit_main
+
+    with patch("tostools.tos._resolve_parent_id", return_value=None):
+        rc = _visit_main(["add", "--station", "XYXYZ", "--start", "2026-05-30"])
+
+    assert rc == 1
+    assert "No station found for marker 'XYXYZ'" in capsys.readouterr().err
+
+
+def test_visit_add_target_mutually_exclusive():
+    """argparse must reject --station + --device on the same call."""
+    import pytest
+
+    from tostools.tos import _visit_main
+
+    with pytest.raises(SystemExit) as exc:
+        _visit_main(
+            [
+                "add",
+                "--station",
+                "HEDI",
+                "--device",
+                "4316",
+                "--start",
+                "2026-05-30",
+            ]
+        )
+    assert exc.value.code == 2
+
+
+def test_visit_add_unknown_reason_rejected_by_argparse():
+    """argparse choices=MAINTENANCE_REASON_CODES rejects bad reasons
+    before the writer ever sees them."""
+    import pytest
+
+    from tostools.tos import _visit_main
+
+    with pytest.raises(SystemExit) as exc:
+        _visit_main(
+            [
+                "add",
+                "--station",
+                "HEDI",
+                "--start",
+                "2026-05-30",
+                "--reason",
+                "fixme",
+            ]
+        )
+    assert exc.value.code == 2
+
+
+def test_visit_add_writer_value_error_returns_1(capsys):
+    """Writer raises ValueError (e.g. bad date format slipped past
+    argparse) → exit 1, message surfaced on stderr."""
+    from tostools.api.tos_writer import TOSWriter
+    from tostools.tos import _visit_main
+
+    with (
+        patch("tostools.tos._resolve_parent_id", return_value=4316),
+        patch.object(
+            TOSWriter,
+            "add_maintenance_visit",
+            autospec=True,
+            side_effect=ValueError("bad date"),
+        ),
+    ):
+        rc = _visit_main(["add", "--station", "HEDI", "--start", "not-a-date"])
+
+    assert rc == 1
+    assert "add_maintenance_visit failed: bad date" in capsys.readouterr().err
+
+
+def test_visit_add_json_includes_id_maintenance_and_params(capsys):
+    """JSON output carries the new id_maintenance + the params dict +
+    dry_run flag — useful for downstream automation."""
+    import json as _json
+
+    from tostools.api.tos_writer import TOSWriter
+    from tostools.tos import _visit_main
+
+    with (
+        patch("tostools.tos._resolve_parent_id", return_value=4316),
+        patch.object(
+            TOSWriter,
+            "add_maintenance_visit",
+            autospec=True,
+            return_value={
+                "id_maintenance": "<dry-run>",
+                "created": None,
+                "updated": None,
+            },
+        ),
+    ):
+        rc = _visit_main(
+            [
+                "add",
+                "--station",
+                "HEDI",
+                "--start",
+                "2026-05-30",
+                "--reason",
+                "repairs",
+                "--json",
+            ]
+        )
+
+    assert rc == 0
+    payload = _json.loads(capsys.readouterr().out)
+    assert payload["id_entity"] == 4316
+    assert payload["target"] == "station HEDI"
+    assert payload["dry_run"] is True
+    assert payload["id_maintenance"] == "<dry-run>"
+    assert payload["params"]["start_time"] == "2026-05-30"
+    assert payload["params"]["reasons"] == ["repairs"]
+    assert payload["params"]["completed"] is True
+
+
+# ---------------------------------------------------------------------------
 # Device-show Phase A.2 — visits section
 # ---------------------------------------------------------------------------
 

@@ -3482,12 +3482,21 @@ def _visit_main(argv):
       ``show <id_maintenance>``
                             One vitjun's full detail, including the
                             ``maintenance_attribute_values`` rows.
+      ``add --station S | --device <id> | --entity <id>
+              --start DATE [--end DATE] [--type {on_site,remote}]
+              [--participants EMAIL ...] [--reason CODE ...]
+              [--work TEXT] [--comment TEXT] [--remaining TEXT]
+              [--no-completed] [--no-dry-run]``
+                            Create a new vitjun. Dry-run by default;
+                            ``--no-dry-run`` commits.
 
-    Exit codes: 0 success, 1 lookup miss / no records, 2 usage error.
+    Exit codes: 0 success, 1 lookup miss / no records / writer error,
+    2 usage error.
     """
     import json as _json
 
     from .api.tos_client import TOSClient
+    from .api.tos_writer import TOSWriter
 
     p = argparse.ArgumentParser(
         prog="tos visit",
@@ -3584,6 +3593,132 @@ def _visit_main(argv):
     )
     p_show.add_argument("--port", type=int, default=443)
 
+    p_add = sub.add_parser(
+        "add",
+        help="Create a new vitjun on an entity (station / device).",
+        description=(
+            "Create a new vitjun (visit / maintenance record). Three-call "
+            "flow: POST /maintenances/id_entity/<id> → GET to discover "
+            "auto-seeded attribute-value rows → PUT to fill them in.\n\n"
+            "Dry-run by default — payloads are logged but not sent. Pass "
+            "--no-dry-run to commit (requires TOS credentials: "
+            "TOS_USERNAME/TOS_PASSWORD env vars, or the [tos] section in "
+            "~/.config/database.cfg, or an interactive prompt).\n\n"
+            "Target: --station S (resolves marker → id_entity), "
+            "--device <id> (direct id_entity, semantically a device), "
+            "--entity <id> (escape hatch — any id_entity)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    add_target_group = p_add.add_mutually_exclusive_group(required=True)
+    add_target_group.add_argument(
+        "--station",
+        default=None,
+        help="Station marker (e.g. HEDI) or display name. Primary affordance.",
+    )
+    add_target_group.add_argument(
+        "--device",
+        dest="device_id",
+        type=int,
+        default=None,
+        help="Device id_entity. Device-attached vitjun (lifecycle tracker use).",
+    )
+    add_target_group.add_argument(
+        "--entity",
+        dest="entity_id",
+        type=int,
+        default=None,
+        help="Escape hatch — any id_entity directly.",
+    )
+    p_add.add_argument(
+        "--start",
+        required=True,
+        help=(
+            "Visit start. ISO datetime or YYYY-MM-DD (promoted to "
+            "midnight). Example: --start 2026-05-30."
+        ),
+    )
+    p_add.add_argument(
+        "--end",
+        default=None,
+        help=(
+            "Visit end. Defaults to --start (instantaneous visit). "
+            "Same date / datetime format as --start."
+        ),
+    )
+    p_add.add_argument(
+        "--type",
+        dest="visit_type",
+        choices=["on_site", "remote"],
+        default="on_site",
+        help="on_site (Staðarvitjun, default) or remote (Fjarvitjun).",
+    )
+    p_add.add_argument(
+        "--participants",
+        action="append",
+        dest="participants",
+        default=None,
+        metavar="EMAIL",
+        help=(
+            "Participant email (e.g. bgo@vedur.is). Repeatable; joined "
+            "comma-separated for TOS. TOS resolves to "
+            "participants_names on read."
+        ),
+    )
+    p_add.add_argument(
+        "--reason",
+        action="append",
+        dest="reasons",
+        choices=sorted(MAINTENANCE_REASON_CODES),
+        help=(
+            "Reason code (change / repairs / inspection / improvements "
+            "/ other). Repeatable; multiple reasons can be true on one "
+            "vitjun."
+        ),
+    )
+    p_add.add_argument(
+        "--work",
+        default=None,
+        help='Free-text "Framkvæmt" / "Vinna" description.',
+    )
+    p_add.add_argument(
+        "--comment",
+        default=None,
+        help='Free-text "Athugasemdir".',
+    )
+    p_add.add_argument(
+        "--remaining",
+        default=None,
+        help='Free-text "Útistandandi" outstanding work.',
+    )
+    p_add.add_argument(
+        "--no-completed",
+        dest="no_completed",
+        action="store_true",
+        help=(
+            "Mark the visit as open (completed=False). Use for long-"
+            "running repairs / ongoing investigations. Default: closed."
+        ),
+    )
+    p_add.add_argument(
+        "--no-dry-run",
+        dest="no_dry_run",
+        action="store_true",
+        help=(
+            "Actually commit the writes. Without this flag, payloads "
+            "are logged only (dry-run, default — matches `tos device add`)."
+        ),
+    )
+    p_add.add_argument(
+        "--json", action="store_true", help="Emit structured JSON summary."
+    )
+    p_add.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_add.add_argument("--port", type=int, default=443)
+
     args = p.parse_args(argv)
 
     scheme = "https" if args.port == 443 else "http"
@@ -3662,6 +3797,102 @@ def _visit_main(argv):
 
         console = Console()
         _render_visit_detail(console, visit)
+        return 0
+
+    if args.verb == "add":
+        # Resolve target via the same three-way affordance as `list`.
+        if args.station is not None:
+            id_entity = _resolve_parent_id(client, station_marker=args.station)
+            if id_entity is None:
+                print(
+                    f"No station found for marker {args.station!r}",
+                    file=sys.stderr,
+                )
+                return 1
+            target_label = f"station {args.station}"
+        elif args.device_id is not None:
+            id_entity = args.device_id
+            target_label = f"device {id_entity}"
+        else:
+            id_entity = args.entity_id
+            target_label = f"entity {id_entity}"
+
+        # Writer setup. Dry-run by default — matches `tos device add`.
+        dry_run = not args.no_dry_run
+        writer = TOSWriter(base_url=base_url, dry_run=dry_run)
+
+        # Participants: TOS expects comma-joined emails. CLI accepts
+        # repeatable --participants for ergonomics.
+        participants_str = ",".join(args.participants) if args.participants else ""
+
+        # Dry-run preview before invoking the writer — surfaces what
+        # would be POSTed even when the writer's own log is muted.
+        if dry_run and not args.json:
+            print(
+                f"DRY RUN: would add vitjun on {target_label} "
+                f"(id_entity={id_entity})"
+            )
+            print(f"         start_time      = {args.start}")
+            print(f"         end_time        = {args.end or args.start}")
+            print(f"         maintenance_type= {args.visit_type}")
+            print(
+                f"         reasons         = "
+                f"{','.join(args.reasons) if args.reasons else '(none)'}"
+            )
+            print(f"         participants    = {participants_str or '(none)'}")
+            print(f"         work            = {args.work or '(none)'}")
+            print(f"         comment         = {args.comment or '(none)'}")
+            print(f"         remaining       = {args.remaining or '(none)'}")
+            print(f"         completed       = {not args.no_completed}")
+            print()
+
+        # Writer validates reason codes + maintenance_type + dates;
+        # surface ValueError as exit 1 with the writer's message.
+        try:
+            result = writer.add_maintenance_visit(
+                id_entity,
+                start_time=args.start,
+                end_time=args.end,
+                maintenance_type=args.visit_type,
+                participants=participants_str,
+                reasons=args.reasons,
+                work=args.work,
+                comment=args.comment,
+                remaining=args.remaining,
+                completed=not args.no_completed,
+            )
+        except ValueError as exc:
+            print(f"add_maintenance_visit failed: {exc}", file=sys.stderr)
+            return 1
+
+        new_id = result.get("id_maintenance")
+        if args.json:
+            payload = {
+                "id_entity": id_entity,
+                "target": target_label,
+                "dry_run": dry_run,
+                "id_maintenance": new_id,
+                "params": {
+                    "start_time": args.start,
+                    "end_time": args.end or args.start,
+                    "maintenance_type": args.visit_type,
+                    "participants": participants_str,
+                    "reasons": args.reasons or [],
+                    "work": args.work,
+                    "comment": args.comment,
+                    "remaining": args.remaining,
+                    "completed": not args.no_completed,
+                },
+                "result": result,
+            }
+            print(_json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+            return 0
+
+        suffix = " (dry-run)" if dry_run else ""
+        id_str = new_id if new_id else "<would be assigned>"
+        print(f"Created vitjun id_maintenance={id_str} on {target_label}{suffix}")
+        if not dry_run and isinstance(new_id, int):
+            print(f"Drill: tos visit show {new_id}")
         return 0
 
     return 2
@@ -7971,12 +8202,15 @@ def _print_top_level_help() -> None:
         "               contact show --id N     One contact record.\n"
         "               contact list --station S  Contacts for a station.\n"
         "\n"
-        "  visit      Inspect TOS vitjun (visit / maintenance) records.\n"
+        "  visit      Inspect or create TOS vitjun (visit / maintenance) records.\n"
         "               visit list --station S         Vitjanir for a station.\n"
         "               visit list --device <id>       Vitjanir for a device.\n"
         "               visit show <id_maintenance>    One vitjun's full detail.\n"
-        "             Filters: --type, --reason, --since, --participants,\n"
-        "                      --open / --completed.\n"
+        "               visit add  --station S --start DATE [opts]\n"
+        "                                              Create a new vitjun (dry-run\n"
+        "                                              default; --no-dry-run commits).\n"
+        "             Filters (list): --type, --reason, --since, --participants,\n"
+        "                             --open / --completed.\n"
         "\n"
         "  fleet      Fleet-wide orchestrators (loop station verbs over\n"
         "             every GNSS station in stations.cfg ~173 sites).\n"
