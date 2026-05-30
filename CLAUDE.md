@@ -365,6 +365,54 @@ HTTP); `--all` on station show extends to full visit history.
   * `--no-completed` marks the visit open (long-running repair / ongoing investigation).
   * Implementation wraps `TOSWriter.add_maintenance_visit` (the existing 3-call POST + GET + PUT flow that handles auto-seeded `maintenance_attribute_value` rows).
 
+**`add-visit` ACTION verb** (Phase C — device lifecycle tracker, v1):
+
+Triage-file integration for the lifecycle workflow. Operators chain
+vitjun creation next to `move` / `decommission` / `add-attribute`
+ACTIONs in the same file so a single `tos audit apply` commits
+metadata changes + the audit trail of physical interventions
+together.
+
+Syntax: `ACTION <id_entity> add-visit <reasons_csv> <date> <work_text> [open|closed]`
+
+  * `<reasons_csv>`: one or more reason codes, comma-separated (no
+    spaces — shlex keeps the token intact, dispatcher splits
+    internally). Each code validated against
+    `MAINTENANCE_REASON_CODES` BEFORE the writer call.
+  * `<date>`: `YYYY-MM-DD` or `now` / `start` tokens (same resolver
+    as `add-attribute`).
+  * `<work_text>`: free-text description, quote with `'` or `"` to
+    contain spaces (shlex).
+  * 4th positional: `open` or `closed`, defaults `closed`. Use
+    `open` for the start of a long-running repair cycle.
+
+Defaults (cannot be overridden from triage v1): `maintenance_type=on_site`,
+`participants=""`, `comment=None`, `remaining=None`. Operators needing
+those fields use `tos visit add --no-dry-run` directly. Phase C.5
+follow-ups: participants auto-fill from `[tos] username`,
+`comment`/`remaining` slots, `--with-visit` modifier on other verbs,
+auto-template from operation diff.
+
+Worked lifecycle-tracker example — sent for repair → fixed →
+back from repair:
+
+```
+# device 4830 (SAVI POLARX2) sent to vendor 2026-05-30 for cable damage
+ACTION 4830 move 4 2026-05-30                           # → warehouse B9
+ACTION 4830 add-visit repairs 2026-05-30 "sent for repair: cable damage" open
+
+# vendor sent device back 2026-06-15
+ACTION 4830 add-visit repairs 2026-06-15 "vendor diagnosed; cable replaced"
+
+# re-deployed at HEDI 2026-06-20 with firmware bump
+ACTION 4830 move 4316 2026-06-20                        # → HEDI station
+ACTION 4830 patch-attribute-value firmware_version 2026-06-20 "3.01"
+ACTION 4830 add-visit change,repairs 2026-06-20 "back from vendor; firmware bumped to 3.01"
+```
+
+Three vitjanir document the three operator-visible states; the move +
+patch ACTIONs reflect the underlying TOS state changes.
+
 ## Architecture
 
 ### Current Structure

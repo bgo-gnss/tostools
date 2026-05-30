@@ -2131,3 +2131,211 @@ def test_dispatch_add_attribute_fails_when_start_unresolvable():
     assert result.status == "failed"
     assert "start" in result.detail
     writer.add_attribute_value.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _dispatch_add_visit — Phase C lifecycle-tracker ACTION verb
+# ---------------------------------------------------------------------------
+
+
+def test_parse_action_file_keeps_csv_reasons_as_one_token():
+    """shlex.split must NOT split on commas — `repairs,change` is one
+    token, the dispatcher splits internally. Pinning this so a future
+    parser refactor can't silently break add-visit's reason CSV."""
+    text = 'ACTION 4316 add-visit repairs,change 2026-05-30 "sent for repair"\n'
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert len(actions) == 1
+    a = actions[0]
+    assert a.verb == "add-visit"
+    assert a.args == ["repairs,change", "2026-05-30", "sent for repair"]
+
+
+def test_dispatch_add_visit_happy_path_closed_default():
+    """Default 3-arg form: closed (completed=True), single reason."""
+    writer = MagicMock()
+    writer.add_maintenance_visit.return_value = {"id_maintenance": 5500}
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "add-visit", "repairs", "2026-05-30", "sent for repair"),
+    )
+    assert result.status == "ok"
+    writer.add_maintenance_visit.assert_called_once()
+    kwargs = writer.add_maintenance_visit.call_args.kwargs
+    assert writer.add_maintenance_visit.call_args.args == (4316,)
+    assert kwargs["reasons"] == ["repairs"]
+    assert kwargs["start_time"] == "2026-05-30"
+    assert kwargs["end_time"] is None  # writer defaults to start
+    assert kwargs["work"] == "sent for repair"
+    assert kwargs["completed"] is True
+    assert kwargs["maintenance_type"] == "on_site"
+    assert kwargs["participants"] == ""
+    assert "id_maintenance=5500" in result.detail
+    assert "completed" in result.detail
+
+
+def test_dispatch_add_visit_open_positional_marks_open():
+    """4th positional `open` → completed=False (long-running repair start)."""
+    writer = MagicMock()
+    writer.add_maintenance_visit.return_value = {"id_maintenance": 5501}
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4316, "add-visit", "repairs", "2026-05-30", "sent for repair", "open"
+        ),
+    )
+    assert result.status == "ok"
+    assert writer.add_maintenance_visit.call_args.kwargs["completed"] is False
+    assert " open" in result.detail
+
+
+def test_dispatch_add_visit_csv_reasons_split_and_validated():
+    """Comma-separated reasons split into a list; each validated."""
+    writer = MagicMock()
+    writer.add_maintenance_visit.return_value = {"id_maintenance": 5502}
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4316, "add-visit", "repairs,change", "2026-06-15", "back from vendor"
+        ),
+    )
+    assert result.status == "ok"
+    assert writer.add_maintenance_visit.call_args.kwargs["reasons"] == [
+        "repairs",
+        "change",
+    ]
+
+
+def test_dispatch_add_visit_unknown_reason_fails_without_writer_call():
+    """Unknown reason → 'failed' (runner continues with remaining
+    actions). Cheaper than a writer ValueError + stack trace."""
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "add-visit", "fixme", "2026-05-30", "bad reason"),
+    )
+    assert result.status == "failed"
+    assert "unknown reason code" in result.detail
+    assert "fixme" in result.detail
+    writer.add_maintenance_visit.assert_not_called()
+
+
+def test_dispatch_add_visit_rejects_fill_placeholders():
+    """<FILL_*> placeholders in reasons/date/work are operator
+    forgot-to-fill errors — refuse rather than POST literal templates."""
+    writer = MagicMock()
+    for pos, args in enumerate(
+        [
+            ["<FILL_REASON>", "2026-05-30", "work"],
+            ["repairs", "<FILL_DATE>", "work"],
+            ["repairs", "2026-05-30", "<FILL_WORK>"],
+        ]
+    ):
+        result = _dispatch_action(writer, _make_action(4316, "add-visit", *args))
+        assert result.status == "failed", f"variant {pos}"
+        assert "placeholder" in result.detail, f"variant {pos}"
+        assert "not replaced" in result.detail, f"variant {pos}"
+    writer.add_maintenance_visit.assert_not_called()
+
+
+def test_dispatch_add_visit_now_token_resolved_via_resolver():
+    """`now` resolves to today's UTC date — same path as add-attribute."""
+    writer = MagicMock()
+    writer.add_maintenance_visit.return_value = {"id_maintenance": 5503}
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "add-visit", "inspection", "now", "post-check"),
+    )
+    assert result.status == "ok"
+    resolved_date = writer.add_maintenance_visit.call_args.kwargs["start_time"]
+    # Today's UTC date in YYYY-MM-DD.
+    import datetime as _dt
+
+    expected = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
+    assert resolved_date == expected
+
+
+def test_dispatch_add_visit_start_token_uses_earliest_known():
+    """`start` resolves via writer._get_earliest_known — same as
+    other date-token-aware verbs."""
+    writer = MagicMock()
+    writer._get_earliest_known.return_value = "2006-06-29"
+    writer.add_maintenance_visit.return_value = {"id_maintenance": 5504}
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "add-visit", "change", "start", "founded"),
+    )
+    assert result.status == "ok"
+    assert writer.add_maintenance_visit.call_args.kwargs["start_time"] == "2006-06-29"
+
+
+def test_dispatch_add_visit_bad_status_positional_rejected():
+    """4th positional must be 'open' or 'closed' — anything else fails
+    before the writer call."""
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "add-visit", "repairs", "2026-05-30", "work", "maybe"),
+    )
+    assert result.status == "failed"
+    assert "open" in result.detail and "closed" in result.detail
+    writer.add_maintenance_visit.assert_not_called()
+
+
+def test_dispatch_add_visit_wrong_arg_count_rejected():
+    """Too few / too many positional args → failed with clear message."""
+    writer = MagicMock()
+    # Too few — just 2.
+    result_few = _dispatch_action(
+        writer,
+        _make_action(4316, "add-visit", "repairs", "2026-05-30"),
+    )
+    assert result_few.status == "failed"
+    assert "expected 3 or 4 positional args" in result_few.detail
+    # Too many — 5.
+    result_many = _dispatch_action(
+        writer,
+        _make_action(4316, "add-visit", "repairs", "2026-05-30", "w", "open", "extra"),
+    )
+    assert result_many.status == "failed"
+    assert "expected 3 or 4 positional args" in result_many.detail
+    writer.add_maintenance_visit.assert_not_called()
+
+
+def test_dispatch_add_visit_writer_exception_captured_as_failed():
+    """A writer crash (e.g. network failure) becomes a 'failed' result,
+    not a raised exception — runner continues."""
+    writer = MagicMock()
+    writer.add_maintenance_visit.side_effect = RuntimeError("simulated 500")
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "add-visit", "repairs", "2026-05-30", "work"),
+    )
+    assert result.status == "failed"
+    assert "simulated 500" in result.detail
+
+
+def test_dispatch_add_visit_bad_date_format_rejected_after_token_resolution():
+    """Garbage date that doesn't resolve to a token AND isn't
+    YYYY-MM-DD → failed."""
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "add-visit", "repairs", "yesterday", "work"),
+    )
+    assert result.status == "failed"
+    assert "YYYY-MM-DD" in result.detail
+    writer.add_maintenance_visit.assert_not_called()
+
+
+def test_dispatch_add_visit_empty_csv_reasons_rejected():
+    """An empty/whitespace-only reasons_csv would otherwise sneak past
+    the per-code validation — pin the explicit refusal."""
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "add-visit", ",", "2026-05-30", "work"),
+    )
+    assert result.status == "failed"
+    assert "at least one code" in result.detail
+    writer.add_maintenance_visit.assert_not_called()
