@@ -5706,6 +5706,7 @@ class ParseError:
 
 _SUPPORTED_VERBS = (
     "add-attribute",
+    "add-visit",
     "change-subtype",
     "create-join",
     "decommission",
@@ -6651,6 +6652,174 @@ def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
     )
 
 
+def _dispatch_add_visit(writer, action: ParsedAction) -> ActionResult:
+    """Create a vitjun on an entity from a triage ACTION line.
+
+    Action shape: ``ACTION <id_entity> add-visit <reasons_csv> <date>
+    <work_text> [open|closed]``.
+
+    Lifecycle-tracker use case: operators chain ACTION lines next to
+    ``move`` / ``decommission`` / ``add-attribute`` to leave an audit
+    trail of physical interventions ("sent for repair: cable damage",
+    "back from vendor; firmware updated"). See CLAUDE.md "Device
+    lifecycle tracker" section.
+
+    Arguments
+    ---------
+    reasons_csv
+        Comma-separated reason codes (e.g. ``repairs`` or
+        ``repairs,change``). Each code is validated against
+        :data:`MAINTENANCE_REASON_CODES` BEFORE the writer call —
+        unknown codes return a ``failed`` ActionResult so the runner
+        keeps going.
+    date
+        ISO date (``YYYY-MM-DD``) or token (``now`` / ``start``).
+        Used as both ``start_time`` and ``end_time`` (instantaneous
+        visit — matches the writer default).
+    work_text
+        Free-text "Framkvæmt" / "Vinna" description (shlex-quoted in
+        the triage file so it can contain spaces).
+    open|closed (optional)
+        Default ``closed`` (``completed=True``). ``open`` marks the
+        visit as in-progress (``completed=False``) — use for "sent for
+        repair" entries that close later with another ``add-visit``
+        line for "back from repair".
+
+    Defaults: ``maintenance_type=on_site``, ``participants=""``,
+    ``comment=None``, ``remaining=None``. Operators who need to set
+    these directly use ``tos visit add --no-dry-run``. Auto-filling
+    participants from the ``[tos] username`` is a Phase C.5 follow-up.
+
+    Pre-flight checks
+    -----------------
+    * ``<FILL_*>`` placeholders in any positional → refuse (operator
+      didn't fill the template).
+    * Unknown reason code → refuse without calling the writer.
+    * Date token resolution failure → refuse.
+    * Unknown 4th positional → refuse (must be ``open`` or ``closed``).
+    """
+    if len(action.args) < 3 or len(action.args) > 4:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "add-visit: expected 3 or 4 positional args "
+                "(<reasons_csv> <date> <work_text> [open|closed]), "
+                f"got {len(action.args)}"
+            ),
+        )
+    reasons_raw = action.args[0]
+    date_raw = action.args[1]
+    work_text = action.args[2]
+    status_raw = action.args[3] if len(action.args) >= 4 else "closed"
+
+    # Placeholder rejection — same convention as _dispatch_add_attribute.
+    # Refusing here is cheaper than POSTing a literal "<FILL_VALUE>" to TOS.
+    for label, val in (
+        ("reasons", reasons_raw),
+        ("date", date_raw),
+        ("work", work_text),
+    ):
+        if val.startswith("<") and val.endswith(">"):
+            return ActionResult(
+                action=action,
+                status="failed",
+                detail=(
+                    f"add-visit: {label} placeholder {val!r} not replaced "
+                    "— fill in the value before applying"
+                ),
+            )
+
+    # Reason validation BEFORE writer call. The writer also validates
+    # but surfaces ValueError; doing it here returns a clean failed
+    # ActionResult and avoids the noisy stack trace path.
+    reasons = [c.strip() for c in reasons_raw.split(",") if c.strip()]
+    if not reasons:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail="add-visit: reasons_csv must contain at least one code",
+        )
+    unknown = [c for c in reasons if c not in MAINTENANCE_REASON_CODES]
+    if unknown:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"add-visit: unknown reason code(s) {unknown!r} — allowed: "
+                f"{sorted(MAINTENANCE_REASON_CODES)}"
+            ),
+        )
+
+    # 4th positional: open/closed → completed boolean.
+    status_norm = status_raw.lower()
+    if status_norm not in ("open", "closed"):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"add-visit: 4th positional must be 'open' or 'closed' "
+                f"(got {status_raw!r})"
+            ),
+        )
+    completed = status_norm == "closed"
+
+    # Resolve `now` / `start` tokens.
+    resolved, err = _resolve_date_token(date_raw, action.id_entity, writer)
+    if err is not None:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"add-visit: {err}",
+        )
+    date_resolved = resolved or date_raw
+
+    # Date format check — same YYYY-MM-DD contract as add-attribute.
+    date_yyyy_mm_dd = date_resolved[:10]
+    if (
+        len(date_yyyy_mm_dd) != 10
+        or date_yyyy_mm_dd[4] != "-"
+        or date_yyyy_mm_dd[7] != "-"
+    ):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(f"add-visit: date must be YYYY-MM-DD " f"(got {date_resolved!r})"),
+        )
+
+    try:
+        response = writer.add_maintenance_visit(
+            action.id_entity,
+            start_time=date_yyyy_mm_dd,
+            end_time=None,  # writer defaults to start_time
+            maintenance_type="on_site",
+            participants="",
+            reasons=reasons,
+            work=work_text,
+            comment=None,
+            remaining=None,
+            completed=completed,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"add_maintenance_visit raised: {exc}",
+        )
+
+    new_id = response.get("id_maintenance") if isinstance(response, dict) else None
+    state_label = "completed" if completed else "open"
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"POST /maintenances/id_entity/{action.id_entity} "
+            f"reasons={reasons!r} date={date_yyyy_mm_dd} {state_label} "
+            f"— id_maintenance={new_id!r}"
+        ),
+    )
+
+
 def _dispatch_patch_attribute_value(writer, action: ParsedAction) -> ActionResult:
     """Correct a wrong attribute value in-place (Pattern 1 / Pattern 4).
 
@@ -7061,6 +7230,8 @@ def _dispatch_action(
         return _dispatch_delete_join(writer, action)
     if action.verb == "add-attribute":
         return _dispatch_add_attribute(writer, action)
+    if action.verb == "add-visit":
+        return _dispatch_add_visit(writer, action)
     if action.verb == "change-subtype":
         code = action.args[0]
         mapping = subtype_id_by_code or {}

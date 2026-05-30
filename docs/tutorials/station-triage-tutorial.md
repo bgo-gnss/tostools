@@ -301,6 +301,7 @@ stations take a long time on a cold cache.
 | Verb | Shape | Use |
 |---|---|---|
 | `add-attribute` | `<id> add-attribute <code> <value> <date_from>` | Set a missing attribute |
+| `add-visit` | `<id> add-visit <reasons_csv> <date> "<work>" [open\|closed]` | Log a vitjun on an entity (lifecycle tracker — see CLAUDE.md) |
 | `patch-attribute-date` | `<id> patch-attribute-date <code> <old_date> <new_date>` | Backdate (e.g. 2014-10-17 → install date) |
 | `patch-attribute-value` | `<id> patch-attribute-value <code> <date_anchor> <new_value>` | Fix a wrong value (history-destructive) |
 | `move` | `<id> move <to_parent_id> <date>` | Close open join + open new (e.g. device moves to warehouse) |
