@@ -16,12 +16,20 @@ from tostools.tos import _station_show_main
 
 
 def _show_args(**overrides):
-    """Namespace matching the `tos station show` argparser defaults."""
+    """Namespace matching the `tos station show` argparser defaults.
+
+    Note: ``no_visits`` defaults to True in this helper so the existing
+    test suite (written before Phase A.2 of the vitjanir expansion)
+    doesn't need a per-test ``TOSClient.list_maintenance_visits`` patch.
+    New visit-aware tests pass ``no_visits=False`` explicitly and patch
+    the method themselves.
+    """
     defaults = {
         "station": "HEDI",
         "show_all": False,
         "device_mode": False,
         "attributes_only": False,
+        "no_visits": True,
         "json": False,
         "server": "vi-api.vedur.is",
         "port": 443,
@@ -855,3 +863,173 @@ def test_show_empty_payload_returns_1(capsys):
     assert rc == 1
     err = capsys.readouterr().err
     assert "id_entity=4257 returned no history payload" in err
+
+
+# ---------------------------------------------------------------------------
+# Phase A.2 — aggregated vitjanir section
+# ---------------------------------------------------------------------------
+
+
+def _visit(id, *, start, completed=True, reason="Viðgerð", work="—"):
+    """Compact vitjun row matching the list-endpoint shape."""
+    return {
+        "id": id,
+        "maintenance_type": "on_site",
+        "start_time": f"{start}T10:00:00",
+        "end_time": f"{start}T11:00:00",
+        "reason": reason,
+        "participants": "bgo@vedur.is",
+        "participants_names": "Benedikt G. Ófeigsson",
+        "work": work,
+        "remaining": None,
+        "completed": completed,
+    }
+
+
+def test_show_visits_aggregates_station_plus_joined_devices(capsys):
+    """Default view (no_visits=False) renders the Recent vitjanir
+    section with rows from BOTH the station and each currently-joined
+    device, with attribution labels distinguishing them. This is the
+    forward-compat hook for Phase C lifecycle-tracker vitjanir."""
+    station_visits = [_visit(5490, start="2026-05-22", work="skipti um kapal")]
+    device_visits = {
+        21197: [_visit(9001, start="2025-12-10", work="firmware 3.00 → 3.01")],
+    }
+
+    def fake_list_visits(self_, eid):
+        if eid == 4257:
+            return station_visits
+        return device_visits.get(eid, [])
+
+    with (
+        patch("tostools.tos._resolve_parent_id", return_value=4257),
+        patch.object(
+            TOSClient,
+            "get_entity_history",
+            side_effect=_fake_get_entity_history_factory(4257),
+        ),
+        patch.object(TOSClient, "get_contacts", return_value=[]),
+        patch.object(
+            TOSClient,
+            "list_maintenance_visits",
+            autospec=True,
+            side_effect=fake_list_visits,
+        ),
+    ):
+        rc = _station_show_main(_show_args(no_visits=False))
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    # Section title shows the aggregate count + joined-device count.
+    assert "Recent vitjanir" in out
+    # The "(aggregated from station + 1 joined device(s))" line is a
+    # plain console.print, not the Rich table title — survives non-TTY
+    # console-width truncation.
+    assert "aggregated from station + 1 joined device(s)" in out
+    # Both ids surface (Rich may wrap long labels, so check ids only).
+    assert "5490" in out
+    assert "9001" in out
+    # Attribution column present (Rich wraps the cell content, so
+    # check the column header + the per-source kind separately).
+    assert "source" in out
+    assert "station" in out
+    assert "21197" in out
+
+
+def test_show_no_visits_suppresses_section_and_skips_http(capsys):
+    """--no-visits suppresses the section AND avoids the
+    list_maintenance_visits roundtrips entirely (relevant on slow
+    links / when the operator only wants identity + attributes)."""
+    with (
+        patch("tostools.tos._resolve_parent_id", return_value=4257),
+        patch.object(
+            TOSClient,
+            "get_entity_history",
+            side_effect=_fake_get_entity_history_factory(4257),
+        ),
+        patch.object(TOSClient, "get_contacts", return_value=[]),
+        patch.object(
+            TOSClient, "list_maintenance_visits", autospec=True
+        ) as list_visits,
+    ):
+        rc = _station_show_main(_show_args(no_visits=True))
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Recent vitjanir" not in out
+    list_visits.assert_not_called()
+
+
+def test_show_visits_trims_to_open_plus_last_3_closed_by_default(capsys):
+    """Default trim: every open visit + 3 most-recent closed.
+    --all (show_all=True) extends to full history."""
+    # 1 open + 5 closed on the station, none on the device.
+    station_visits = [
+        _visit(1, start="2024-01-01", completed=False),  # open
+        _visit(2, start="2026-05-22", completed=True),
+        _visit(3, start="2025-12-15", completed=True),
+        _visit(4, start="2023-05-17", completed=True),
+        _visit(5, start="2018-02-06", completed=True),
+        _visit(6, start="2015-08-08", completed=True),
+    ]
+
+    def fake_list_visits(self_, eid):
+        if eid == 4257:
+            return station_visits
+        return []
+
+    # Default — open + 3 closed = 4 rendered, 2 hidden
+    with (
+        patch("tostools.tos._resolve_parent_id", return_value=4257),
+        patch.object(
+            TOSClient,
+            "get_entity_history",
+            side_effect=_fake_get_entity_history_factory(4257),
+        ),
+        patch.object(TOSClient, "get_contacts", return_value=[]),
+        patch.object(
+            TOSClient,
+            "list_maintenance_visits",
+            autospec=True,
+            side_effect=fake_list_visits,
+        ),
+    ):
+        rc = _station_show_main(_show_args(no_visits=False))
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Recent vitjanir — 4 record(s)" in out
+    assert "2 more closed" in out
+    assert "--all" in out
+
+
+def test_show_json_includes_visits(capsys):
+    """JSON payload carries an `visits` array with __source_label per row."""
+    station_visits = [_visit(5490, start="2026-05-22")]
+
+    def fake_list_visits(self_, eid):
+        return station_visits if eid == 4257 else []
+
+    with (
+        patch("tostools.tos._resolve_parent_id", return_value=4257),
+        patch.object(
+            TOSClient,
+            "get_entity_history",
+            side_effect=_fake_get_entity_history_factory(4257),
+        ),
+        patch.object(TOSClient, "get_contacts", return_value=[]),
+        patch.object(
+            TOSClient,
+            "list_maintenance_visits",
+            autospec=True,
+            side_effect=fake_list_visits,
+        ),
+    ):
+        rc = _station_show_main(_show_args(no_visits=False, json=True))
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert "visits" in payload
+    assert len(payload["visits"]) == 1
+    assert payload["visits"][0]["id"] == 5490
+    assert payload["visits"][0]["__source_label"] == "station HEDI"
+    assert payload["visits"][0]["__source_kind"] == "station"

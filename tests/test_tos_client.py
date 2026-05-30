@@ -82,7 +82,13 @@ def test_get_parent_history_tolerates_missing_time_from():
 
 
 def _show_args(**overrides):
-    """Build an argparse.Namespace shaped like `tos device show`'s parser."""
+    """Build an argparse.Namespace shaped like `tos device show`'s parser.
+
+    Note: ``no_visits`` defaults to True so the pre-Phase-A.2 tests
+    don't need a per-test ``list_maintenance_visits`` patch. New
+    visit-aware tests pass ``no_visits=False`` explicitly and supply
+    their own patch.
+    """
     from argparse import Namespace
 
     defaults = {
@@ -92,6 +98,7 @@ def _show_args(**overrides):
         "server": "vi-api.vedur.is",
         "port": 443,
         "json": False,
+        "no_visits": True,
         # Section flags (mutually exclusive at parse time; default all False
         # = "print all sections").
         "section_list": False,
@@ -1096,3 +1103,510 @@ def test_device_show_attributes_suspicious_only_cleanup_artifact_rows(capsys):
     # model (2007-09-07) suppressed — value AND code label both absent.
     assert "TRIMBLE NETR9" not in out
     assert "model" not in out
+
+
+# ---------------------------------------------------------------------------
+# apply_visit_filters — pins the read-side vitjun-filter semantics
+# ---------------------------------------------------------------------------
+def _visit(**overrides):
+    """Build a vitjun row matching the shape from
+    :meth:`TOSClient.list_maintenance_visits`."""
+    defaults = {
+        "id": 1000,
+        "maintenance_type": "on_site",
+        "start_time": "2024-06-15T10:00:00",
+        "end_time": "2024-06-15T11:30:00",
+        "reason": "Viðgerð",
+        "participants": "bgo@vedur.is",
+        "participants_names": "Benedikt G. Ófeigsson",
+        "work": "—",
+        "remaining": None,
+        "completed": True,
+    }
+    defaults.update(overrides)
+    return defaults
+
+
+def _visit_filter_args(**overrides):
+    from argparse import Namespace
+
+    defaults = {
+        "visit_type": None,
+        "reasons": None,
+        "since": None,
+        "participants": None,
+        "open_only": False,
+        "completed_only": False,
+    }
+    defaults.update(overrides)
+    return Namespace(**defaults)
+
+
+def test_apply_visit_filters_no_constraints_passes_through():
+    from tostools.tos import apply_visit_filters
+
+    rows = [_visit(id=1), _visit(id=2, maintenance_type="remote")]
+    assert apply_visit_filters(rows, _visit_filter_args()) == rows
+
+
+def test_apply_visit_filters_visit_type_exact_match():
+    from tostools.tos import apply_visit_filters
+
+    rows = [
+        _visit(id=1, maintenance_type="on_site"),
+        _visit(id=2, maintenance_type="remote"),
+    ]
+    out = apply_visit_filters(rows, _visit_filter_args(visit_type="on_site"))
+    assert [r["id"] for r in out] == [1]
+
+
+def test_apply_visit_filters_reason_translates_to_icelandic_display():
+    """--reason takes English codes; matches against the Icelandic
+    display strings TOS emits on the list endpoint."""
+    from tostools.tos import apply_visit_filters
+
+    rows = [
+        _visit(id=1, reason="Breyting"),
+        _visit(id=2, reason="Viðgerð"),
+        _visit(id=3, reason="Endurbætur"),
+    ]
+    out = apply_visit_filters(rows, _visit_filter_args(reasons=["repairs"]))
+    assert [r["id"] for r in out] == [2]
+    out = apply_visit_filters(
+        rows, _visit_filter_args(reasons=["change", "improvements"])
+    )
+    assert [r["id"] for r in out] == [1, 3]
+
+
+def test_apply_visit_filters_reason_substring_match_within_comma_joined():
+    """Rows with multiple active reasons get comma-joined display
+    strings — the filter should still match on substring."""
+    from tostools.tos import apply_visit_filters
+
+    rows = [_visit(id=1, reason="Breyting, Viðgerð")]
+    assert apply_visit_filters(rows, _visit_filter_args(reasons=["repairs"])) == rows
+
+
+def test_apply_visit_filters_since_lex_compare_yyyy_mm_dd():
+    from tostools.tos import apply_visit_filters
+
+    rows = [
+        _visit(id=1, start_time="2023-01-15T08:00:00"),
+        _visit(id=2, start_time="2026-05-22T15:00:00"),
+        _visit(id=3, start_time="2018-02-06T09:30:00"),
+    ]
+    out = apply_visit_filters(rows, _visit_filter_args(since="2023-01-01"))
+    assert sorted(r["id"] for r in out) == [1, 2]
+
+
+def test_apply_visit_filters_since_excludes_rows_with_missing_start():
+    """A row that has no start_time can't be range-compared — drop
+    rather than silently pass through."""
+    from tostools.tos import apply_visit_filters
+
+    rows = [_visit(id=1, start_time=None)]
+    assert apply_visit_filters(rows, _visit_filter_args(since="2023-01-01")) == []
+
+
+def test_apply_visit_filters_participants_matches_names_or_emails():
+    """--participants is case-insensitive substring against either the
+    resolved names OR the raw email list (whichever has a value)."""
+    from tostools.tos import apply_visit_filters
+
+    rows = [
+        _visit(
+            id=1,
+            participants="bgo@vedur.is",
+            participants_names="Benedikt G. Ófeigsson",
+        ),
+        _visit(
+            id=2,
+            participants="bhb@vedur.is",
+            participants_names="Bergur Hermanns Bergsson",
+        ),
+    ]
+    # Email substring
+    out = apply_visit_filters(rows, _visit_filter_args(participants="bgo"))
+    assert [r["id"] for r in out] == [1]
+    # Name substring (case-insensitive)
+    out = apply_visit_filters(rows, _visit_filter_args(participants="bergur"))
+    assert [r["id"] for r in out] == [2]
+
+
+def test_apply_visit_filters_open_vs_completed():
+    from tostools.tos import apply_visit_filters
+
+    rows = [
+        _visit(id=1, completed=True),
+        _visit(id=2, completed=False),
+        _visit(id=3, completed=None),
+    ]
+    assert [
+        r["id"] for r in apply_visit_filters(rows, _visit_filter_args(open_only=True))
+    ] == [2, 3]
+    assert [
+        r["id"]
+        for r in apply_visit_filters(rows, _visit_filter_args(completed_only=True))
+    ] == [1]
+
+
+def test_apply_visit_filters_combines_with_and():
+    from tostools.tos import apply_visit_filters
+
+    rows = [
+        _visit(
+            id=1,
+            maintenance_type="on_site",
+            reason="Viðgerð",
+            completed=True,
+            start_time="2023-05-17T08:00:00",
+        ),
+        _visit(
+            id=2,
+            maintenance_type="remote",
+            reason="Viðgerð",
+            completed=True,
+            start_time="2023-05-17T08:00:00",
+        ),
+        _visit(
+            id=3,
+            maintenance_type="on_site",
+            reason="Breyting",
+            completed=True,
+            start_time="2023-05-17T08:00:00",
+        ),
+    ]
+    out = apply_visit_filters(
+        rows,
+        _visit_filter_args(
+            visit_type="on_site",
+            reasons=["repairs"],
+            completed_only=True,
+        ),
+    )
+    assert [r["id"] for r in out] == [1]
+
+
+def test_apply_visit_filters_tolerates_missing_args_attrs():
+    """Behaves as "no constraint" when the args namespace lacks visit
+    filter attrs (e.g. helper invoked outside the standard CLI path)."""
+    from argparse import Namespace
+
+    from tostools.tos import apply_visit_filters
+
+    rows = [_visit(id=1)]
+    bare_ns = Namespace()
+    assert apply_visit_filters(rows, bare_ns) == rows
+
+
+def test_maintenance_reason_display_pins_known_translations():
+    """The English-code → Icelandic-display map MUST stay accurate.
+    `change` / `repairs` / `improvements` were empirically verified
+    against live TOS 2026-05-30. `inspection` / `other` are best-
+    guesses (unused in the current GPS fleet) — if anyone "fixes" them
+    without confirming against live data this test should fail loudly
+    rather than silently break the --reason filter."""
+    from tostools.tos import MAINTENANCE_REASON_CODES, MAINTENANCE_REASON_DISPLAY
+
+    # Map must cover every code accepted by the filter / writer.
+    assert set(MAINTENANCE_REASON_DISPLAY.keys()) == set(MAINTENANCE_REASON_CODES)
+
+    # Empirically-verified translations (live TOS, 2026-05-30).
+    assert MAINTENANCE_REASON_DISPLAY["change"] == "Breyting"
+    assert MAINTENANCE_REASON_DISPLAY["repairs"] == "Viðgerð"
+    assert MAINTENANCE_REASON_DISPLAY["improvements"] == "Endurbætur"
+
+    # Best-guess translations — keep flagged in the docstring on the
+    # constant. Update both the constant AND this test together when
+    # live data reveals the true strings.
+    assert MAINTENANCE_REASON_DISPLAY["inspection"] == "Skoðun"
+    assert MAINTENANCE_REASON_DISPLAY["other"] == "Annað"
+
+
+# ---------------------------------------------------------------------------
+# _visit_main — dispatcher / end-to-end shape for `tos visit list / show`
+# ---------------------------------------------------------------------------
+
+
+def test_visit_list_station_resolves_marker_and_renders(capsys):
+    """`tos visit list --station HEDI` resolves the marker, fetches the
+    station's visits, sorts most-recent first, renders the Rich table."""
+    from tostools.tos import _visit_main
+
+    visits = [
+        _visit(id=1, start_time="2018-02-06T09:30:00"),  # older
+        _visit(id=2, start_time="2026-05-22T15:00:00"),  # newer
+    ]
+    with (
+        patch("tostools.tos._resolve_parent_id", return_value=4316),
+        patch.object(
+            TOSClient, "list_maintenance_visits", autospec=True, return_value=visits
+        ) as lmv,
+    ):
+        rc = _visit_main(["list", "--station", "HEDI"])
+
+    assert rc == 0
+    lmv.assert_called_once()
+    # Second positional arg is the resolved id_entity.
+    assert lmv.call_args.args[1] == 4316
+    out = capsys.readouterr().out
+    assert "Vitjanir — 2 record(s) for HEDI" in out
+    # Both ids surface.
+    assert " 1 " in out
+    assert " 2 " in out
+
+
+def test_visit_list_device_skips_resolver(capsys):
+    """`tos visit list --device <id>` takes id_entity directly — no
+    marker resolution. Pinned because Phase C lifecycle-tracker writes
+    will lean on this path."""
+    from tostools.tos import _visit_main
+
+    with (
+        patch("tostools.tos._resolve_parent_id") as resolver,
+        patch.object(
+            TOSClient, "list_maintenance_visits", autospec=True, return_value=[]
+        ) as lmv,
+    ):
+        rc = _visit_main(["list", "--device", "21044"])
+
+    assert rc == 0
+    resolver.assert_not_called()
+    assert lmv.call_args.args[1] == 21044
+    out = capsys.readouterr().out
+    assert "device 21044" in out
+    assert "(no vitjanir on file)" in out
+
+
+def test_visit_list_entity_target(capsys):
+    """`--entity <id>` is the generic escape hatch."""
+    from tostools.tos import _visit_main
+
+    with (
+        patch.object(
+            TOSClient, "list_maintenance_visits", autospec=True, return_value=[]
+        ) as lmv,
+    ):
+        rc = _visit_main(["list", "--entity", "4300"])
+
+    assert rc == 0
+    assert lmv.call_args.args[1] == 4300
+    assert "entity 4300" in capsys.readouterr().out
+
+
+def test_visit_list_target_mutually_exclusive():
+    """argparse must reject --station + --device on the same call."""
+    import pytest
+
+    from tostools.tos import _visit_main
+
+    # argparse exits with SystemExit(2) on mutually-exclusive violation.
+    with pytest.raises(SystemExit) as exc:
+        _visit_main(["list", "--station", "HEDI", "--device", "4316"])
+    assert exc.value.code == 2
+
+
+def test_visit_list_reason_filter_applies_translation(capsys):
+    """The --reason CLI flag should translate operator codes to the
+    Icelandic display strings and filter; verifying the dispatcher
+    wires it through (filter unit-tested separately)."""
+    from tostools.tos import _visit_main
+
+    visits = [
+        _visit(id=10, reason="Viðgerð"),
+        _visit(id=11, reason="Breyting"),
+    ]
+    with (
+        patch("tostools.tos._resolve_parent_id", return_value=4316),
+        patch.object(
+            TOSClient, "list_maintenance_visits", autospec=True, return_value=visits
+        ),
+    ):
+        rc = _visit_main(["list", "--station", "HEDI", "--reason", "change"])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    # Only the Breyting row survives.
+    assert " 11 " in out
+    assert " 10 " not in out
+
+
+def test_visit_list_unresolvable_station_returns_1(capsys):
+    from tostools.tos import _visit_main
+
+    with patch("tostools.tos._resolve_parent_id", return_value=None):
+        rc = _visit_main(["list", "--station", "XXXX"])
+
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "No station found for marker 'XXXX'" in err
+
+
+def test_visit_show_renders_detail_from_attribute_values(capsys):
+    """The detail endpoint doesn't carry top-level `work` / `comment`
+    / `reason` — those live in `maintenance_attribute_values`. Pin
+    that the renderer sources them from there (we caught this as a
+    real bug during smoke-test of the initial Phase A.1 implementation)."""
+    from tostools.tos import _visit_main
+
+    detail = {
+        "id_maintenance": 5490,
+        "maintenance_type": "on_site",
+        "start_time": "2026-05-22T15:00:00",
+        "end_time": "2026-05-22T00:00:00",
+        "participants": "bgo@vedur.is",
+        "completed": True,
+        "maintenance_attribute_values": [
+            {
+                "id_maintenance_attribute_value": 67567,
+                "code": "reason_change",
+                "value": "false",
+            },
+            {
+                "id_maintenance_attribute_value": 67569,
+                "code": "reason_repairs",
+                "value": "true",
+            },
+            {
+                "id_maintenance_attribute_value": 67570,
+                "code": "work",
+                "value": "skipti um loftnetskapal",
+            },
+        ],
+    }
+    with patch.object(
+        TOSClient, "get_maintenance_visit", autospec=True, return_value=detail
+    ):
+        rc = _visit_main(["show", "5490"])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Vitjun 5490" in out
+    assert "skipti um loftnetskapal" in out
+    # Reason booleans → Icelandic display via MAINTENANCE_REASON_DISPLAY.
+    assert "Viðgerð" in out
+    # Raw attribute_value table includes the id_av for writer/update use.
+    assert "67567" in out
+    assert "reason_change" in out
+
+
+def test_visit_show_missing_returns_1(capsys):
+    from tostools.tos import _visit_main
+
+    with patch.object(
+        TOSClient, "get_maintenance_visit", autospec=True, return_value=None
+    ):
+        rc = _visit_main(["show", "99999999"])
+
+    assert rc == 1
+    assert "No vitjun found for id_maintenance=99999999" in capsys.readouterr().err
+
+
+def test_visit_show_json_emits_raw_detail(capsys):
+    import json as _json
+
+    from tostools.tos import _visit_main
+
+    detail = {"id_maintenance": 5490, "maintenance_type": "on_site"}
+    with patch.object(
+        TOSClient, "get_maintenance_visit", autospec=True, return_value=detail
+    ):
+        rc = _visit_main(["show", "5490", "--json"])
+
+    assert rc == 0
+    assert _json.loads(capsys.readouterr().out) == detail
+
+
+# ---------------------------------------------------------------------------
+# Device-show Phase A.2 — visits section
+# ---------------------------------------------------------------------------
+
+
+def test_device_show_visits_section_renders_when_default(capsys):
+    """Default view (no --no-visits, no section flag): the "Recent
+    vitjanir" section renders below the parent-history table."""
+    from tostools.tos import _device_show_main
+
+    fake_history = {
+        "id_entity": 21044,
+        "code_entity_subtype": "thermometer_platinum",
+        "attributes": [],
+    }
+    visits = [_visit(id=5367, start_time="2026-02-24T08:00:00")]
+
+    with (
+        patch("tostools.devices.find_device", return_value=fake_history),
+        patch.object(TOSClient, "get_parent_history", return_value=[]),
+        patch.object(
+            TOSClient, "list_maintenance_visits", autospec=True, return_value=visits
+        ) as lmv,
+    ):
+        rc = _device_show_main(_show_args(id_entity=21044, no_visits=False))
+
+    assert rc == 0
+    lmv.assert_called_once()
+    assert lmv.call_args.args[1] == 21044
+    out = capsys.readouterr().out
+    assert "Recent vitjanir — 1 record(s) for device 21044" in out
+    assert "5367" in out
+
+
+def test_device_show_no_visits_suppresses_and_skips_http(capsys):
+    """--no-visits suppresses the section AND avoids the HTTP."""
+    from tostools.tos import _device_show_main
+
+    with (
+        patch("tostools.devices.find_device", return_value={"id_entity": 4830}),
+        patch.object(TOSClient, "get_parent_history", return_value=[]),
+        patch.object(TOSClient, "list_maintenance_visits", autospec=True) as lmv,
+    ):
+        rc = _device_show_main(_show_args(id_entity=4830, no_visits=True))
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Recent vitjanir" not in out
+    lmv.assert_not_called()
+
+
+def test_device_show_section_flag_suppresses_visits(capsys):
+    """Section flags (--list / --attributes / --attributes-history) put
+    the device-show into single-section mode. Visits should not render
+    in that mode even when --no-visits wasn't passed."""
+    from tostools.tos import _device_show_main
+
+    with (
+        patch("tostools.devices.find_device", return_value={"id_entity": 4830}),
+        patch.object(TOSClient, "get_parent_history", return_value=[]),
+        patch.object(TOSClient, "list_maintenance_visits", autospec=True) as lmv,
+    ):
+        rc = _device_show_main(
+            _show_args(id_entity=4830, section_list=True, no_visits=False)
+        )
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Recent vitjanir" not in out
+    lmv.assert_not_called()
+
+
+def test_device_show_json_includes_visits(capsys):
+    """JSON payload carries the `visits` array regardless of --no-visits."""
+    import json as _json
+
+    from tostools.tos import _device_show_main
+
+    visits = [_visit(id=5367, start_time="2026-02-24T08:00:00")]
+
+    with (
+        patch("tostools.devices.find_device", return_value={"id_entity": 21044}),
+        patch.object(TOSClient, "get_parent_history", return_value=[]),
+        patch.object(
+            TOSClient, "list_maintenance_visits", autospec=True, return_value=visits
+        ),
+    ):
+        rc = _device_show_main(_show_args(id_entity=21044, json=True))
+
+    assert rc == 0
+    payload = _json.loads(capsys.readouterr().out)
+    assert "visits" in payload
+    assert payload["visits"] == visits

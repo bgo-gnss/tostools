@@ -305,10 +305,14 @@ tosGPS --debug-all --log-dir logs sitelog RHOF
 ### `tos` subcommands
 
 ```bash
-tos station show <STN>             # current-state snapshot
+tos station show <STN>             # current-state snapshot (with Recent vitjanir)
 tos station triage <STN>           # combined triage file
 tos station verify <STN>           # apply→verify oracle
 tos device list --station <STN>    # currently-joined devices
+tos device show --id <id>          # device detail (with Recent vitjanir)
+tos visit list --station <STN>     # vitjanir attached to a station
+tos visit list --device <id>       # vitjanir attached to a device
+tos visit show <id_maintenance>    # one vitjun, full detail
 tos audit apply <triage_file>      # dry-run; --apply to commit
 tos fleet status                   # bulk verify oracle (exit 0/1/2)
 tos fleet triage                   # generate per-station triage files
@@ -317,6 +321,38 @@ tos fleet triage                   # generate per-station triage files
 Legacy flat-arg form (`tos RHOF`, `tos -s SERIAL`, `tos --fdsnxml/--sc3ml`)
 and the `json2ascii` / `metadata2rmq` console scripts were removed in
 v0.7. The SC3/FDSN XML export pipeline is out of scope for this package.
+
+### `tos visit` — vitjun (visit / maintenance) inspection
+
+Vitjanir are entity-attached temporal records (`id_maintenance`
+namespace, distinct from `id_entity` / `id_contact`). The schema is
+generic on `id_entity`: stations and devices can both carry vitjanir.
+In current GPS data every vitjun is station-attached (device-attached
+vitjanir today are exclusively on meteorological sensors); Phase C of
+the vitjanir expansion will start writing device-attached vitjanir for
+the GPS lifecycle tracker (firmware bumps, sent-for-repair, etc.).
+
+  * `tos visit list --station S` — vitjanir for a station, most-recent first
+  * `tos visit list --device <id>` — vitjanir for a single device
+  * `tos visit list --entity <id>` — escape hatch (any entity by id)
+  * `tos visit show <id_maintenance>` — one vitjun, full detail
+    including `maintenance_attribute_values` rows (`work` / `comment` /
+    `remaining` / per-reason booleans + each row's
+    `id_maintenance_attribute_value` for the writer's update path)
+
+Standard filter set (read-only): `--type {on_site,remote}`,
+`--reason CODE` (repeatable; `change` / `repairs` / `inspection` /
+`improvements` / `other`), `--since DATE`, `--participants SUBSTR`,
+`--open` / `--completed`. The `--reason` filter translates English
+codes to the Icelandic display strings TOS emits on the list endpoint
+(see `MAINTENANCE_REASON_DISPLAY` in `src/tostools/tos.py`).
+
+`tos station show` and `tos device show --id <id>` surface a "Recent
+vitjanir" section by default — every open visit + the 3 most-recent
+closed. Station show aggregates from the station + currently-joined
+devices with a `source` column for attribution (forward-compatible
+with Phase C). `--no-visits` suppresses the section (and skips the
+HTTP); `--all` on station show extends to full visit history.
 
 ## Architecture
 
