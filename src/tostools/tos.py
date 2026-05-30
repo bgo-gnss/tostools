@@ -2071,6 +2071,7 @@ def _station_main(argv):
         help="Print the triage file to stdout instead of writing to disk.",
     )
     _add_archive_arguments(p_tri)
+    _add_coverage_arguments(p_tri)
 
     p_ver = sub.add_parser(
         "verify",
@@ -2132,6 +2133,7 @@ def _station_main(argv):
         ),
     )
     _add_archive_arguments(p_ver)
+    _add_coverage_arguments(p_ver)
 
     p_show = sub.add_parser(
         "show",
@@ -2237,6 +2239,9 @@ def _station_triage_main(args) -> int:
         with_archive=getattr(args, "with_archive", False),
         archive_root=getattr(args, "archive_root", None),
         min_gap_days=getattr(args, "archive_min_gap_days", 30.0),
+        with_coverage=getattr(args, "with_coverage", False),
+        coverage_since=getattr(args, "coverage_since", None),
+        coverage_window_days=getattr(args, "coverage_window_days", 7),
     )
     rendered = format_station_triage(report)
 
@@ -2285,6 +2290,9 @@ def _station_verify_main(args) -> int:
         with_archive=getattr(args, "with_archive", False),
         archive_root=getattr(args, "archive_root", None),
         min_gap_days=getattr(args, "archive_min_gap_days", 30.0),
+        with_coverage=getattr(args, "with_coverage", False),
+        coverage_since=getattr(args, "coverage_since", None),
+        coverage_window_days=getattr(args, "coverage_window_days", 7),
     )
 
     # Status + exit code from the canonical oracle definitions —
@@ -3064,6 +3072,48 @@ def _add_archive_arguments(parser) -> None:
         help=(
             "Minimum gap duration to flag (default: 30). Below ~7 the "
             "report fills with date-rounding noise."
+        ),
+    )
+
+
+def _add_coverage_arguments(parser) -> None:
+    """Attach the visit-coverage opt-in flags to a subparser.
+
+    Shared between ``tos station triage`` / ``tos station verify`` /
+    ``tos fleet`` so the audit surfaces identically across all three.
+    Off by default — pre-vitjun-era stations have huge gaps and the
+    first run would overwhelm operators before they've used
+    ``add-visit`` enough to establish a baseline.
+    """
+    parser.add_argument(
+        "--with-coverage",
+        action="store_true",
+        help=(
+            "Also run `tos audit visit-coverage` — flag equipment-change "
+            "events with no vitjun within ±N days. Off by default. "
+            "Phase D of the vitjanir CLI expansion; expect a noisy first "
+            "run on pre-vitjun-era stations."
+        ),
+    )
+    parser.add_argument(
+        "--coverage-since",
+        default=None,
+        metavar="DATE",
+        help=(
+            "Earliest event date the visit-coverage audit considers "
+            "(YYYY-MM-DD). Defaults to today minus 2 years."
+        ),
+    )
+    parser.add_argument(
+        "--coverage-window-days",
+        dest="coverage_window_days",
+        type=int,
+        default=7,
+        metavar="DAYS",
+        help=(
+            "±N-day window around each event for vitjun coverage "
+            "(default: 7). Wider = fewer false positives, more silent "
+            "drift."
         ),
     )
 
@@ -4297,6 +4347,7 @@ def _fleet_main(argv):
             ),
         )
         _add_archive_arguments(sp)
+        _add_coverage_arguments(sp)
         sp.add_argument(
             "--json",
             action="store_true",
@@ -4518,6 +4569,9 @@ def _fleet_main(argv):
                 with_archive=with_archive,
                 archive_root=archive_root,
                 min_gap_days=min_gap_days,
+                with_coverage=getattr(args, "with_coverage", False),
+                coverage_since=getattr(args, "coverage_since", None),
+                coverage_window_days=getattr(args, "coverage_window_days", 7),
                 station_cfg_path=station_cfg_path,
                 include=args.include,
                 exclude=args.exclude,
@@ -4534,6 +4588,9 @@ def _fleet_main(argv):
                 with_archive=with_archive,
                 archive_root=archive_root,
                 min_gap_days=min_gap_days,
+                with_coverage=getattr(args, "with_coverage", False),
+                coverage_since=getattr(args, "coverage_since", None),
+                coverage_window_days=getattr(args, "coverage_window_days", 7),
                 station_cfg_path=station_cfg_path,
                 include=args.include,
                 exclude=args.exclude,
@@ -4664,6 +4721,13 @@ def _audit_main(argv):
             "  tos audit missing-attributes HAUC --triage trial.txt # emit ACTION file (add-attribute lines)\n"
             "  tos audit missing-attributes HAUC --no-suppressions  # bypass committed SUPPRESSes\n"
             "  tos audit missing-attributes HAUC --json             # machine-readable\n"
+            "\n"
+            "  # ---- Visit coverage (Phase D — equipment changes vs vitjanir) ----\n"
+            "  tos audit visit-coverage HAUC                        # default (last 2y, ±7d)\n"
+            "  tos audit visit-coverage HAUC --since 2020-01-01     # widen historical scope\n"
+            "  tos audit visit-coverage HAUC --coverage-window-days 14  # widen tolerance\n"
+            "  tos audit visit-coverage HAUC --triage hauc_cov.txt  # emit add-visit ACTIONs\n"
+            "  tos audit visit-coverage HAUC --no-suppressions      # bypass SUPPRESS file\n"
             "\n"
             "  # ---- Apply triage files (writes; needs credentials) -----\n"
             "  tos audit apply trial.txt                            # dry-run preview (default)\n"
@@ -5326,6 +5390,103 @@ def _audit_main(argv):
     )
     p_missing.add_argument("--port", type=int, default=443)
 
+    p_coverage = sub.add_parser(
+        "visit-coverage",
+        help=(
+            "Flag equipment-change events with no vitjun within ±N days. "
+            "Phase D of the vitjanir CLI expansion."
+        ),
+        description=(
+            "Cross-reference a station's join history against its "
+            "vitjun history. For each join-open event in the --since "
+            "window (default last 2 years, skips the 2014-10-17 "
+            "cleanup-artifact pattern), check whether any vitjun on "
+            "the station has start_time within ±N days of the event. "
+            "Uncovered events become violations.\n\n"
+            "v1 scope is intentionally narrow: opens only (not closes "
+            "or attribute writes), station-attached vitjanir only "
+            "(device-attached coverage will land when GPS-device "
+            "vitjanir start appearing — empirically zero today).\n\n"
+            "Use --triage to emit a draft action file with one "
+            "commented `add-visit` ACTION per violation."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos audit visit-coverage HEDI\n"
+            "  tos audit visit-coverage HEDI --since 2020-01-01\n"
+            "  tos audit visit-coverage HEDI --coverage-window-days 14\n"
+            "  tos audit visit-coverage HEDI --triage hedi_coverage.txt\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_coverage.add_argument(
+        "name", nargs="?", help="Station marker (e.g. HEDI) or display name."
+    )
+    p_coverage.add_argument(
+        "--id", dest="id_entity", type=int, help="Station id_entity."
+    )
+    p_coverage.add_argument(
+        "--since",
+        default=None,
+        help=(
+            "Earliest event date to audit (YYYY-MM-DD). Default: today "
+            "minus 2 years. Older join-opens are silently skipped."
+        ),
+    )
+    p_coverage.add_argument(
+        "--coverage-window-days",
+        dest="coverage_window_days",
+        type=int,
+        default=7,
+        help=(
+            "Half-width of the coverage window in days. ±N days around "
+            "each event. Default 7."
+        ),
+    )
+    p_coverage.add_argument(
+        "--suppressions",
+        type=Path,
+        default=None,
+        help=(
+            "Override the suppression file path. Defaults to "
+            "data/audit_suppressions/visit_coverage.txt. File-not-found "
+            "is silent (the file is opt-in)."
+        ),
+    )
+    p_coverage.add_argument(
+        "--no-suppressions",
+        action="store_true",
+        help=(
+            "Bypass the suppression file entirely. Useful to see what a "
+            "stale SUPPRESS line is hiding."
+        ),
+    )
+    p_coverage.add_argument(
+        "--triage",
+        dest="triage_path",
+        type=Path,
+        default=None,
+        help=(
+            "Emit a draft ACTION file at this path. One commented "
+            '`ACTION ... add-visit change <event_date> "<FILL_WORK>"` '
+            "line per violation."
+        ),
+    )
+    p_coverage.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of plain text."
+    )
+    p_coverage.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show suppressed entries with file:lineno references.",
+    )
+    p_coverage.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_coverage.add_argument("--port", type=int, default=443)
+
     p_verify = sub.add_parser(
         "verify-from-rinex",
         help=(
@@ -5670,6 +5831,51 @@ def _audit_main(argv):
             )
         else:
             _print_missing_attributes_report(report, verbose=args.verbose)
+        return 1 if report.has_violations else 0
+
+    if args.kind == "visit-coverage":
+        from . import audit_visit_coverage as avc_mod
+
+        try:
+            report = avc_mod.audit_station_visit_coverage(
+                client,
+                name=args.name,
+                id_entity=args.id_entity,
+                since=args.since,
+                coverage_window_days=args.coverage_window_days,
+                suppressions_path=args.suppressions,
+                use_suppressions=not args.no_suppressions,
+            )
+        except (LookupError, ValueError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if report.suppressions_errors:
+            print(
+                f"warning: {len(report.suppressions_errors)} malformed line(s) "
+                f"in {report.suppressions_path}:",
+                file=sys.stderr,
+            )
+            for err in report.suppressions_errors:
+                print(f"  line {err.line_no}: {err.message}", file=sys.stderr)
+        if args.triage_path:
+            audit_cmd = "tos audit " + " ".join(argv) if argv else "tos audit"
+            content = avc_mod.format_triage_file(report, audit_command=audit_cmd)
+            args.triage_path.write_text(content, encoding="utf-8")
+            print(
+                f"wrote triage file: {args.triage_path} "
+                f"({len(report.violations)} violation(s))",
+                file=sys.stderr,
+            )
+        if args.json:
+            print(
+                _json.dumps(
+                    _visit_coverage_report_to_dict(report),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            _print_visit_coverage_report(report, verbose=args.verbose)
         return 1 if report.has_violations else 0
 
     if args.kind == "verify-from-rinex":
@@ -7826,6 +8032,107 @@ def _print_missing_attributes_report(report, *, verbose: bool = False):
                 v = s.violation
                 print(
                     f"      · {v.code:24s} "
+                    f"(suppressed at {s.suppressions_path}:{s.line_no})"
+                )
+
+
+def _visit_coverage_report_to_dict(report):
+    """Convert a :class:`StationVisitCoverageReport` to JSON-serialisable dict."""
+
+    def _violation_dict(v):
+        return {
+            "device_id": v.device_id,
+            "device_subtype": v.device_subtype,
+            "device_label": v.device_label,
+            "event_date": v.event_date,
+            "coverage_window_days": v.coverage_window_days,
+        }
+
+    return {
+        "kind": "visit-coverage",
+        "station_id": report.station_id,
+        "station_name": report.station_name,
+        "since": report.since,
+        "coverage_window_days": report.coverage_window_days,
+        "audited_events": report.audited_events,
+        "violations": [_violation_dict(v) for v in report.violations],
+        "suppressed": [
+            {
+                **_violation_dict(s.violation),
+                "suppressions_path": str(s.suppressions_path),
+                "line_no": s.line_no,
+            }
+            for s in report.suppressed
+        ],
+        "suppressions_path": (
+            str(report.suppressions_path) if report.suppressions_path else None
+        ),
+        "suppressions_disabled": report.suppressions_disabled,
+        "suppressions_errors": [
+            {"line_no": e.line_no, "message": e.message, "raw": e.raw}
+            for e in report.suppressions_errors
+        ],
+    }
+
+
+def _print_visit_coverage_report(report, *, verbose: bool = False):
+    """Render a visit-coverage audit report as plain text on stdout.
+
+    Groups violations by device. ``verbose=True`` adds a copy-pasteable
+    ``SUPPRESS`` hint per violation + lists silenced entries with
+    file:lineno references.
+    """
+    status = "CLEAN" if not report.has_violations else "VIOLATIONS"
+    marker = "✓" if not report.has_violations else "✗"
+    name = report.station_name or "?"
+    print(f"{marker} Station {name!r} (id_entity={report.station_id}) — {status}")
+    print(
+        f"  window: ±{report.coverage_window_days}d  "
+        f"since: {report.since}  "
+        f"events audited: {report.audited_events}"
+    )
+    if report.suppressed_count:
+        print(
+            f"  suppressed: {report.suppressed_count} entry(ies) via "
+            f"{report.suppressions_path}"
+        )
+    elif report.suppressions_disabled:
+        print("  suppressions: disabled (--no-suppressions)")
+
+    if report.violations:
+        by_device: Dict[int, List] = {}
+        device_meta: Dict[int, tuple] = {}
+        for v in report.violations:
+            by_device.setdefault(v.device_id, []).append(v)
+            device_meta[v.device_id] = (v.device_subtype, v.device_label)
+        print()
+        print(f"  uncovered events ({len(report.violations)}):")
+        for did in sorted(by_device):
+            subtype, label = device_meta[did]
+            label_part = f" {label!r}" if label else ""
+            print(f"    {subtype} id_entity={did}{label_part}")
+            for v in by_device[did]:
+                print(f"      · {v.event_date}")
+                if verbose:
+                    print(f"        suppress: SUPPRESS {v.device_id} {v.event_date}")
+
+    if verbose and report.suppressed:
+        print()
+        print(f"  suppressed ({len(report.suppressed)} silenced entry(ies)):")
+        by_device_s: Dict[int, List] = {}
+        device_meta_s: Dict[int, tuple] = {}
+        for s in report.suppressed:
+            v = s.violation
+            by_device_s.setdefault(v.device_id, []).append(s)
+            device_meta_s[v.device_id] = (v.device_subtype, v.device_label)
+        for did in sorted(by_device_s):
+            subtype, label = device_meta_s[did]
+            label_part = f" {label!r}" if label else ""
+            print(f"    {subtype} id_entity={did}{label_part}")
+            for s in by_device_s[did]:
+                v = s.violation
+                print(
+                    f"      · {v.event_date} "
                     f"(suppressed at {s.suppressions_path}:{s.line_no})"
                 )
 
