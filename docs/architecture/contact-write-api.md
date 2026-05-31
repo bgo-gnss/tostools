@@ -87,18 +87,24 @@ address / name) are reachable, but they're **fleet-global** (one
 contact serves many stations), so they're deferred to Phase 5 with a
 louder confirmation path.
 
-> **Verification status (2026-05-31):** endpoints discovered by
-> read-only GET/OPTIONS probing; writer methods + verbs validated in
-> **dry-run only** (27 unit tests mock `_request` — they pin payload
-> *construction*, not TOS *acceptance*). **No live write has been
-> executed against any of these three endpoints.** The
-> `POST /contact_joins` body in particular is **inferred** from the
-> `/joins` analogy — `/joins` takes `id_entity_parent`/`id_entity_child`
-> while we send `id_contact`/`id_entity`; this is the most likely to
-> 400 on first real use. First live write should be the HEDI rel-5018
-> date fix (the operator's actual need) with a re-GET diff to confirm
-> the PUT contract + that the GET response is the complete row (not a
-> projection that PUT-replace would null).
+> **Verification status (2026-05-31):**
+>
+> * **`PUT /admin_contact_entity_relationship_row/{id}` — LIVE-VERIFIED.**
+>   First real write executed against HEDI rel-5018 (the operator's
+>   migration-date fix): `time_from 2025-02-04T15:32:38 → 2006-06-29`.
+>   Re-GET diff confirmed **only `time_from` changed** — id_contact /
+>   id_entity / role / time_to all preserved, **same field set** (the
+>   admin GET returns the complete row; the GET-merge-PUT does NOT null
+>   unseen columns). The joined read-view `entity_contacts/4316/` now
+>   reads `per_time_from = 2006-06-29`, so the fix surfaces in
+>   `tos station show`. Provenance: `data/triage/hedi/hedi_contact_5018_backdate_20260531.txt`.
+> * **`DELETE` — not yet exercised live** (low risk; same endpoint family
+>   as the verified PUT).
+> * **`POST /contact_joins` (assign/create) — STILL UNVERIFIED.** Body is
+>   **inferred** from the `/joins` analogy (`/joins` takes
+>   `id_entity_parent`/`id_entity_child`; we send `id_contact`/`id_entity`).
+>   Most likely to 400 on first real use — exercise on a throwaway/test
+>   mapping before relying on it.
 
 ## Phase 1 — writer methods (implemented; live-write unverified)
 
