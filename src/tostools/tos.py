@@ -3413,6 +3413,83 @@ def _contact_main(argv):
     p_remove.add_argument("--server", default="vi-api.vedur.is")
     p_remove.add_argument("--port", type=int, default=443)
 
+    def _add_contact_entity_field_args(parser) -> None:
+        """Shared writable-field flags for `create` / `patch-entity`."""
+        parser.add_argument("--organization", default=None)
+        parser.add_argument("--job-title", dest="job_title", default=None)
+        parser.add_argument("--phone", dest="phone_primary", default=None)
+        parser.add_argument("--phone2", dest="phone_secondary", default=None)
+        parser.add_argument("--phone3", dest="phone_tertiary", default=None)
+        parser.add_argument("--email", default=None)
+        parser.add_argument("--address", default=None)
+        parser.add_argument("--comment", default=None)
+        parser.add_argument(
+            "--start-date", dest="start_date", default=None, help="YYYY-MM-DD"
+        )
+        parser.add_argument(
+            "--end-date", dest="end_date", default=None, help="YYYY-MM-DD (deactivate)"
+        )
+        parser.add_argument(
+            "--ssid", default=None, help="Kennitala / org registration number."
+        )
+
+    p_create = sub.add_parser(
+        "create",
+        help="Create a new contact entity (person / organisation).",
+        description=(
+            "Create a new contact in TOS (POST /contacts). Returns the "
+            "new id_contact, which you then map to a station with "
+            "`tos contact assign`. Dry-run by default; --no-dry-run "
+            "commits.\n\n"
+            "NOTE: there is no contact-delete endpoint — a created "
+            "contact cannot be removed, only deactivated via "
+            "--end-date. The POST body is inferred from the GET entity "
+            "shape; verify the first real creation with `tos contact "
+            "show --id <new_id>`."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_create.add_argument("--name", required=True, help="Contact name (required).")
+    _add_contact_entity_field_args(p_create)
+    p_create.add_argument(
+        "--no-dry-run",
+        dest="no_dry_run",
+        action="store_true",
+        help="Commit the create. Default: dry-run.",
+    )
+    p_create.add_argument("--json", action="store_true", help="Structured output.")
+    p_create.add_argument("--server", default="vi-api.vedur.is")
+    p_create.add_argument("--port", type=int, default=443)
+
+    p_patch_entity = sub.add_parser(
+        "patch-entity",
+        help="Edit a contact entity's details (FLEET-GLOBAL — affects all stations).",
+        description=(
+            "Edit a contact entity in place (PUT /contact/{id}/). "
+            "GET-merge-PUT: unchanged fields are preserved.\n\n"
+            "⚠ FLEET-GLOBAL: one contact serves many stations, so a "
+            "phone/address/name change propagates everywhere it's "
+            "mapped. This is NOT a per-station correction (for that, "
+            "use patch-relationship). Dry-run by default; --no-dry-run "
+            "commits."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_patch_entity.add_argument("id_contact", type=int, help="The contact entity id.")
+    p_patch_entity.add_argument("--name", default=None, help="New name.")
+    _add_contact_entity_field_args(p_patch_entity)
+    p_patch_entity.add_argument(
+        "--no-dry-run",
+        dest="no_dry_run",
+        action="store_true",
+        help="Commit the edit. Default: dry-run.",
+    )
+    p_patch_entity.add_argument(
+        "--json", action="store_true", help="Structured output."
+    )
+    p_patch_entity.add_argument("--server", default="vi-api.vedur.is")
+    p_patch_entity.add_argument("--port", type=int, default=443)
+
     args = p.parse_args(argv)
 
     scheme = "https" if args.port == 443 else "http"
@@ -3529,17 +3606,23 @@ def _contact_main(argv):
         _render_station_contacts(console, contacts)
         return 0
 
-    if args.verb in ("patch-relationship", "assign", "remove"):
+    if args.verb in (
+        "patch-relationship",
+        "assign",
+        "remove",
+        "create",
+        "patch-entity",
+    ):
         return _contact_write_main(args, base_url)
 
     return 2
 
 
 def _contact_write_main(args, base_url: str) -> int:
-    """Handle the contact-relationship write verbs (patch / assign / remove).
+    """Handle the contact write verbs (relationship + entity).
 
     Split out from :func:`_contact_main` so the read path stays on the
-    unauthenticated client. All three are dry-run by default
+    unauthenticated client. All verbs are dry-run by default
     (``--no-dry-run`` commits), mirroring ``tos visit add`` /
     ``tos device add``.
     """
@@ -3549,6 +3632,99 @@ def _contact_write_main(args, base_url: str) -> int:
 
     dry_run = not args.no_dry_run
     writer = TOSWriter(base_url=base_url, dry_run=dry_run)
+
+    # ---- Contact-entity verbs (create / patch-entity) ------------------
+    _ENTITY_FIELDS = (
+        "organization",
+        "job_title",
+        "phone_primary",
+        "phone_secondary",
+        "phone_tertiary",
+        "email",
+        "address",
+        "comment",
+        "start_date",
+        "end_date",
+        "ssid",
+    )
+
+    if args.verb == "create":
+        fields = {
+            f: getattr(args, f) for f in _ENTITY_FIELDS if getattr(args, f) is not None
+        }
+        try:
+            result = writer.create_contact(name=args.name, **fields)
+        except ValueError as exc:
+            print(f"create failed: {exc}", file=sys.stderr)
+            return 1
+        new_id = result.get("id") if isinstance(result, dict) else None
+        suffix = " (dry-run)" if dry_run else ""
+        if args.json:
+            print(
+                _json.dumps(
+                    {
+                        "verb": "create",
+                        "name": args.name,
+                        "fields": fields,
+                        "dry_run": dry_run,
+                        "id_contact": new_id,
+                        "result": str(result),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            id_str = new_id if new_id else "<would be assigned>"
+            print(f"Created contact id_contact={id_str} name={args.name!r}{suffix}")
+            if not dry_run and isinstance(new_id, int):
+                print(
+                    f"Next: tos contact assign --station S --contact {new_id} "
+                    "--role owner --from DATE"
+                )
+        return 0
+
+    if args.verb == "patch-entity":
+        fields = {}
+        if args.name is not None:
+            fields["name"] = args.name
+        for f in _ENTITY_FIELDS:
+            v = getattr(args, f)
+            if v is not None:
+                fields[f] = v
+        if not fields:
+            print(
+                "tos contact patch-entity: at least one field flag is required",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            result = writer.patch_contact(args.id_contact, **fields)
+        except ValueError as exc:
+            print(f"patch-entity failed: {exc}", file=sys.stderr)
+            return 1
+        suffix = " (dry-run)" if dry_run else ""
+        if args.json:
+            print(
+                _json.dumps(
+                    {
+                        "verb": "patch-entity",
+                        "id_contact": args.id_contact,
+                        "changes": fields,
+                        "dry_run": dry_run,
+                        "result": str(result),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            changed = ", ".join(f"{k}={v}" for k, v in fields.items())
+            print(
+                f"Patched contact {args.id_contact} (FLEET-GLOBAL): "
+                f"{changed}{suffix}"
+            )
+        return 0
 
     if args.verb == "assign":
         # Resolve the station marker → id_entity (the relationship's
@@ -9389,6 +9565,8 @@ def _print_top_level_help() -> None:
         "                                       relationship date/role (dry-run\n"
         "                                       default; --no-dry-run commits).\n"
         "               contact assign / remove   Open / delete a relationship.\n"
+        "               contact create --name … Create a new contact entity.\n"
+        "               contact patch-entity <id> …  Edit a contact (FLEET-GLOBAL).\n"
         "\n"
         "  visit      Inspect or create TOS vitjun (visit / maintenance) records.\n"
         "               visit list --station S         Vitjanir for a station.\n"

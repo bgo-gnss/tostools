@@ -1,8 +1,10 @@
 # Contact-write API — design / scope
 
 **Status:** relationship CRUD SHIPPED + **all three write paths
-live-verified** (PUT/POST/DELETE — see verification note under Phase 0).
-Phases 4-5 (audit + contact-entity writes) not built.
+live-verified** (PUT/POST/DELETE). Phase 4 (`tos audit contact-dates`)
+SHIPPED + live-validated. Phase 5 (contact-entity create/edit) SHIPPED,
+dry-run validated (no contact-delete endpoint exists, so create is
+verified on first genuine use).
 **Flagged:** 2026-05-31, during the vitjanir CLI expansion follow-up.
 
 ## Motivation
@@ -72,8 +74,7 @@ OPTIONS on the row returns `GET, HEAD, DELETE, PUT, OPTIONS`. The
   "role": "owner", "time_from": "2025-02-04T15:32:38", "time_to": null }
 ```
 
-**Contact-entity endpoints** (`id_contact`), discovered alongside,
-NOT yet wired (Phase 5):
+**Contact-entity endpoints** (`id_contact`), wired in Phase 5:
 
 | Op | Endpoint | Method |
 |----|----------|--------|
@@ -81,11 +82,12 @@ NOT yet wired (Phase 5):
 | Create | `/contacts` | POST |
 | Read | `/contact/{id}/` | GET |
 | Edit | `/contact/{id}/` | PUT |
+| **Delete** | — | **none exists** |
 
-Note `/contact/{id}/` allows PUT — contact-entity edits (phone /
-address / name) are reachable, but they're **fleet-global** (one
-contact serves many stations), so they're deferred to Phase 5 with a
-louder confirmation path.
+`/contact/{id}/` allows only `GET, PUT, HEAD, OPTIONS` (no DELETE) and
+`/admin_contact_row/*` 404s — **a contact entity cannot be deleted**,
+only deactivated via `end_date`. Editing a contact is **fleet-global**
+(one contact serves many stations), so the edit verb shouts that.
 
 > **Verification status (2026-05-31): all three write paths LIVE-VERIFIED.**
 >
@@ -198,14 +200,40 @@ audit (not in the recurring verify oracle — migration artifacts are a
 one-time fixup, not ongoing drift). Pinned by
 `tests/test_audit_contact_dates.py`.
 
-## Phase 5 — contact-entity writes (NOT YET BUILT)
+## Phase 5 — contact-entity writes (SHIPPED; dry-run validated)
 
-`PUT /contact/{id}/` edits the contact entity (name / phone / address
-/ start_date). **Fleet-global** — one contact serves many stations —
-so it needs a louder confirmation than the per-station relationship
-edits. `POST /contacts` creates a new contact entity. Deferred until
-there's a concrete need; the relationship edits cover the immediate
-migration-date problem.
+Writer `create_contact(*, name, **fields)` → `POST /contacts`;
+`patch_contact(id_contact, **fields)` → `PUT /contact/{id}/`
+(GET-merge-PUT). Writable fields (`TOSWriter.CONTACT_FIELDS`): name,
+organization, job_title, phone_primary/secondary/tertiary, email,
+address, comment, start_date, end_date, ssid. Dates `_tos_date`-
+normalised.
+
+CLI:
+```
+tos contact create --name "…" [--organization …] [--phone …] [--email …]
+                    [--address …] [--start-date DATE] [--ssid …] [--no-dry-run]
+tos contact patch-entity <id_contact> [--name …] [--phone …] … [--no-dry-run]
+```
+
+`create` returns the new id_contact (then `tos contact assign` maps it
+to a station). `patch-entity` is **fleet-global** — one contact serves
+many stations, so a phone/address change propagates everywhere; the
+help + output shout this.
+
+> **Verification status:** **dry-run validated only.** Body inferred
+> from the GET entity shape (same approach that worked for
+> `/contact_joins`). **No live write executed** — and crucially, **there
+> is no contact-delete endpoint** (`/contact/{id}/` allows only
+> GET/PUT/HEAD/OPTIONS; `/admin_contact_row/*` 404s), so a throwaway
+> create could not be cleaned up. The POST is therefore verified on the
+> first *genuine* contact-add (confirm via `tos contact show --id
+> <new_id>`), not a throwaway. `patch_contact` is reversible via a
+> second PUT but fleet-global, so left dry-run-validated too.
+
+Creating a contact cannot be undone — a mis-created contact can only be
+deactivated via `--end-date`, not deleted. There is no remaining
+deferred contact-write work.
 
 ## Effort
 
@@ -216,7 +244,7 @@ migration-date problem.
 | 2 | ACTION verbs | ✅ shipped |
 | 3 | Standalone `tos contact` verbs | ✅ shipped |
 | 4 | `tos audit contact-dates` + triage emitter | ⏳ follow-up (fleet probe first) |
-| 5 | Contact-entity writes (`PUT /contact/{id}/`) | ⏳ deferred (fleet-global blast radius) |
+| 5 | Contact-entity writes (create `POST /contacts` + edit `PUT /contact/{id}/`) | ✅ shipped (dry-run validated; no delete endpoint) |
 
 ## Cross-references
 

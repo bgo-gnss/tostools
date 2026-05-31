@@ -1375,6 +1375,113 @@ class TOSWriter:
             f"/admin_contact_entity_relationship_row/{id_relationship}",
         )
 
+    # ------------------------------------------------------------------
+    # Contact entities (id_contact)
+    # ------------------------------------------------------------------
+    # A contact entity is a person/organisation in its own namespace
+    # (id_contact). It is mapped to stations/devices via relationship
+    # rows (see create_contact_relationship). Endpoints (discovered
+    # 2026-05-31 by read-only GET/OPTIONS probing):
+    #   GET/POST  /contacts        — list / create
+    #   GET/PUT   /contact/{id}/   — read / edit
+    # NOTE: there is NO contact-delete endpoint (/contact/{id}/ allows
+    # only GET/PUT/HEAD/OPTIONS; /admin_contact_row/* 404s). A created
+    # contact cannot be removed — deactivate via end_date instead.
+    # Editing a contact is FLEET-GLOBAL: one contact serves many
+    # stations, so a phone/address change propagates everywhere.
+
+    #: Writable fields on a contact entity (POST /contacts body, PUT
+    #: /contact/{id}/ body). Mirrors the GET entity shape minus ``id``.
+    CONTACT_FIELDS = (
+        "name",
+        "organization",
+        "job_title",
+        "phone_primary",
+        "phone_secondary",
+        "phone_tertiary",
+        "email",
+        "address",
+        "comment",
+        "start_date",
+        "end_date",
+        "ssid",
+    )
+
+    def create_contact(self, *, name: str, **fields: Any) -> Any:
+        """Create a new contact entity. POST /contacts.
+
+        ``name`` is required; every other field is optional and defaults
+        to an empty string (TOS's convention for the GET shape) unless
+        given. Accepted kwargs are :attr:`CONTACT_FIELDS` minus ``name``:
+        ``organization``, ``job_title``, ``phone_primary`` /
+        ``phone_secondary`` / ``phone_tertiary``, ``email``, ``address``,
+        ``comment``, ``start_date``, ``end_date``, ``ssid``.
+
+        ``start_date`` / ``end_date`` are normalised through
+        :meth:`_tos_date` (bare ``YYYY-MM-DD`` promoted to midnight).
+
+        .. note::
+           There is no contact-delete endpoint — a created contact
+           cannot be removed, only deactivated via ``end_date``. The
+           POST body is **inferred** from the GET entity shape (the same
+           approach that worked for ``/contact_joins``); validate the
+           first real creation against a re-GET.
+
+        Raises ``ValueError`` on unknown kwargs.
+        """
+        unknown = set(fields) - (set(self.CONTACT_FIELDS) - {"name"})
+        if unknown:
+            raise ValueError(
+                f"create_contact: unknown field(s) {sorted(unknown)} — "
+                f"allowed: {sorted(set(self.CONTACT_FIELDS) - {'name'})}"
+            )
+        payload: Dict[str, Any] = {"name": name}
+        for f in self.CONTACT_FIELDS:
+            if f == "name":
+                continue
+            val = fields.get(f)
+            if f in ("start_date", "end_date") and val is not None:
+                val = self._tos_date(val)
+            payload[f] = val if val is not None else ""
+        return self._request("POST", "/contacts", data=payload)
+
+    def patch_contact(self, id_contact: int, **fields: Any) -> Any:
+        """Edit a contact entity in place. PUT /contact/{id}/.
+
+        .. warning::
+
+           **Fleet-global.** A contact serves many stations; editing its
+           phone / address / name changes it everywhere it's mapped. Use
+           with care — this is not a per-station correction.
+
+        PUT-replace semantics, so this GET-merges-PUTs: reads the current
+        contact, overlays the provided fields, writes the full entity
+        back. Accepted kwargs are :attr:`CONTACT_FIELDS`. At least one
+        must be given. ``start_date`` / ``end_date`` normalised via
+        :meth:`_tos_date`.
+        """
+        if not fields:
+            raise ValueError("patch_contact: at least one field must be provided")
+        unknown = set(fields) - set(self.CONTACT_FIELDS)
+        if unknown:
+            raise ValueError(
+                f"patch_contact: unknown field(s) {sorted(unknown)} — "
+                f"allowed: {sorted(self.CONTACT_FIELDS)}"
+            )
+        current = self._request("GET", f"/contact/{id_contact}/")
+        if not isinstance(current, dict):
+            raise ValueError(f"patch_contact: no contact with id_contact={id_contact}")
+        payload: Dict[str, Any] = {}
+        for f in self.CONTACT_FIELDS:
+            if f in fields and fields[f] is not None:
+                val = fields[f]
+                if f in ("start_date", "end_date"):
+                    val = self._tos_date(val)
+                payload[f] = val
+            else:
+                payload[f] = current.get(f, "")
+        return self._request("PUT", f"/contact/{id_contact}/", data=payload)
+
     def transition_attribute_value(
         self,
         id_entity: int,

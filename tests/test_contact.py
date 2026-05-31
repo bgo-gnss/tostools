@@ -594,3 +594,93 @@ def test_contact_remove_dry_run_default(capsys):
     out = capsys.readouterr().out
     assert "Removed relationship 5018" in out
     assert "(dry-run)" in out
+
+
+# ---------------------------------------------------------------------------
+# Contact-entity write verbs — create / patch-entity
+# ---------------------------------------------------------------------------
+
+
+def test_contact_create_dry_run_default(capsys):
+    from tostools.api.tos_writer import DryRunResult, TOSWriter
+
+    with patch.object(
+        TOSWriter,
+        "create_contact",
+        autospec=True,
+        return_value=DryRunResult("POST", "/contacts", {}),
+    ) as cc:
+        rc = tos_main(["contact", "create", "--name", "Test Org", "--phone", "555"])
+    assert rc == 0
+    cc.assert_called_once()
+    # writer instance dry_run=True
+    assert cc.call_args.args[0].dry_run is True
+    assert cc.call_args.kwargs["name"] == "Test Org"
+    assert cc.call_args.kwargs["phone_primary"] == "555"
+    out = capsys.readouterr().out
+    assert "Created contact" in out
+    assert "(dry-run)" in out
+
+
+def test_contact_create_commits_and_shows_next_step(capsys):
+    from tostools.api.tos_writer import TOSWriter
+
+    with (
+        patch.object(
+            TOSWriter, "create_contact", autospec=True, return_value={"id": 9001}
+        ),
+        patch.object(TOSWriter, "_ensure_authenticated", autospec=True),
+    ):
+        rc = tos_main(["contact", "create", "--name", "Test Org", "--no-dry-run"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "id_contact=9001" in out
+    assert "tos contact assign" in out  # next-step hint
+    assert "9001" in out
+
+
+def test_contact_create_json(capsys):
+    import json
+
+    from tostools.api.tos_writer import DryRunResult, TOSWriter
+
+    with patch.object(
+        TOSWriter,
+        "create_contact",
+        autospec=True,
+        return_value=DryRunResult("POST", "/contacts", {}),
+    ):
+        rc = tos_main(
+            ["contact", "create", "--name", "X", "--email", "x@y.is", "--json"]
+        )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verb"] == "create"
+    assert payload["name"] == "X"
+    assert payload["fields"]["email"] == "x@y.is"
+    assert payload["dry_run"] is True
+
+
+def test_contact_patch_entity_dry_run(capsys):
+    from tostools.api.tos_writer import DryRunResult, TOSWriter
+
+    with patch.object(
+        TOSWriter,
+        "patch_contact",
+        autospec=True,
+        return_value=DryRunResult("PUT", "/contact/1256/", {}),
+    ) as pc:
+        rc = tos_main(["contact", "patch-entity", "1256", "--phone", "9998888"])
+    assert rc == 0
+    pc.assert_called_once()
+    assert pc.call_args.args[1] == 1256
+    assert pc.call_args.kwargs == {"phone_primary": "9998888"}
+    out = capsys.readouterr().out
+    assert "FLEET-GLOBAL" in out
+    assert "(dry-run)" in out
+
+
+def test_contact_patch_entity_requires_a_field(capsys):
+    rc = tos_main(["contact", "patch-entity", "1256"])
+    assert rc == 2
+    assert "at least one field" in capsys.readouterr().err
