@@ -3295,6 +3295,124 @@ def _contact_main(argv):
     )
     p_list.add_argument("--port", type=int, default=443)
 
+    # ---- Write verbs (dry-run default; mirror tos visit add) -----------
+    p_patch = sub.add_parser(
+        "patch-relationship",
+        help="Correct a contact↔station relationship's period or role.",
+        description=(
+            "Edit the time_from / time_to / role of one contact↔station "
+            "relationship row (id_contact_entity_relationship). Primary "
+            "use: backdate a time_from that is a TOS-migration artifact "
+            "(the relationship row was created when the contact was "
+            "loaded into the new TOS, not when ownership actually "
+            "started).\n\n"
+            "Dry-run by default — the payload is logged but not sent. "
+            "--no-dry-run commits (needs TOS credentials).\n\n"
+            "The id_rel is the 'id' from the raw relationship row — get "
+            "it from `tos contact list --station S --json` "
+            "(id_contact_entity_relationship field)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_patch.add_argument(
+        "id_rel",
+        type=int,
+        help="The relationship row id (id_contact_entity_relationship).",
+    )
+    p_patch.add_argument(
+        "--time-from",
+        dest="time_from",
+        default=None,
+        help="New time_from (YYYY-MM-DD). The migration-artifact fix.",
+    )
+    p_patch.add_argument(
+        "--time-to",
+        dest="time_to",
+        default=None,
+        help="New time_to (YYYY-MM-DD), or empty to leave open.",
+    )
+    p_patch.add_argument(
+        "--role",
+        default=None,
+        help="New role string (owner / operator / ...).",
+    )
+    p_patch.add_argument(
+        "--no-dry-run",
+        dest="no_dry_run",
+        action="store_true",
+        help="Commit the write. Default: dry-run (payload logged only).",
+    )
+    p_patch.add_argument("--json", action="store_true", help="Structured output.")
+    p_patch.add_argument("--server", default="vi-api.vedur.is")
+    p_patch.add_argument("--port", type=int, default=443)
+
+    p_assign = sub.add_parser(
+        "assign",
+        help="Assign a contact to a station (open a new relationship).",
+        description=(
+            "Create a new contact↔station relationship (POST "
+            "/contact_joins). Dry-run by default; --no-dry-run commits."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_assign.add_argument(
+        "--station", required=True, help="Station marker (e.g. HEDI) or name."
+    )
+    p_assign.add_argument(
+        "--contact",
+        dest="id_contact",
+        type=int,
+        required=True,
+        help="The contact entity id (from `tos contact list`).",
+    )
+    p_assign.add_argument(
+        "--role",
+        required=True,
+        help="Role string (owner / operator / ...).",
+    )
+    p_assign.add_argument(
+        "--from",
+        dest="time_from",
+        required=True,
+        help="Relationship start (YYYY-MM-DD).",
+    )
+    p_assign.add_argument(
+        "--no-dry-run",
+        dest="no_dry_run",
+        action="store_true",
+        help="Commit the write. Default: dry-run.",
+    )
+    p_assign.add_argument("--json", action="store_true", help="Structured output.")
+    p_assign.add_argument("--server", default="vi-api.vedur.is")
+    p_assign.add_argument("--port", type=int, default=443)
+
+    p_remove = sub.add_parser(
+        "remove",
+        help="Delete a contact↔station relationship (destructive).",
+        description=(
+            "Permanently delete one relationship row (DELETE "
+            "/admin_contact_entity_relationship_row/{id}). Erases "
+            "history — to END a valid relationship prefer "
+            "`patch-relationship <id> --time-to <date>`. Dry-run by "
+            "default; --no-dry-run commits."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_remove.add_argument(
+        "id_rel",
+        type=int,
+        help="The relationship row id (id_contact_entity_relationship).",
+    )
+    p_remove.add_argument(
+        "--no-dry-run",
+        dest="no_dry_run",
+        action="store_true",
+        help="Commit the delete. Default: dry-run.",
+    )
+    p_remove.add_argument("--json", action="store_true", help="Structured output.")
+    p_remove.add_argument("--server", default="vi-api.vedur.is")
+    p_remove.add_argument("--port", type=int, default=443)
+
     args = p.parse_args(argv)
 
     scheme = "https" if args.port == 443 else "http"
@@ -3409,6 +3527,136 @@ def _contact_main(argv):
 
         console = Console()
         _render_station_contacts(console, contacts)
+        return 0
+
+    if args.verb in ("patch-relationship", "assign", "remove"):
+        return _contact_write_main(args, base_url)
+
+    return 2
+
+
+def _contact_write_main(args, base_url: str) -> int:
+    """Handle the contact-relationship write verbs (patch / assign / remove).
+
+    Split out from :func:`_contact_main` so the read path stays on the
+    unauthenticated client. All three are dry-run by default
+    (``--no-dry-run`` commits), mirroring ``tos visit add`` /
+    ``tos device add``.
+    """
+    import json as _json
+
+    from .api.tos_writer import TOSWriter
+
+    dry_run = not args.no_dry_run
+    writer = TOSWriter(base_url=base_url, dry_run=dry_run)
+
+    if args.verb == "assign":
+        # Resolve the station marker → id_entity (the relationship's
+        # entity side). The contact id is supplied directly.
+        from .api.tos_client import TOSClient
+
+        client = TOSClient(base_url=base_url)
+        id_entity = _resolve_parent_id(client, station_marker=args.station)
+        if id_entity is None:
+            print(f"No station found for marker {args.station!r}", file=sys.stderr)
+            return 1
+        try:
+            result = writer.create_contact_relationship(
+                args.id_contact,
+                id_entity,
+                args.role,
+                args.time_from,
+            )
+        except ValueError as exc:
+            print(f"assign failed: {exc}", file=sys.stderr)
+            return 1
+        suffix = " (dry-run)" if dry_run else ""
+        if args.json:
+            print(
+                _json.dumps(
+                    {
+                        "verb": "assign",
+                        "id_contact": args.id_contact,
+                        "id_entity": id_entity,
+                        "role": args.role,
+                        "time_from": args.time_from,
+                        "dry_run": dry_run,
+                        "result": str(result),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            print(
+                f"Assigned contact {args.id_contact} → station {args.station} "
+                f"(id_entity={id_entity}) role={args.role!r} "
+                f"from {args.time_from}{suffix}"
+            )
+        return 0
+
+    if args.verb == "patch-relationship":
+        if args.time_from is None and args.time_to is None and args.role is None:
+            print(
+                "tos contact patch-relationship: at least one of "
+                "--time-from / --time-to / --role is required",
+                file=sys.stderr,
+            )
+            return 2
+        kwargs: Dict[str, Any] = {}
+        if args.time_from is not None:
+            kwargs["time_from"] = args.time_from
+        if args.time_to is not None:
+            kwargs["time_to"] = args.time_to
+        if args.role is not None:
+            kwargs["role"] = args.role
+        try:
+            result = writer.patch_contact_relationship(args.id_rel, **kwargs)
+        except ValueError as exc:
+            print(f"patch-relationship failed: {exc}", file=sys.stderr)
+            return 1
+        suffix = " (dry-run)" if dry_run else ""
+        if args.json:
+            print(
+                _json.dumps(
+                    {
+                        "verb": "patch-relationship",
+                        "id_rel": args.id_rel,
+                        "changes": kwargs,
+                        "dry_run": dry_run,
+                        "result": str(result),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            changes = ", ".join(f"{k}={v}" for k, v in kwargs.items())
+            print(f"Patched relationship {args.id_rel}: {changes}{suffix}")
+        return 0
+
+    if args.verb == "remove":
+        try:
+            result = writer.delete_contact_relationship(args.id_rel)
+        except ValueError as exc:
+            print(f"remove failed: {exc}", file=sys.stderr)
+            return 1
+        suffix = " (dry-run)" if dry_run else ""
+        if args.json:
+            print(
+                _json.dumps(
+                    {
+                        "verb": "remove",
+                        "id_rel": args.id_rel,
+                        "dry_run": dry_run,
+                        "result": str(result),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            print(f"Removed relationship {args.id_rel}{suffix}")
         return 0
 
     return 2
@@ -5913,16 +6161,19 @@ class ParseError:
 _SUPPORTED_VERBS = (
     "add-attribute",
     "add-visit",
+    "assign-contact",
     "change-subtype",
     "create-join",
     "decommission",
     "defer",
     "delete-attribute-value",
+    "delete-contact-relationship",
     "delete-join",
     "fill-gap",
     "move",
     "patch-attribute-date",
     "patch-attribute-value",
+    "patch-contact-relationship",
     "patch-join-date",
 )
 
@@ -7286,6 +7537,259 @@ def _dispatch_patch_join_date(writer, action: ParsedAction) -> ActionResult:
     )
 
 
+#: Editable fields on a contact↔entity relationship via
+#: ``patch-contact-relationship``. ``role`` is a string; the two date
+#: fields go through the date-token resolver + YYYY-MM-DD check.
+_PATCH_CONTACT_FIELDS = ("time_from", "time_to", "role")
+
+
+def _dispatch_patch_contact_relationship(writer, action: ParsedAction) -> ActionResult:
+    """Correct a contact↔entity relationship's period or role.
+
+    Action shape: ``ACTION <id_entity> patch-contact-relationship
+    <id_relationship> <field> <value>`` where
+    ``field ∈ {time_from, time_to, role}``.
+
+    Primary use case: backdate a ``time_from`` that is a TOS-migration
+    artifact (the contact↔station relationship row was created when the
+    contact was loaded into the new TOS, not when the contact actually
+    started owning the station). See
+    ``docs/architecture/contact-write-api.md``.
+
+    The ``id_entity`` slot is the STATION the contact is mapped to —
+    same convention as ``patch-join-date`` (device in the id slot,
+    connection id in args[0]). Keeping the station there means the
+    ``start`` date-token resolves against the station's earliest_known,
+    which is exactly the anchor you want when backdating a migration
+    date to founding.
+
+    For ``field=role`` the value is a bare string (``owner`` /
+    ``operator`` / ...) — no date resolution. For the date fields,
+    ``now`` / ``start`` tokens resolve and the result is format-checked.
+    """
+    if len(action.args) != 3:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "patch-contact-relationship: expected 3 args "
+                "(<id_relationship> <field> <value>), got "
+                f"{len(action.args)}"
+            ),
+        )
+    rel_token, field, value = action.args[0], action.args[1], action.args[2]
+
+    try:
+        id_relationship = int(rel_token)
+    except ValueError:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "patch-contact-relationship requires integer "
+                f"id_relationship, got {rel_token!r}"
+            ),
+        )
+
+    if field not in _PATCH_CONTACT_FIELDS:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "patch-contact-relationship: field must be one of "
+                f"{', '.join(_PATCH_CONTACT_FIELDS)} (got {field!r})"
+            ),
+        )
+
+    if value.startswith("<") and value.endswith(">"):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-contact-relationship: value placeholder {value!r} "
+                "not replaced — fill it in before applying"
+            ),
+        )
+
+    kwargs: Dict[str, Any] = {}
+    if field == "role":
+        kwargs["role"] = value
+    else:
+        # Date field — resolve now/start, then YYYY-MM-DD check.
+        resolved, err = _resolve_date_token(value, action.id_entity, writer)
+        if err is not None:
+            return ActionResult(
+                action=action,
+                status="failed",
+                detail=f"patch-contact-relationship: {err}",
+            )
+        value = resolved or value
+        date_prefix = value[:10]
+        if len(date_prefix) != 10 or date_prefix[4] != "-" or date_prefix[7] != "-":
+            return ActionResult(
+                action=action,
+                status="failed",
+                detail=(
+                    "patch-contact-relationship: date must be YYYY-MM-DD "
+                    f"(got {value!r})"
+                ),
+            )
+        kwargs[field] = value
+
+    try:
+        response = writer.patch_contact_relationship(id_relationship, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch_contact_relationship raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"PUT /admin_contact_entity_relationship_row/{id_relationship} "
+            f"{field}={value} (station={action.id_entity}) — {response!r}"
+        ),
+    )
+
+
+def _dispatch_assign_contact(writer, action: ParsedAction) -> ActionResult:
+    """Assign a contact to a station/device (open a new relationship).
+
+    Action shape: ``ACTION <id_entity> assign-contact <id_contact>
+    <role> <time_from>``. The ``id_entity`` is the station/device the
+    contact is mapped to; ``id_contact`` is the contact entity (e.g.
+    1256 = Veðurstofa).
+
+    ``time_from`` accepts ``now`` / ``start`` tokens (``start`` =
+    the station's earliest_known).
+    """
+    if len(action.args) != 3:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "assign-contact: expected 3 args (<id_contact> <role> "
+                f"<time_from>), got {len(action.args)}"
+            ),
+        )
+    contact_token, role, time_from = (
+        action.args[0],
+        action.args[1],
+        action.args[2],
+    )
+
+    try:
+        id_contact = int(contact_token)
+    except ValueError:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"assign-contact requires integer id_contact, got {contact_token!r}",
+        )
+
+    if role.startswith("<") and role.endswith(">"):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"assign-contact: role placeholder {role!r} not replaced",
+        )
+
+    resolved, err = _resolve_date_token(time_from, action.id_entity, writer)
+    if err is not None:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"assign-contact: {err}",
+        )
+    time_from = resolved or time_from
+    date_prefix = time_from[:10]
+    if len(date_prefix) != 10 or date_prefix[4] != "-" or date_prefix[7] != "-":
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"assign-contact: time_from must be YYYY-MM-DD (got {time_from!r})",
+        )
+
+    try:
+        response = writer.create_contact_relationship(
+            id_contact, action.id_entity, role, time_from
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"create_contact_relationship raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"POST /contact_joins id_contact={id_contact} "
+            f"id_entity={action.id_entity} role={role!r} "
+            f"time_from={time_from} — {response!r}"
+        ),
+    )
+
+
+def _dispatch_delete_contact_relationship(writer, action: ParsedAction) -> ActionResult:
+    """Permanently DELETE a contact↔entity relationship row.
+
+    Action shape: ``ACTION <id_entity> delete-contact-relationship
+    <id_relationship>``.
+
+    Destructive — erases history. To END a genuinely-valid relationship
+    prefer ``patch-contact-relationship <id> time_to <date>`` (preserves
+    history). Use delete only for a wrong mapping / duplicate.
+
+    Trust model: ``id_relationship`` is trusted without verifying it
+    belongs to ``id_entity`` (same precedent as
+    :func:`_dispatch_delete_join`). Pre-flight + dry-run is the safety net.
+    """
+    if len(action.args) != 1:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "delete-contact-relationship: expected 1 arg "
+                f"(<id_relationship>), got {len(action.args)}"
+            ),
+        )
+    (rel_token,) = (action.args[0],)
+    try:
+        id_relationship = int(rel_token)
+    except ValueError:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "delete-contact-relationship requires integer "
+                f"id_relationship, got {rel_token!r}"
+            ),
+        )
+
+    try:
+        response = writer.delete_contact_relationship(id_relationship)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"delete_contact_relationship raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"DELETE /admin_contact_entity_relationship_row/{id_relationship} "
+            f"(station={action.id_entity}) — {response!r}"
+        ),
+    )
+
+
 def _dispatch_delete_attribute_value(writer, action: ParsedAction) -> ActionResult:
     """Permanently DELETE an attribute_value row from TOS.
 
@@ -7438,6 +7942,12 @@ def _dispatch_action(
         return _dispatch_add_attribute(writer, action)
     if action.verb == "add-visit":
         return _dispatch_add_visit(writer, action)
+    if action.verb == "patch-contact-relationship":
+        return _dispatch_patch_contact_relationship(writer, action)
+    if action.verb == "assign-contact":
+        return _dispatch_assign_contact(writer, action)
+    if action.verb == "delete-contact-relationship":
+        return _dispatch_delete_contact_relationship(writer, action)
     if action.verb == "change-subtype":
         code = action.args[0]
         mapping = subtype_id_by_code or {}
@@ -8679,6 +9189,11 @@ def _print_top_level_help() -> None:
         "  contact    Inspect TOS contact records (id_contact namespace).\n"
         "               contact show --id N     One contact record.\n"
         "               contact list --station S  Contacts for a station.\n"
+        "               contact patch-relationship <id_rel> --time-from DATE\n"
+        "                                       Correct a contact↔station\n"
+        "                                       relationship date/role (dry-run\n"
+        "                                       default; --no-dry-run commits).\n"
+        "               contact assign / remove   Open / delete a relationship.\n"
         "\n"
         "  visit      Inspect or create TOS vitjun (visit / maintenance) records.\n"
         "               visit list --station S         Vitjanir for a station.\n"

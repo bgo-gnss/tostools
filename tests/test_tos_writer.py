@@ -1897,3 +1897,129 @@ def test_update_maintenance_visit_dry_run_still_returns_merge():
     }
     assert av_by_code[80001] == "true"  # reason_change
     assert av_by_code[80006] == "test edit"
+
+
+# ---------------------------------------------------------------------------
+# TOSWriter — contact↔entity relationship writes (Phase: contact writes)
+# ---------------------------------------------------------------------------
+
+
+def _rel_row(**overrides):
+    """A raw admin contact-relationship row as TOS returns it."""
+    row = {
+        "id": 5018,
+        "id_contact": 1256,
+        "id_entity": 4316,
+        "role": "owner",
+        "time_from": "2025-02-04T15:32:38",
+        "time_to": None,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_patch_contact_relationship_requires_a_field():
+    w = _logged_in_writer()
+    with pytest.raises(ValueError, match="at least one of"):
+        w.patch_contact_relationship(5018)
+
+
+def test_patch_contact_relationship_missing_row_raises():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request", return_value=None):
+        with pytest.raises(ValueError, match="no relationship row"):
+            w.patch_contact_relationship(99999, time_from="2006-06-29")
+
+
+def test_patch_contact_relationship_get_merge_put_preserves_other_fields():
+    """The admin endpoint is PUT-replace, so the writer GET-merges-PUTs:
+    only the changed field differs; id_contact / id_entity / role and the
+    untouched date are carried over from the current row."""
+    w = _logged_in_writer(dry_run=False)
+    calls = []
+
+    def fake_request(method, endpoint, data=None, **kw):
+        calls.append((method, endpoint, data))
+        if method == "GET":
+            return _rel_row()
+        return {"ok": True}
+
+    with patch.object(w, "_request", side_effect=fake_request):
+        w.patch_contact_relationship(5018, time_from="2006-06-29")
+
+    get_call, put_call = calls
+    assert get_call[0] == "GET"
+    assert put_call[0] == "PUT"
+    assert put_call[1] == "/admin_contact_entity_relationship_row/5018"
+    payload = put_call[2]
+    assert payload["time_from"] == "2006-06-29T00:00:00"  # changed + promoted
+    assert payload["id_contact"] == 1256  # preserved
+    assert payload["id_entity"] == 4316  # preserved
+    assert payload["role"] == "owner"  # preserved
+    assert payload["time_to"] is None  # preserved
+
+
+def test_patch_contact_relationship_role_only():
+    w = _logged_in_writer(dry_run=False)
+
+    def fake_request(method, endpoint, data=None, **kw):
+        return _rel_row() if method == "GET" else {"ok": True}
+
+    with patch.object(w, "_request", side_effect=fake_request) as mock_req:
+        w.patch_contact_relationship(5018, role="operator")
+    put_payload = mock_req.call_args.kwargs["data"]
+    assert put_payload["role"] == "operator"
+    assert put_payload["time_from"] == "2025-02-04T15:32:38"  # unchanged
+
+
+def test_patch_contact_relationship_respects_dry_run():
+    from tostools.api.tos_writer import DryRunResult
+
+    w = _logged_in_writer(dry_run=True)
+
+    # GET still happens in dry-run (reads are safe); only the PUT is held.
+    def fake_request(method, endpoint, data=None, _force_send=False, **kw):
+        if method == "GET":
+            return _rel_row()
+        # Mimic the real _request dry-run interception for mutating calls.
+        return DryRunResult(method=method, endpoint=endpoint, payload=data)
+
+    with patch.object(w, "_request", side_effect=fake_request):
+        result = w.patch_contact_relationship(5018, time_from="2006-06-29")
+    assert isinstance(result, DryRunResult)
+    assert result.method == "PUT"
+
+
+def test_create_contact_relationship_posts_to_contact_joins():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request") as mock_req:
+        mock_req.return_value = {"id": 6000}
+        w.create_contact_relationship(1256, 4316, "operator", "2020-01-01")
+    call = mock_req.call_args
+    assert call.args[0] == "POST"
+    assert call.args[1] == "/contact_joins"
+    payload = call.kwargs["data"]
+    assert payload == {
+        "id_contact": 1256,
+        "id_entity": 4316,
+        "role": "operator",
+        "time_from": "2020-01-01T00:00:00",  # bare date promoted
+        "time_to": None,
+    }
+
+
+def test_delete_contact_relationship_uses_admin_row_endpoint():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request") as mock_req:
+        w.delete_contact_relationship(5018)
+    call = mock_req.call_args
+    assert call.args[0] == "DELETE"
+    assert call.args[1] == "/admin_contact_entity_relationship_row/5018"
+
+
+def test_get_contact_relationship_returns_row_or_none():
+    w = _logged_in_writer()
+    with patch.object(w, "_request", return_value=_rel_row()):
+        assert w.get_contact_relationship(5018)["id_contact"] == 1256
+    with patch.object(w, "_request", return_value=None):
+        assert w.get_contact_relationship(5018) is None
