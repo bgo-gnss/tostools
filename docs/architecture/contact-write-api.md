@@ -1,8 +1,8 @@
 # Contact-write API — design / scope
 
-**Status:** relationship CRUD implemented (dry-run validated; **no live
-write executed yet** — see verification note under Phase 0). Phases 4-5
-(audit + contact-entity writes) not built.
+**Status:** relationship CRUD SHIPPED + **all three write paths
+live-verified** (PUT/POST/DELETE — see verification note under Phase 0).
+Phases 4-5 (audit + contact-entity writes) not built.
 **Flagged:** 2026-05-31, during the vitjanir CLI expansion follow-up.
 
 ## Motivation
@@ -87,20 +87,32 @@ address / name) are reachable, but they're **fleet-global** (one
 contact serves many stations), so they're deferred to Phase 5 with a
 louder confirmation path.
 
-> **Verification status (2026-05-31):** endpoints discovered by
-> read-only GET/OPTIONS probing; writer methods + verbs validated in
-> **dry-run only** (27 unit tests mock `_request` — they pin payload
-> *construction*, not TOS *acceptance*). **No live write has been
-> executed against any of these three endpoints.** The
-> `POST /contact_joins` body in particular is **inferred** from the
-> `/joins` analogy — `/joins` takes `id_entity_parent`/`id_entity_child`
-> while we send `id_contact`/`id_entity`; this is the most likely to
-> 400 on first real use. First live write should be the HEDI rel-5018
-> date fix (the operator's actual need) with a re-GET diff to confirm
-> the PUT contract + that the GET response is the complete row (not a
-> projection that PUT-replace would null).
+> **Verification status (2026-05-31): all three write paths LIVE-VERIFIED.**
+>
+> * **`PUT /admin_contact_entity_relationship_row/{id}` — LIVE-VERIFIED.**
+>   First real write executed against HEDI rel-5018 (the operator's
+>   migration-date fix): `time_from 2025-02-04T15:32:38 → 2006-06-29`.
+>   Re-GET diff confirmed **only `time_from` changed** — id_contact /
+>   id_entity / role / time_to all preserved, **same field set** (the
+>   admin GET returns the complete row; the GET-merge-PUT does NOT null
+>   unseen columns). The joined read-view `entity_contacts/4316/` now
+>   reads `per_time_from = 2006-06-29`, so the fix surfaces in
+>   `tos station show`. Provenance: `data/triage/hedi/hedi_contact_5018_backdate_20260531.txt`.
+> * **`POST /contact_joins` (assign/create) — LIVE-VERIFIED.** The
+>   inferred body `{id_contact, id_entity, role, time_from, time_to}`
+>   was **correct** — a throwaway round-trip (assign Veðurstofa 1256 →
+>   warehouse B9 id_entity=4 role=operator from 2099-01-01) created
+>   rel-5171 with exactly the sent values, confirmed in both the raw
+>   admin row and the `entity_contacts/4/` joined view. No
+>   `id_entity_parent`/`id_entity_child` rename needed despite the
+>   `/joins` analogy worry.
+> * **`DELETE /admin_contact_entity_relationship_row/{id}` — LIVE-VERIFIED.**
+>   Same round-trip: deleting rel-5171 returned B9 to its empty
+>   baseline; a follow-up GET on the row 404s with
+>   `"Couldn't find id: 5171 in table: public.contact_entity_relationship"`
+>   (also confirms the backing table name). No junk left in production.
 
-## Phase 1 — writer methods (implemented; live-write unverified)
+## Phase 1 — writer methods (SHIPPED, live-verified)
 
 `src/tostools/api/tos_writer.py`:
 
@@ -121,7 +133,7 @@ fields, writes the full row back. Dry-run respects `self.dry_run` (the
 GET still runs — reads are safe; only the PUT/POST/DELETE is held).
 Dates normalised via `_tos_date`.
 
-## Phase 2 — ACTION verbs (implemented; live-write unverified)
+## Phase 2 — ACTION verbs (SHIPPED, live-verified)
 
 Triage-file forms so contact corrections batch with metadata fixes in
 one `tos audit apply` (the retrospective-writes-provenance pattern —
@@ -141,7 +153,7 @@ ACTION <id_entity> delete-contact-relationship <id_rel>
 whitelist, and writer-exception-as-failed all match the other ACTION
 verbs.
 
-## Phase 3 — standalone CLI verbs (implemented; live-write unverified)
+## Phase 3 — standalone CLI verbs (SHIPPED; patch+remove use the verified paths, assign live-verified via ACTION form)
 
 ```
 tos contact patch-relationship <id_rel> --time-from DATE [--time-to DATE] [--role R] [--no-dry-run]
