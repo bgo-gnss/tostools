@@ -1232,6 +1232,149 @@ class TOSWriter:
             "DELETE", f"/admin_attribute_value_row/{id_attribute_value}"
         )
 
+    # ------------------------------------------------------------------
+    # Contact↔entity relationships
+    # ------------------------------------------------------------------
+    # A contact (id_contact) is mapped to a station/device (id_entity) by a
+    # relationship row in its own namespace: id_contact_entity_relationship.
+    # The raw admin row is ``{id, id_contact, id_entity, role, time_from,
+    # time_to}`` — structurally identical to an entity_connection. Endpoints
+    # discovered 2026-05-31 by read-only GET/OPTIONS probing:
+    #   GET/PUT/DELETE  /admin_contact_entity_relationship_row/{id}
+    #   POST            /contact_joins   (create, mirrors /joins)
+    # The joined read-view (entity_contacts/{id}/) renames time_from/time_to
+    # to per_time_from/per_time_to — the RAW row uses time_from/time_to.
+
+    def get_contact_relationship(
+        self, id_relationship: int
+    ) -> Optional[Dict[str, Any]]:
+        """Read one raw contact↔entity relationship row.
+
+        Wraps ``GET /admin_contact_entity_relationship_row/{id}``. Returns
+        ``{id, id_contact, id_entity, role, time_from, time_to}`` or
+        ``None`` on lookup failure. Needed by :meth:`patch_contact_relationship`
+        for the GET-merge-PUT cycle (the admin endpoint is PUT-replace, so we
+        read the current row, overlay the changed fields, and write it back).
+        """
+        result = self._request(
+            "GET", f"/admin_contact_entity_relationship_row/{id_relationship}"
+        )
+        return result if isinstance(result, dict) else None
+
+    def patch_contact_relationship(
+        self,
+        id_relationship: int,
+        *,
+        time_from: Optional[str] = None,
+        time_to: Optional[str] = None,
+        role: Optional[str] = None,
+    ) -> Any:
+        """Correct a contact↔entity relationship's period or role.
+
+        The primary use case is backdating a ``time_from`` that is a
+        TOS-migration artifact (the relationship row was created when the
+        contact was loaded into the new TOS, not when the contact actually
+        started owning/operating the station). See
+        ``docs/architecture/contact-write-api.md``.
+
+        The admin endpoint is **PUT-replace**, not PATCH, so this method
+        GET-merges-PUTs: it reads the current row, overlays the provided
+        fields, and writes the full row back. At least one of
+        ``time_from`` / ``time_to`` / ``role`` must be given.
+
+        Date fields are normalised through :meth:`_tos_date` (bare
+        ``YYYY-MM-DD`` promoted to midnight — TOS rejects date-only on
+        join-style endpoints with HTTP 400).
+
+        In dry-run mode the GET still happens (reads are safe) but the PUT
+        is intercepted and a :class:`DryRunResult` is returned.
+        """
+        if time_from is None and time_to is None and role is None:
+            raise ValueError(
+                "patch_contact_relationship: at least one of time_from / "
+                "time_to / role must be provided"
+            )
+        current = self.get_contact_relationship(id_relationship)
+        if current is None:
+            raise ValueError(
+                f"patch_contact_relationship: no relationship row with "
+                f"id={id_relationship}"
+            )
+        payload = {
+            "id_contact": current.get("id_contact"),
+            "id_entity": current.get("id_entity"),
+            "role": role if role is not None else current.get("role"),
+            "time_from": (
+                self._tos_date(time_from)
+                if time_from is not None
+                else current.get("time_from")
+            ),
+            "time_to": (
+                self._tos_date(time_to)
+                if time_to is not None
+                else current.get("time_to")
+            ),
+        }
+        return self._request(
+            "PUT",
+            f"/admin_contact_entity_relationship_row/{id_relationship}",
+            data=payload,
+        )
+
+    def create_contact_relationship(
+        self,
+        id_contact: int,
+        id_entity: int,
+        role: str,
+        time_from: str,
+        time_to: Optional[str] = None,
+    ) -> Any:
+        """Assign a contact to a station/device (open a new relationship).
+
+        Wraps ``POST /contact_joins`` — the create endpoint mirrors
+        ``/joins`` for entity connections. Body shape follows the raw
+        relationship row: ``id_contact``, ``id_entity``, ``role``,
+        ``time_from``, ``time_to``.
+
+        Args:
+            id_contact: The contact entity (e.g. 1256 = Veðurstofa).
+            id_entity: The station / device the contact is mapped to.
+            role: TOS role string (``"owner"`` = Eigandi stöðvar,
+                ``"operator"`` = Rekstraraðili, ...).
+            time_from: ISO start of the relationship. Bare ``YYYY-MM-DD``
+                promoted to midnight.
+            time_to: ISO end, or ``None`` for currently active.
+        """
+        return self._request(
+            "POST",
+            "/contact_joins",
+            data={
+                "id_contact": id_contact,
+                "id_entity": id_entity,
+                "role": role,
+                "time_from": self._tos_date(time_from),
+                "time_to": self._tos_date(time_to) if time_to is not None else None,
+            },
+        )
+
+    def delete_contact_relationship(self, id_relationship: int) -> Any:
+        """Permanently remove a contact↔entity relationship row.
+
+        .. warning::
+
+           Destructive admin endpoint. Use only for cleaning up a wrong
+           mapping (contact assigned to the wrong station, duplicate
+           relationship). To END a relationship that was genuinely valid,
+           prefer :meth:`patch_contact_relationship` with ``time_to`` set —
+           that preserves the history. Deletion erases it.
+
+        Uses ``DELETE /admin_contact_entity_relationship_row/{id}``.
+        """
+        return self._request(
+            "DELETE",
+            f"/admin_contact_entity_relationship_row/{id_relationship}",
+        )
+
     def transition_attribute_value(
         self,
         id_entity: int,

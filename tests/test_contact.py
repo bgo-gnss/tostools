@@ -432,3 +432,165 @@ def test_station_show_drill_hint_includes_contact_id_when_present(capsys):
     assert rc == 0
     out = capsys.readouterr().out
     assert "tos contact show --id 1256" in out
+
+
+# ---------------------------------------------------------------------------
+# Write verbs — patch-relationship / assign / remove (dry-run default)
+# ---------------------------------------------------------------------------
+
+
+def test_contact_patch_relationship_dry_run_default(capsys):
+    """`tos contact patch-relationship <id> --time-from DATE` constructs
+    the writer dry-run by default and calls patch_contact_relationship."""
+    from tostools.api.tos_writer import DryRunResult, TOSWriter
+
+    with patch.object(
+        TOSWriter,
+        "patch_contact_relationship",
+        autospec=True,
+        return_value=DryRunResult("PUT", "/x", {}),
+    ) as pcr:
+        rc = tos_main(
+            ["contact", "patch-relationship", "5018", "--time-from", "2006-06-29"]
+        )
+
+    assert rc == 0
+    pcr.assert_called_once()
+    # Writer instance is dry_run=True (no --no-dry-run).
+    assert pcr.call_args.args[0].dry_run is True
+    assert pcr.call_args.args[1] == 5018
+    assert pcr.call_args.kwargs == {"time_from": "2006-06-29"}
+    out = capsys.readouterr().out
+    assert "Patched relationship 5018" in out
+    assert "(dry-run)" in out
+
+
+def test_contact_patch_relationship_no_dry_run_commits(capsys):
+    from tostools.api.tos_writer import TOSWriter
+
+    with (
+        patch.object(
+            TOSWriter,
+            "patch_contact_relationship",
+            autospec=True,
+            return_value={"ok": 1},
+        ) as pcr,
+        patch.object(TOSWriter, "_ensure_authenticated", autospec=True),
+    ):
+        rc = tos_main(
+            [
+                "contact",
+                "patch-relationship",
+                "5018",
+                "--time-from",
+                "2006-06-29",
+                "--no-dry-run",
+            ]
+        )
+
+    assert rc == 0
+    assert pcr.call_args.args[0].dry_run is False
+    out = capsys.readouterr().out
+    assert "(dry-run)" not in out
+
+
+def test_contact_patch_relationship_requires_a_field(capsys):
+    rc = tos_main(["contact", "patch-relationship", "5018"])
+    assert rc == 2
+    assert "at least one of" in capsys.readouterr().err
+
+
+def test_contact_patch_relationship_json(capsys):
+    from tostools.api.tos_writer import DryRunResult, TOSWriter
+
+    with patch.object(
+        TOSWriter,
+        "patch_contact_relationship",
+        autospec=True,
+        return_value=DryRunResult("PUT", "/x", {}),
+    ):
+        rc = tos_main(
+            ["contact", "patch-relationship", "5018", "--role", "operator", "--json"]
+        )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verb"] == "patch-relationship"
+    assert payload["id_rel"] == 5018
+    assert payload["changes"] == {"role": "operator"}
+    assert payload["dry_run"] is True
+
+
+def test_contact_assign_resolves_station_and_creates(capsys):
+    from tostools.api.tos_writer import DryRunResult, TOSWriter
+
+    with (
+        patch("tostools.tos._resolve_parent_id", return_value=4316),
+        patch.object(
+            TOSWriter,
+            "create_contact_relationship",
+            autospec=True,
+            return_value=DryRunResult("POST", "/contact_joins", {}),
+        ) as ccr,
+    ):
+        rc = tos_main(
+            [
+                "contact",
+                "assign",
+                "--station",
+                "HEDI",
+                "--contact",
+                "1256",
+                "--role",
+                "operator",
+                "--from",
+                "2020-01-01",
+            ]
+        )
+
+    assert rc == 0
+    ccr.assert_called_once()
+    # (self, id_contact, id_entity, role, time_from)
+    assert ccr.call_args.args[1:] == (1256, 4316, "operator", "2020-01-01")
+    out = capsys.readouterr().out
+    assert "Assigned contact 1256" in out
+    assert "(dry-run)" in out
+
+
+def test_contact_assign_unresolvable_station_returns_1(capsys):
+    with patch("tostools.tos._resolve_parent_id", return_value=None):
+        rc = tos_main(
+            [
+                "contact",
+                "assign",
+                "--station",
+                "XXXX",
+                "--contact",
+                "1256",
+                "--role",
+                "owner",
+                "--from",
+                "2020-01-01",
+            ]
+        )
+    assert rc == 1
+    assert "No station found for marker 'XXXX'" in capsys.readouterr().err
+
+
+def test_contact_remove_dry_run_default(capsys):
+    from tostools.api.tos_writer import DryRunResult, TOSWriter
+
+    with patch.object(
+        TOSWriter,
+        "delete_contact_relationship",
+        autospec=True,
+        return_value=DryRunResult("DELETE", "/x", None),
+    ) as dcr:
+        rc = tos_main(["contact", "remove", "5018"])
+
+    assert rc == 0
+    dcr.assert_called_once()
+    assert dcr.call_args.args[0].dry_run is True
+    assert dcr.call_args.args[1] == 5018
+    out = capsys.readouterr().out
+    assert "Removed relationship 5018" in out
+    assert "(dry-run)" in out

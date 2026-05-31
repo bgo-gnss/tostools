@@ -314,6 +314,11 @@ tos visit list --station <STN>     # vitjanir attached to a station
 tos visit list --device <id>       # vitjanir attached to a device
 tos visit show <id_maintenance>    # one vitjun, full detail
 tos visit add  --station <STN> --start DATE [opts]  # new vitjun (dry-run default)
+tos contact show --id <id>         # contact entity detail
+tos contact list --station <STN>   # contacts mapped to a station
+tos contact patch-relationship <id_rel> --time-from DATE  # fix relationship date (dry-run default)
+tos contact assign --station <STN> --contact <id> --role owner --from DATE
+tos contact remove <id_rel>        # delete a relationship (dry-run default)
 tos audit apply <triage_file>      # dry-run; --apply to commit
 tos fleet status                   # bulk verify oracle (exit 0/1/2)
 tos fleet triage                   # generate per-station triage files
@@ -441,6 +446,47 @@ Integrates as opt-in third audit in the verify oracle / fleet status:
 Off by default to avoid the first-run noise problem: until operators have used `add-visit` enough to establish a baseline, every station looks broken. SUPPRESS file at `data/audit_suppressions/visit_coverage.txt` (key shape: `SUPPRESS <device_id> <event_date>`) lets operators silence pre-vitjun-era findings as they triage.
 
 Triage emitter generates one commented `#ACTION <device_id> add-visit change <event_date> "<FILL_WORK>"` per violation + a SUPPRESS hint per line. Operator replaces `<FILL_WORK>` with what actually happened, uncomments the line, runs `tos audit apply`.
+
+### `tos contact` — contact↔station relationship writes
+
+A contact (`id_contact`, e.g. 1256 = Veðurstofa) is mapped to a
+station/device by a relationship row in its own namespace
+(`id_contact_entity_relationship`). The raw admin row is
+`{id, id_contact, id_entity, role, time_from, time_to}` — structurally
+identical to an entity_connection. Endpoints (discovered 2026-05-31 by
+read-only probing; see `docs/architecture/contact-write-api.md`):
+`GET/PUT/DELETE /admin_contact_entity_relationship_row/{id}`,
+`POST /contact_joins` (create).
+
+Read verbs (`tos contact show / list`) are unchanged. **Write verbs**
+(dry-run by default, `--no-dry-run` commits — same as `tos visit add`):
+
+  * `tos contact patch-relationship <id_rel> --time-from DATE [--time-to DATE] [--role R]`
+    — the primary use: backdate a `time_from` that is a TOS-migration
+    artifact (the relationship row was created when the contact was
+    loaded into the new TOS, not when ownership actually started).
+  * `tos contact assign --station S --contact <id> --role owner --from DATE` — open a new relationship.
+  * `tos contact remove <id_rel>` — delete a relationship (destructive;
+    prefer `patch-relationship --time-to DATE` to end one).
+
+**ACTION verbs** (triage-file form — batch with metadata fixes in one
+`tos audit apply`, get the git provenance trail):
+
+  * `ACTION <id_entity> patch-contact-relationship <id_rel> <field> <value>` — field ∈ {time_from, time_to, role}
+  * `ACTION <id_entity> assign-contact <id_contact> <role> <time_from>`
+  * `ACTION <id_entity> delete-contact-relationship <id_rel>`
+
+The `id_entity` slot is the **station** (so the `start` date-token
+resolves against the station's earliest_known — exactly the founding
+date you backdate a migration artifact to). The migration-date fix is
+literally `ACTION <station> patch-contact-relationship <id_rel>
+time_from start`.
+
+`patch_contact_relationship` GET-merges-PUTs (the admin endpoint is
+PUT-replace): reads the current row, overlays the changed field, writes
+the full row back. Follow-ups (not built): `tos audit contact-dates`
+fleet-wide migration-artifact audit; contact-entity edits via
+`PUT /contact/{id}/` (fleet-global blast radius, deferred).
 
 ## Architecture
 

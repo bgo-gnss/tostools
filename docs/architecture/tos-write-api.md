@@ -49,6 +49,9 @@ Base URL: `https://vi-api.vedur.is/tos/v1`
 | GET | `/maintenances/id_entity/{id_entity}` | None | List vitjun records for an entity (flat web-UI shape) |
 | GET | `/maintenance/id_maintenance/{id}` | None | One vitjun's full detail incl. `maintenance_attribute_values[]` with each row's `id_maintenance_attribute_value` |
 | PUT | `/maintenance/id_maintenance/{id}` | JWT | Fill in vitjun details: `participants`, dates, `completed`, list of `{id_maintenance_attribute_value, value}` |
+| GET/PUT/DELETE | `/admin_contact_entity_relationship_row/{id}` | JWT | Read / edit (PUT-replace) / delete one contact↔entity relationship row `{id, id_contact, id_entity, role, time_from, time_to}` |
+| POST | `/contact_joins` | JWT | Create a contact↔entity relationship (mirrors `/joins`) |
+| GET/PUT | `/contact/{id_contact}/` | JWT (PUT) | Read / edit a contact entity (name, phone, address, start_date) — fleet-global |
 
 ## Python Client
 

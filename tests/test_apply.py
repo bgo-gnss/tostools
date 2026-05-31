@@ -2339,3 +2339,162 @@ def test_dispatch_add_visit_empty_csv_reasons_rejected():
     assert result.status == "failed"
     assert "at least one code" in result.detail
     writer.add_maintenance_visit.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _dispatch contact-relationship verbs (patch / assign / delete)
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_patch_contact_relationship_happy_path():
+    writer = MagicMock()
+    writer.patch_contact_relationship.return_value = {"ok": True}
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4316, "patch-contact-relationship", "5018", "time_from", "2006-06-29"
+        ),
+    )
+    assert result.status == "ok"
+    writer.patch_contact_relationship.assert_called_once_with(
+        5018, time_from="2006-06-29"
+    )
+    assert "PUT /admin_contact_entity_relationship_row/5018" in result.detail
+
+
+def test_dispatch_patch_contact_relationship_start_token_resolves_against_station():
+    """`start` resolves against the id_entity slot (the station), NOT the
+    relationship id — that's why the station goes in the id slot."""
+    writer = MagicMock()
+    writer._get_earliest_known.return_value = "2006-06-29"
+    writer.patch_contact_relationship.return_value = {"ok": True}
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "patch-contact-relationship", "5018", "time_from", "start"),
+    )
+    assert result.status == "ok"
+    writer._get_earliest_known.assert_called_once_with(4316)
+    writer.patch_contact_relationship.assert_called_once_with(
+        5018, time_from="2006-06-29"
+    )
+
+
+def test_dispatch_patch_contact_relationship_role_field_no_date_check():
+    writer = MagicMock()
+    writer.patch_contact_relationship.return_value = {"ok": True}
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "patch-contact-relationship", "5018", "role", "operator"),
+    )
+    assert result.status == "ok"
+    writer.patch_contact_relationship.assert_called_once_with(5018, role="operator")
+
+
+def test_dispatch_patch_contact_relationship_bad_field_rejected():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "patch-contact-relationship", "5018", "bogus", "x"),
+    )
+    assert result.status == "failed"
+    assert "field must be one of" in result.detail
+    writer.patch_contact_relationship.assert_not_called()
+
+
+def test_dispatch_patch_contact_relationship_placeholder_rejected():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4316, "patch-contact-relationship", "5018", "time_from", "<FILL_DATE>"
+        ),
+    )
+    assert result.status == "failed"
+    assert "placeholder" in result.detail
+    writer.patch_contact_relationship.assert_not_called()
+
+
+def test_dispatch_patch_contact_relationship_non_int_id_rejected():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4316, "patch-contact-relationship", "abc", "time_from", "2006-06-29"
+        ),
+    )
+    assert result.status == "failed"
+    assert "integer id_relationship" in result.detail
+    writer.patch_contact_relationship.assert_not_called()
+
+
+def test_dispatch_patch_contact_relationship_writer_exception_captured():
+    writer = MagicMock()
+    writer._get_earliest_known.return_value = "2006-06-29"
+    writer.patch_contact_relationship.side_effect = RuntimeError("simulated 500")
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            4316, "patch-contact-relationship", "5018", "time_from", "2006-06-29"
+        ),
+    )
+    assert result.status == "failed"
+    assert "simulated 500" in result.detail
+
+
+def test_dispatch_assign_contact_happy_path():
+    writer = MagicMock()
+    writer.create_contact_relationship.return_value = {"id": 6000}
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "assign-contact", "1256", "operator", "2020-01-01"),
+    )
+    assert result.status == "ok"
+    writer.create_contact_relationship.assert_called_once_with(
+        1256, 4316, "operator", "2020-01-01"
+    )
+    assert "POST /contact_joins" in result.detail
+
+
+def test_dispatch_assign_contact_non_int_contact_rejected():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "assign-contact", "notanint", "operator", "2020-01-01"),
+    )
+    assert result.status == "failed"
+    assert "integer id_contact" in result.detail
+    writer.create_contact_relationship.assert_not_called()
+
+
+def test_dispatch_assign_contact_bad_date_rejected():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "assign-contact", "1256", "operator", "not-a-date"),
+    )
+    assert result.status == "failed"
+    assert "YYYY-MM-DD" in result.detail
+    writer.create_contact_relationship.assert_not_called()
+
+
+def test_dispatch_delete_contact_relationship_happy_path():
+    writer = MagicMock()
+    writer.delete_contact_relationship.return_value = None
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "delete-contact-relationship", "5018"),
+    )
+    assert result.status == "ok"
+    writer.delete_contact_relationship.assert_called_once_with(5018)
+    assert "DELETE /admin_contact_entity_relationship_row/5018" in result.detail
+
+
+def test_dispatch_delete_contact_relationship_non_int_rejected():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(4316, "delete-contact-relationship", "xyz"),
+    )
+    assert result.status == "failed"
+    assert "integer id_relationship" in result.detail
+    writer.delete_contact_relationship.assert_not_called()
