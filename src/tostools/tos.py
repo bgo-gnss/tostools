@@ -4977,6 +4977,10 @@ def _audit_main(argv):
             "  tos audit visit-coverage HAUC --triage hauc_cov.txt  # emit add-visit ACTIONs\n"
             "  tos audit visit-coverage HAUC --no-suppressions      # bypass SUPPRESS file\n"
             "\n"
+            "  # ---- Contact dates (migration-artifact per_time_from) ----\n"
+            "  tos audit contact-dates RHOF                         # flag non-midnight relationship dates\n"
+            "  tos audit contact-dates RHOF --triage rhof_cts.txt   # emit patch-contact-relationship ACTIONs\n"
+            "\n"
             "  # ---- Apply triage files (writes; needs credentials) -----\n"
             "  tos audit apply trial.txt                            # dry-run preview (default)\n"
             "  tos audit apply trial.txt --apply                    # commit writes\n"
@@ -5735,6 +5739,80 @@ def _audit_main(argv):
     )
     p_coverage.add_argument("--port", type=int, default=443)
 
+    p_contact_dates = sub.add_parser(
+        "contact-dates",
+        help=(
+            "Flag contact↔station relationships with a TOS-migration "
+            "date (non-midnight per_time_from)."
+        ),
+        description=(
+            "When TOS contacts were bulk-loaded into the new system, "
+            "each contact↔station relationship got a time_from set to "
+            "the moment of the load, not the real ownership-start date. "
+            "The signal: a non-midnight time-of-day (genuine dates are "
+            "recorded at T00:00:00; migration bulk-loads carry a real "
+            "clock time, identical within each batch — e.g. 26 "
+            "relationships all at 2025-02-04T15:32:38).\n\n"
+            "Flags every relationship whose per_time_from has a "
+            "non-midnight time component. Use --triage to emit "
+            "patch-contact-relationship ACTIONs that backdate each to "
+            "the station's earliest_known (the `start` token)."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos audit contact-dates RHOF\n"
+            "  tos audit contact-dates RHOF --triage rhof_contacts.txt\n"
+            "  tos audit contact-dates RHOF --no-suppressions --json\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_contact_dates.add_argument(
+        "name", nargs="?", help="Station marker (e.g. RHOF) or display name."
+    )
+    p_contact_dates.add_argument(
+        "--id", dest="id_entity", type=int, help="Station id_entity."
+    )
+    p_contact_dates.add_argument(
+        "--suppressions",
+        type=Path,
+        default=None,
+        help=(
+            "Override the suppression file path. Defaults to "
+            "data/audit_suppressions/contact_dates.txt. File-not-found "
+            "is silent (the file is opt-in)."
+        ),
+    )
+    p_contact_dates.add_argument(
+        "--no-suppressions",
+        action="store_true",
+        help="Bypass the suppression file entirely.",
+    )
+    p_contact_dates.add_argument(
+        "--triage",
+        dest="triage_path",
+        type=Path,
+        default=None,
+        help=(
+            "Emit a draft ACTION file at this path. One commented "
+            "`ACTION <station> patch-contact-relationship <id_rel> "
+            "time_from start` line per violation."
+        ),
+    )
+    p_contact_dates.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of plain text."
+    )
+    p_contact_dates.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show suppressed entries with file:lineno references.",
+    )
+    p_contact_dates.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_contact_dates.add_argument("--port", type=int, default=443)
+
     p_verify = sub.add_parser(
         "verify-from-rinex",
         help=(
@@ -6124,6 +6202,49 @@ def _audit_main(argv):
             )
         else:
             _print_visit_coverage_report(report, verbose=args.verbose)
+        return 1 if report.has_violations else 0
+
+    if args.kind == "contact-dates":
+        from . import audit_contact_dates as acd_mod
+
+        try:
+            report = acd_mod.audit_station_contact_dates(
+                client,
+                name=args.name,
+                id_entity=args.id_entity,
+                suppressions_path=args.suppressions,
+                use_suppressions=not args.no_suppressions,
+            )
+        except (LookupError, ValueError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if report.suppressions_errors:
+            print(
+                f"warning: {len(report.suppressions_errors)} malformed line(s) "
+                f"in {report.suppressions_path}:",
+                file=sys.stderr,
+            )
+            for err in report.suppressions_errors:
+                print(f"  line {err.line_no}: {err.message}", file=sys.stderr)
+        if args.triage_path:
+            audit_cmd = "tos audit " + " ".join(argv) if argv else "tos audit"
+            content = acd_mod.format_triage_file(report, audit_command=audit_cmd)
+            args.triage_path.write_text(content, encoding="utf-8")
+            print(
+                f"wrote triage file: {args.triage_path} "
+                f"({len(report.violations)} violation(s))",
+                file=sys.stderr,
+            )
+        if args.json:
+            print(
+                _json.dumps(
+                    _contact_dates_report_to_dict(report),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            _print_contact_dates_report(report, verbose=args.verbose)
         return 1 if report.has_violations else 0
 
     if args.kind == "verify-from-rinex":
@@ -8645,6 +8766,80 @@ def _print_visit_coverage_report(report, *, verbose: bool = False):
                     f"      · {v.event_date} "
                     f"(suppressed at {s.suppressions_path}:{s.line_no})"
                 )
+
+
+def _contact_dates_report_to_dict(report):
+    """Convert a :class:`StationContactDatesReport` to JSON-serialisable dict."""
+
+    def _violation_dict(v):
+        return {
+            "id_relationship": v.id_relationship,
+            "id_contact": v.id_contact,
+            "contact_label": v.contact_label,
+            "role": v.role,
+            "per_time_from": v.per_time_from,
+        }
+
+    return {
+        "kind": "contact-dates",
+        "station_id": report.station_id,
+        "station_name": report.station_name,
+        "audited_relationships": report.audited_relationships,
+        "violations": [_violation_dict(v) for v in report.violations],
+        "suppressed": [
+            {
+                **_violation_dict(s.violation),
+                "suppressions_path": str(s.suppressions_path),
+                "line_no": s.line_no,
+            }
+            for s in report.suppressed
+        ],
+        "suppressions_path": (
+            str(report.suppressions_path) if report.suppressions_path else None
+        ),
+        "suppressions_disabled": report.suppressions_disabled,
+        "suppressions_errors": [
+            {"line_no": e.line_no, "message": e.message, "raw": e.raw}
+            for e in report.suppressions_errors
+        ],
+    }
+
+
+def _print_contact_dates_report(report, *, verbose: bool = False):
+    """Render a contact-dates audit report as plain text on stdout."""
+    status = "CLEAN" if not report.has_violations else "VIOLATIONS"
+    marker = "✓" if not report.has_violations else "✗"
+    name = report.station_name or "?"
+    print(f"{marker} Station {name!r} (id_entity={report.station_id}) — {status}")
+    print(f"  relationships audited: {report.audited_relationships}")
+    if report.suppressed_count:
+        print(
+            f"  suppressed: {report.suppressed_count} entry(ies) via "
+            f"{report.suppressions_path}"
+        )
+    elif report.suppressions_disabled:
+        print("  suppressions: disabled (--no-suppressions)")
+
+    if report.violations:
+        print()
+        print(f"  migration-artifact dates ({len(report.violations)}):")
+        for v in report.violations:
+            label = f" {v.contact_label!r}" if v.contact_label else ""
+            role = f" role={v.role}" if v.role else ""
+            print(f"    rel {v.id_relationship} — contact {v.id_contact}{label}{role}")
+            print(f"      · per_time_from = {v.per_time_from}  → backdate to `start`")
+            if verbose:
+                print(f"        suppress: SUPPRESS {v.id_relationship}")
+
+    if verbose and report.suppressed:
+        print()
+        print(f"  suppressed ({len(report.suppressed)} silenced entry(ies)):")
+        for s in report.suppressed:
+            v = s.violation
+            print(
+                f"    rel {v.id_relationship} (per_time_from={v.per_time_from}) "
+                f"— suppressed at {s.suppressions_path}:{s.line_no}"
+            )
 
 
 def _station_report_to_dict(report):

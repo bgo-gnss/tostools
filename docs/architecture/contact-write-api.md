@@ -164,23 +164,39 @@ tos contact remove <id_rel> [--no-dry-run]
 Dry-run default + `--no-dry-run` to commit, matching `tos device add`
 / `tos visit add`. `--json` on all three.
 
-## Phase 4 — audit (migration-artifact pattern, NOT YET BUILT)
-
-Operator confirmed the `per_time_from` migration-date is wrong
-fleet-wide. Parallel to `tos audit attribute-dates`:
+## Phase 4 — `tos audit contact-dates` (SHIPPED)
 
 ```
-tos audit contact-dates <STN>   # flag per_time_from == <migration date pattern>
+tos audit contact-dates <STN> [--triage path.txt] [--no-suppressions] [--json]
 ```
 
-First task here: characterise the artifact. Is every contact
-relationship's `per_time_from` clustered around a single migration
-date (like 2014-10-17 for attributes), or a date range? Probe
-`entity_contacts/` across the fleet to find the signature, then the
-audit flags + the triage emitter suggests backdating to the station's
-`earliest_known` (the same anchor `start` resolves to elsewhere). The
-emitter would write `#ACTION <station> patch-contact-relationship
-<id_rel> time_from start` lines.
+**Artifact signature** (fleet probe 2026-05-31, 77 relationships across
+71 stations): migration bulk-loads cluster on a few instants, each
+shared *identically* across the batch —
+`2025-02-04T15:32:38 ×26`, `2025-02-05T11:19:42 ×8`,
+`2025-09-12T09:41:14 ×4`. The discriminator is **a non-midnight
+time-of-day**: genuine ownership-start dates are recorded at
+`T00:00:00` (33 of 38 real-date relationships in the probe); the
+bulk-loads all carry a real clock time. So the rule —
+
+> flag a relationship whose `per_time_from` has a non-midnight time
+> component —
+
+auto-catches every migration batch without a hardcoded date list, and
+is robust to future loads. False positives (a genuine relationship
+with a clock time) go in the SUPPRESS file
+(`data/audit_suppressions/contact_dates.txt`, key `SUPPRESS
+<id_relationship>`); every emitted ACTION is commented for review.
+
+Module `src/tostools/audit_contact_dates.py` mirrors
+`audit_visit_coverage` (report dataclass + suppression loader +
+`format_triage_file`). The triage emitter writes
+`#ACTION <station> patch-contact-relationship <id_rel> time_from start`
+per violation — `start` resolves at apply time to the station's
+earliest_known (founding date for VÍ-owned sites). Standalone cleanup
+audit (not in the recurring verify oracle — migration artifacts are a
+one-time fixup, not ongoing drift). Pinned by
+`tests/test_audit_contact_dates.py`.
 
 ## Phase 5 — contact-entity writes (NOT YET BUILT)
 
