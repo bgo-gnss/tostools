@@ -86,6 +86,9 @@ tos station verify $STN                 # 0 clean / 1 findings / 2 oracle failur
 tosGPS PrintTOS $STN                    # session table sanity
 # Optional archive cross-check (same flag as triage):
 #   tos station verify $STN --with-archive
+# Optional vitjun-coverage check (flags equipment changes with no
+# maintenance record — see "Vitjanir" below):
+#   tos station verify $STN --with-coverage
 
 # 6. Commit triage to git for provenance
 git add data/triage/hedi/
@@ -296,6 +299,81 @@ Both verbs share the same `--with-archive` plumbing as the
 single-station forms — but be warned, archive walks across 173
 stations take a long time on a cold cache.
 
+## Vitjanir (visits / maintenance records)
+
+Triage fixes the **metadata** (what equipment is where, with what
+dates). Vitjanir are a parallel track: the **maintenance log** — a
+dated record of physical interventions on a station or device
+("skipti um loftnetskápal", "sent for repair: cable damage", "firmware
+bumped to 3.01"). They live in a separate `id_maintenance` namespace
+and hang off any entity (station or device).
+
+### Reading vitjanir
+
+```bash
+tos visit list --station HEDI          # all visits on a station, newest first
+tos visit list --device 4905           # visits on one device
+tos visit show 5490                     # one visit, full detail
+```
+
+`tos station show` and `tos device show --id <id>` already surface a
+"Recent vitjanir" panel by default (all open + 3 most-recent closed).
+Filters on `list`: `--type on_site|remote`, `--reason change|repairs|…`
+(repeatable), `--since DATE`, `--participants SUBSTR`, `--open` /
+`--completed`.
+
+### Recording a visit (two ways)
+
+**Standalone, ad-hoc** — `tos visit add` (dry-run by default, like
+`tos device add`):
+
+```bash
+tos visit add --station HEDI --start 2026-05-30 \
+    --reason repairs --work "skipti um loftnetskápal" \
+    --participants bgo@vedur.is
+# add --no-dry-run to commit
+```
+
+**In a triage file** — the `add-visit` ACTION verb, so a vitjun lands
+in the same `tos audit apply` as the metadata change it documents.
+This is the device-lifecycle-tracker pattern — chain visits next to
+`move` / `patch-attribute-value` so the audit trail and the state
+change commit together:
+
+```
+# device 4830 sent to vendor 2026-05-30, back + redeployed 2026-06-20
+ACTION 4830 move 4 2026-05-30                          # → warehouse B9
+ACTION 4830 add-visit repairs 2026-05-30 "sent for repair: cable damage" open
+ACTION 4830 move 4316 2026-06-20                       # → HEDI station
+ACTION 4830 patch-attribute-value firmware_version 2026-06-20 "3.01"
+ACTION 4830 add-visit change,repairs 2026-06-20 "back from vendor; fw 3.01"
+```
+
+The 4th positional is `open` / `closed` (default `closed`) — use
+`open` to start a long-running repair cycle that a later `add-visit`
+closes.
+
+### Auditing coverage — `tos audit visit-coverage`
+
+Flags equipment-change events (device join-opens) that have **no
+vitjun within ±N days** — i.e. someone swapped hardware but left no
+maintenance record. Opt-in (noisy on pre-vitjun-era stations):
+
+```bash
+tos audit visit-coverage HEDI                       # standalone
+tos audit visit-coverage HEDI --since 2020-01-01    # widen scope
+tos audit visit-coverage HEDI --triage cov.txt      # emit add-visit ACTIONs
+tos station verify HEDI --with-coverage             # fold into the oracle
+tos fleet status --with-coverage                    # fleet-wide
+```
+
+The `--triage` emitter writes commented `#ACTION <device_id> add-visit
+change <date> "<FILL_WORK>"` lines — replace `<FILL_WORK>` with what
+actually happened, uncomment, apply. For genuine pre-vitjun-era gaps
+(no record because the visit predates the logging system), prefer the
+SUPPRESS hint over back-filling an invented description:
+`data/audit_suppressions/visit_coverage.txt`.
+
 ## Reference: ACTION verbs
 
 | Verb | Shape | Use |
@@ -352,4 +430,4 @@ story of what happened when.
 
 ---
 
-*Last reviewed: 2026-05-28*
+*Last reviewed: 2026-05-31*
