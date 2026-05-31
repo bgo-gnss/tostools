@@ -484,9 +484,24 @@ time_from start`.
 
 `patch_contact_relationship` GET-merges-PUTs (the admin endpoint is
 PUT-replace): reads the current row, overlays the changed field, writes
-the full row back. Follow-ups (not built): `tos audit contact-dates`
-fleet-wide migration-artifact audit; contact-entity edits via
-`PUT /contact/{id}/` (fleet-global blast radius, deferred).
+the full row back. All three relationship write paths (PUT/POST/DELETE)
+are live-verified against production TOS.
+
+**`tos audit contact-dates <STN>`** — flags relationships whose
+`per_time_from` is a TOS-migration artifact. The signal is a
+**non-midnight time-of-day** (genuine ownership-start dates are at
+`T00:00:00`; migration bulk-loads carry a real clock time, identical
+within each batch — e.g. 26 relationships all at `2025-02-04T15:32:38`).
+`--triage` emits commented `#ACTION <station>
+patch-contact-relationship <id_rel> time_from start` lines (backdate to
+the station's earliest_known). SUPPRESS file
+`data/audit_suppressions/contact_dates.txt` (key `SUPPRESS
+<id_relationship>`). Standalone cleanup audit — migration artifacts are
+a one-time fixup, so it's not in the recurring verify oracle.
+
+Follow-up (not built): contact-ENTITY edits via `PUT /contact/{id}/`
+(name/phone/address — fleet-global blast radius, deferred) and creating
+new contact entities via `POST /contacts`.
 
 ## Architecture
 
