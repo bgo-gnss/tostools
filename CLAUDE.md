@@ -499,9 +499,17 @@ the station's earliest_known). SUPPRESS file
 <id_relationship>`). Standalone cleanup audit — migration artifacts are
 a one-time fixup, so it's not in the recurring verify oracle.
 
-Follow-up (not built): contact-ENTITY edits via `PUT /contact/{id}/`
-(name/phone/address — fleet-global blast radius, deferred) and creating
-new contact entities via `POST /contacts`.
+**Contact-entity writes** (`id_contact`, distinct from the relationship):
+
+  * `tos contact create --name "…" [--organization …] [--phone …] [--email …] [--address …] [--start-date DATE] [--ssid …]` — new contact entity (`POST /contacts`). Returns the new id_contact, then `tos contact assign` maps it to a station. Dry-run default.
+  * `tos contact patch-entity <id_contact> [--name …] [--phone …] …` — edit a contact (`PUT /contact/{id}/`, GET-merge-PUT). **FLEET-GLOBAL** — one contact serves many stations, so the change propagates everywhere.
+
+There is **no contact-delete endpoint**: a created contact can't be
+removed, only deactivated via `--end-date`. Contact-entity writes are
+dry-run validated (body inferred from the GET shape like
+`/contact_joins`); verified on first genuine use since no throwaway can
+be cleaned up. The contact-write stack is now complete (relationship
+CRUD + entity create/edit + the contact-dates audit).
 
 ## Architecture
 

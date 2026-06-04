@@ -2023,3 +2023,103 @@ def test_get_contact_relationship_returns_row_or_none():
         assert w.get_contact_relationship(5018)["id_contact"] == 1256
     with patch.object(w, "_request", return_value=None):
         assert w.get_contact_relationship(5018) is None
+
+
+# ---------------------------------------------------------------------------
+# TOSWriter — contact entity writes (create / patch_contact)
+# ---------------------------------------------------------------------------
+
+
+def test_create_contact_posts_to_contacts_with_defaults():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request") as mock_req:
+        mock_req.return_value = {"id": 9001}
+        w.create_contact(name="Test Org", organization="Test Org", phone_primary="555")
+    call = mock_req.call_args
+    assert call.args[0] == "POST"
+    assert call.args[1] == "/contacts"
+    payload = call.kwargs["data"]
+    assert payload["name"] == "Test Org"
+    assert payload["organization"] == "Test Org"
+    assert payload["phone_primary"] == "555"
+    # Unset fields default to empty string (the GET-shape convention).
+    assert payload["email"] == ""
+    assert payload["address"] == ""
+    assert payload["ssid"] == ""
+
+
+def test_create_contact_normalises_dates():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request") as mock_req:
+        mock_req.return_value = {"id": 9001}
+        w.create_contact(name="X", start_date="2026-01-01", end_date="2030-01-01")
+    payload = mock_req.call_args.kwargs["data"]
+    assert payload["start_date"] == "2026-01-01T00:00:00"
+    assert payload["end_date"] == "2030-01-01T00:00:00"
+
+
+def test_create_contact_rejects_unknown_field():
+    w = _logged_in_writer()
+    with pytest.raises(ValueError, match="unknown field"):
+        w.create_contact(name="X", bogus="y")
+
+
+def test_create_contact_respects_dry_run():
+    from tostools.api.tos_writer import DryRunResult
+
+    w = _logged_in_writer(dry_run=True)
+    with patch("requests.request") as mock_http:
+        result = w.create_contact(name="X")
+    mock_http.assert_not_called()
+    assert isinstance(result, DryRunResult)
+    assert result.method == "POST"
+    assert result.endpoint == "/contacts"
+
+
+def test_patch_contact_get_merge_put_preserves_unchanged():
+    w = _logged_in_writer(dry_run=False)
+    current = {
+        "id": 1256,
+        "name": "Veðurstofa Íslands",
+        "organization": "Veðurstofa Íslands",
+        "job_title": "",
+        "phone_primary": "5226000",
+        "phone_secondary": "",
+        "phone_tertiary": "",
+        "email": "",
+        "address": "Bústaðarvegur 7-9",
+        "comment": "",
+        "start_date": "1845-01-01T00:00:00",
+        "end_date": None,
+        "ssid": "6309080350",
+    }
+
+    def fake_request(method, endpoint, data=None, **kw):
+        return current if method == "GET" else {"ok": True}
+
+    with patch.object(w, "_request", side_effect=fake_request) as mock_req:
+        w.patch_contact(1256, phone_primary="9999999")
+    put_payload = mock_req.call_args.kwargs["data"]
+    assert put_payload["phone_primary"] == "9999999"  # changed
+    assert put_payload["name"] == "Veðurstofa Íslands"  # preserved
+    assert put_payload["address"] == "Bústaðarvegur 7-9"  # preserved
+    assert put_payload["ssid"] == "6309080350"  # preserved
+
+
+def test_patch_contact_requires_a_field():
+    w = _logged_in_writer()
+    with pytest.raises(ValueError, match="at least one field"):
+        w.patch_contact(1256)
+
+
+def test_patch_contact_rejects_unknown_field():
+    w = _logged_in_writer()
+    with pytest.raises(ValueError, match="unknown field"):
+        w.patch_contact(1256, bogus="y")
+
+
+def test_patch_contact_missing_contact_raises():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request", return_value=None):
+        with pytest.raises(ValueError, match="no contact"):
+            w.patch_contact(99999, name="X")
