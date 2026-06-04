@@ -322,6 +322,7 @@ tos contact remove <id_rel>        # delete a relationship (dry-run default)
 tos audit apply <triage_file>      # dry-run; --apply to commit
 tos fleet status                   # bulk verify oracle (exit 0/1/2)
 tos fleet triage                   # generate per-station triage files
+tos fleet contact-dates --triage F # fleet-wide contact migration-date sweep
 ```
 
 Legacy flat-arg form (`tos RHOF`, `tos -s SERIAL`, `tos --fdsnxml/--sc3ml`)

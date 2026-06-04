@@ -4931,6 +4931,89 @@ def _fleet_main(argv):
     )
     _add_common_filters(p_sta)
 
+    p_cd = sub.add_parser(
+        "contact-dates",
+        help=(
+            "Sweep `tos audit contact-dates` across the fleet. Flags "
+            "contact↔station relationships with a TOS-migration date "
+            "(non-midnight per_time_from)."
+        ),
+        description=(
+            "Run the contact-dates audit against every GNSS station and "
+            "aggregate the migration-artifact relationships fleet-wide. "
+            "Read-only — no TOS state mutated.\n\n"
+            "Migration bulk-loads gave each contact↔station relationship "
+            "a time_from set to the load instant (a non-midnight "
+            "clock time) rather than the real ownership-start date. "
+            "This sweep surfaces them all.\n\n"
+            "Use --triage to emit ONE combined action file. Owner-role "
+            "relationships are emitted UNCOMMENTED (backdating to "
+            "`start`/founding is always correct — the owner owned the "
+            "station from founding); non-owner roles (data_owner / "
+            "operator / observer) are COMMENTED for review (they may "
+            "have a genuinely recent start date).\n\n"
+            "One-time cleanup — once swept it stays clean (no new "
+            "migration), so this is not in the recurring verify oracle."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos fleet contact-dates\n"
+            "  tos fleet contact-dates --triage data/triage/contact_dates_fleet.txt\n"
+            "  tos fleet contact-dates --json | jq '.totals'\n"
+        ),
+        formatter_class=_argparse.RawDescriptionHelpFormatter,
+    )
+    p_cd.add_argument(
+        "--triage",
+        dest="triage_path",
+        type=Path,
+        default=None,
+        help=(
+            "Emit one combined triage file (owner-role uncommented, "
+            "non-owner commented). Apply with `tos audit apply`."
+        ),
+    )
+    p_cd.add_argument(
+        "--include",
+        nargs="+",
+        default=None,
+        metavar="STN",
+        help="Restrict to these markers (case-insensitive).",
+    )
+    p_cd.add_argument(
+        "--exclude",
+        nargs="+",
+        default=None,
+        metavar="STN",
+        help="Skip these markers.",
+    )
+    p_cd.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Stop after N stations (smoke test).",
+    )
+    p_cd.add_argument(
+        "--stations-cfg",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Override the stations.cfg path.",
+    )
+    p_cd.add_argument(
+        "--suppressions",
+        type=Path,
+        default=None,
+        help="Override the contact_dates.txt suppression path.",
+    )
+    p_cd.add_argument(
+        "--no-suppressions",
+        action="store_true",
+        help="Bypass the suppression file.",
+    )
+    p_cd.add_argument("--json", action="store_true", help="Machine-readable JSON.")
+
     args = p.parse_args(argv)
 
     from .api.tos_client import TOSClient
@@ -4943,6 +5026,64 @@ def _fleet_main(argv):
     from .station_triage import STATUS_MARK
 
     client = TOSClient()
+
+    # contact-dates has its own summary type + render path — handle it
+    # before the shared status/triage machinery below.
+    if args.verb == "contact-dates":
+        from .fleet_ops import (
+            fleet_contact_dates_to_dict,
+            format_fleet_contact_dates_report,
+            format_fleet_contact_dates_triage,
+            run_fleet_contact_dates,
+        )
+
+        def _cd_enum(idx, total):
+            if total and (idx == total or idx % 20 == 0 or idx == 1):
+                print(
+                    f"resolving stations.cfg markers… {idx}/{total}",
+                    file=_sys.stderr,
+                )
+
+        def _cd_progress(idx, total, st):
+            if idx % 25 == 0 or idx == total:
+                print(f"  audited {idx}/{total}…", file=_sys.stderr)
+
+        try:
+            cd_summary = run_fleet_contact_dates(
+                client,
+                use_suppressions=not bool(args.no_suppressions),
+                suppressions_path=args.suppressions,
+                station_cfg_path=str(args.stations_cfg) if args.stations_cfg else None,
+                include=args.include,
+                exclude=args.exclude,
+                limit=args.limit,
+                progress=_cd_progress,
+                enumerate_progress=_cd_enum,
+            )
+        except RuntimeError as exc:
+            print(f"tos fleet: {exc}", file=_sys.stderr)
+            return 2
+
+        if args.triage_path:
+            content = format_fleet_contact_dates_triage(cd_summary)
+            args.triage_path.write_text(content, encoding="utf-8")
+            print(
+                f"wrote combined triage file: {args.triage_path} "
+                f"({cd_summary.total_violations} violation(s))",
+                file=_sys.stderr,
+            )
+        if args.json:
+            print(
+                _json.dumps(
+                    fleet_contact_dates_to_dict(cd_summary),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            print(format_fleet_contact_dates_report(cd_summary), end="")
+        # Exit 1 if any migration-artifact dates surfaced, else 0.
+        return 1 if cd_summary.total_violations else 0
 
     # Stderr progress reporter — keeps stdout clean for JSON / piping.
     def _progress(idx, total, result):
@@ -9590,6 +9731,9 @@ def _print_top_level_help() -> None:
         "                                       `tos audit apply` (skips\n"
         "                                       clean stations by\n"
         "                                       default).\n"
+        "               fleet contact-dates     Sweep contact-dates audit\n"
+        "                                       fleet-wide; --triage emits a\n"
+        "                                       combined fix file.\n"
         "             Filters: --include / --exclude STN1 STN2 …,\n"
         "                      --limit N, --with-archive, --json.\n"
         "             Use `tos fleet --help` for the full operator guide.\n"
