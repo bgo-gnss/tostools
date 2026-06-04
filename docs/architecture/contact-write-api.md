@@ -200,6 +200,18 @@ audit (not in the recurring verify oracle — migration artifacts are a
 one-time fixup, not ongoing drift). Pinned by
 `tests/test_audit_contact_dates.py`.
 
+**Fleet sweep** — `tos fleet contact-dates [--triage PATH]` loops the
+audit over every GNSS station and aggregates. `--triage` emits ONE
+combined file with a confidence split: **owner-role** relationships
+uncommented (backdating to `start`/founding is always correct — the
+owner owned the station from founding regardless of which org);
+non-owner roles (data_owner / operator / observer) commented for review
+(they may have a genuinely recent start date). First fleet run
+(2026-06-04): 129 violations across 192 stations — 100 owner
+(ready-to-apply) + 29 non-owner (review). Provenance:
+`data/triage/contact_dates_fleet_20260604.txt`. In `fleet_ops.py`:
+`run_fleet_contact_dates` + `format_fleet_contact_dates_triage`.
+
 ## Phase 5 — contact-entity writes (SHIPPED; dry-run validated)
 
 Writer `create_contact(*, name, **fields)` → `POST /contacts`;

@@ -34,6 +34,10 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from tostools.api.tos_client import TOSClient
 from tostools.audit import REAL_STATION_SUBTYPES
+from tostools.audit_contact_dates import (
+    ContactDateViolation,
+    audit_station_contact_dates,
+)
 from tostools.history import (
     ParentEntity,
     default_station_cfg_path,
@@ -565,6 +569,255 @@ def run_fleet_verify(
         results=results,
         with_archive=with_archive,
     )
+
+
+# ---------------------------------------------------------------------------
+# Fleet contact-dates sweep (migration-artifact relationship dates)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FleetContactDatesStation:
+    """One station's contact-dates result in the fleet sweep."""
+
+    marker: str
+    station_id: Optional[int]
+    violations: List[ContactDateViolation] = field(default_factory=list)
+    error: Optional[str] = None
+
+
+@dataclass
+class FleetContactDatesSummary:
+    """Aggregate of a fleet-wide contact-dates sweep."""
+
+    generated_at: str
+    stations: List[FleetContactDatesStation] = field(default_factory=list)
+
+    @property
+    def stations_audited(self) -> int:
+        return len(self.stations)
+
+    @property
+    def clean(self) -> int:
+        return sum(1 for s in self.stations if not s.violations and not s.error)
+
+    @property
+    def with_violations(self) -> int:
+        return sum(1 for s in self.stations if s.violations)
+
+    @property
+    def errors(self) -> int:
+        return sum(1 for s in self.stations if s.error)
+
+    @property
+    def total_violations(self) -> int:
+        return sum(len(s.violations) for s in self.stations)
+
+    @property
+    def all_violations(
+        self,
+    ) -> "List[tuple[FleetContactDatesStation, ContactDateViolation]]":
+        out = []
+        for s in self.stations:
+            for v in s.violations:
+                out.append((s, v))
+        return out
+
+
+def run_fleet_contact_dates(
+    client: TOSClient,
+    *,
+    stations: Optional[Sequence[ParentEntity]] = None,
+    use_suppressions: bool = True,
+    suppressions_path: Optional[Path] = None,
+    station_cfg_path: Optional[str] = None,
+    include: Optional[Sequence[str]] = None,
+    exclude: Optional[Sequence[str]] = None,
+    limit: Optional[int] = None,
+    progress: Optional[Callable[[int, int, FleetContactDatesStation], None]] = None,
+    enumerate_progress: Optional[Callable[[int, int], None]] = None,
+    generated_at: Optional[str] = None,
+) -> FleetContactDatesSummary:
+    """Sweep :func:`audit_station_contact_dates` across the GNSS fleet.
+
+    Read-only: one ``get_entity_history`` + one ``get_contacts`` per
+    station (after marker resolution). Migration artifacts are a
+    one-time cleanup, so this is a standalone sweep — not wired into the
+    recurring verify oracle.
+
+    Per-station failures are captured on the result, never abort the run.
+    """
+    generated_at = generated_at or now_iso_utc()
+    if stations is None:
+        stations = enumerate_fleet_stations(
+            client,
+            station_cfg_path=station_cfg_path,
+            include=include,
+            exclude=exclude,
+            limit=limit,
+            enumerate_progress=enumerate_progress,
+        )
+
+    summary = FleetContactDatesSummary(generated_at=generated_at)
+    for idx, parent in enumerate(stations, start=1):
+        marker = parent.name or f"id={parent.id_entity}"
+        st = FleetContactDatesStation(marker=marker, station_id=parent.id_entity)
+        try:
+            report = audit_station_contact_dates(
+                client,
+                id_entity=parent.id_entity,
+                use_suppressions=use_suppressions,
+                suppressions_path=suppressions_path,
+            )
+            st.violations = list(report.violations)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("contact-dates sweep failed for %s: %s", marker, exc)
+            st.error = str(exc)
+        summary.stations.append(st)
+        if progress is not None:
+            progress(idx, len(stations), st)
+    return summary
+
+
+#: Roles whose `time_from` can always be safely backdated to the
+#: station's `start` (founding): the owner owned the station from
+#: founding regardless of which org. Non-owner roles (data_owner,
+#: operator, observer) may have genuinely later real start dates, so
+#: those stay commented for operator review.
+_HIGH_CONFIDENCE_CONTACT_ROLES = frozenset({"owner"})
+
+
+def format_fleet_contact_dates_triage(
+    summary: FleetContactDatesSummary,
+) -> str:
+    """Render a single combined triage file for the fleet sweep.
+
+    ``role == owner`` violations are emitted **uncommented** (backdating
+    to ``start`` is always correct — the owner owned the station from
+    founding). All other roles are emitted **commented** for operator
+    review (they may have genuinely recent start dates). Each line is a
+    ``patch-contact-relationship <id_rel> time_from start`` ACTION whose
+    ``id_entity`` slot is the station (so ``start`` resolves against the
+    station's earliest_known).
+    """
+    high = [
+        (s, v)
+        for s, v in summary.all_violations
+        if (v.role or "") in _HIGH_CONFIDENCE_CONTACT_ROLES
+    ]
+    low = [
+        (s, v)
+        for s, v in summary.all_violations
+        if (v.role or "") not in _HIGH_CONFIDENCE_CONTACT_ROLES
+    ]
+
+    lines: List[str] = []
+    lines.append("# === tos fleet contact-dates — combined triage action file ===")
+    lines.append(f"# Generated:  {summary.generated_at}")
+    lines.append(f"# Stations:   {summary.stations_audited} audited")
+    lines.append(f"# Violations: {summary.total_violations} total")
+    lines.append(f"#   HIGH (owner role, uncommented, ready to apply): {len(high)}")
+    lines.append(f"#   LOW  (non-owner role, commented for review):    {len(low)}")
+    lines.append("#")
+    lines.append("# Each line backdates time_from to `start` (the station's")
+    lines.append("# earliest_known / founding date), resolved at apply time.")
+    lines.append("#")
+    lines.append("# Workflow:")
+    lines.append("#   tos audit apply <file>          # dry-run preview")
+    lines.append("#   tos audit apply <file> --apply  # commit writes")
+    lines.append("")
+
+    lines.append("# ── HIGH confidence: owner relationships (owner owned the station")
+    lines.append("#    from founding, so `start` is the correct backdate) ──")
+    if not high:
+        lines.append("# (none)")
+    for s, v in sorted(high, key=lambda sv: (sv[0].marker, sv[1].id_relationship)):
+        label = f" {v.contact_label!r}" if v.contact_label else ""
+        lines.append(
+            f"# {s.marker} rel {v.id_relationship}{label} role={v.role}"
+            f"  (per_time_from={v.per_time_from})"
+        )
+        lines.append(
+            f"ACTION {s.station_id} patch-contact-relationship "
+            f"{v.id_relationship} time_from start"
+        )
+    lines.append("")
+
+    lines.append("# ── LOW confidence: non-owner roles (data_owner / operator /")
+    lines.append("#    observer) may have a genuinely recent start date — REVIEW")
+    lines.append("#    each before uncommenting ──")
+    if not low:
+        lines.append("# (none)")
+    for s, v in sorted(low, key=lambda sv: (sv[0].marker, sv[1].id_relationship)):
+        label = f" {v.contact_label!r}" if v.contact_label else ""
+        lines.append(
+            f"# {s.marker} rel {v.id_relationship}{label} role={v.role}"
+            f"  (per_time_from={v.per_time_from})"
+        )
+        lines.append(
+            f"#ACTION {s.station_id} patch-contact-relationship "
+            f"{v.id_relationship} time_from start"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def format_fleet_contact_dates_report(summary: FleetContactDatesSummary) -> str:
+    """Human-readable fleet contact-dates report (counts + batch breakdown)."""
+    from collections import Counter
+
+    lines: List[str] = []
+    lines.append(
+        f"=== FLEET CONTACT-DATES — {summary.generated_at} "
+        f"({summary.stations_audited} station(s)) ==="
+    )
+    lines.append(f"  clean:            {summary.clean}")
+    lines.append(f"  with violations:  {summary.with_violations}")
+    if summary.errors:
+        lines.append(f"  errors:           {summary.errors}")
+    lines.append(f"  total flagged relationships: {summary.total_violations}")
+
+    byday: "Counter[str]" = Counter(
+        v.per_time_from[:10] for _s, v in summary.all_violations
+    )
+    if byday:
+        lines.append("")
+        lines.append("  flagged per_time_from by day:")
+        for day, n in byday.most_common():
+            lines.append(f"    {day}: {n}")
+    return "\n".join(lines) + "\n"
+
+
+def fleet_contact_dates_to_dict(summary: FleetContactDatesSummary) -> Dict[str, Any]:
+    """JSON-serialisable view of a fleet contact-dates sweep."""
+    return {
+        "kind": "fleet-contact-dates",
+        "generated_at": summary.generated_at,
+        "totals": {
+            "stations_audited": summary.stations_audited,
+            "clean": summary.clean,
+            "with_violations": summary.with_violations,
+            "errors": summary.errors,
+            "total_violations": summary.total_violations,
+        },
+        "violations": [
+            {
+                "marker": s.marker,
+                "station_id": s.station_id,
+                "id_relationship": v.id_relationship,
+                "id_contact": v.id_contact,
+                "contact_label": v.contact_label,
+                "role": v.role,
+                "per_time_from": v.per_time_from,
+            }
+            for s, v in summary.all_violations
+        ],
+        "errors": [
+            {"marker": s.marker, "station_id": s.station_id, "error": s.error}
+            for s in summary.stations
+            if s.error
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------

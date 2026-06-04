@@ -580,3 +580,161 @@ def test_progress_callback_fires_once_per_station():
         )
 
     assert seen == [(1, 3, "RHOF"), (2, 3, "HEDI"), (3, 3, "SAVI")]
+
+
+# ---------------------------------------------------------------------------
+# Fleet contact-dates sweep
+# ---------------------------------------------------------------------------
+
+
+def _cd_report(station_id, name, violations):
+    """Build a StationContactDatesReport with the given violations."""
+    from tostools.audit_contact_dates import StationContactDatesReport
+
+    r = StationContactDatesReport(station_id=station_id, station_name=name)
+    r.violations = list(violations)
+    return r
+
+
+def _cd_violation(id_rel, role, per_time_from, *, id_contact=1256, label="VÍ"):
+    from tostools.audit_contact_dates import ContactDateViolation
+
+    return ContactDateViolation(
+        id_relationship=id_rel,
+        id_contact=id_contact,
+        contact_label=label,
+        role=role,
+        per_time_from=per_time_from,
+    )
+
+
+def test_run_fleet_contact_dates_aggregates():
+    from tostools.fleet_ops import run_fleet_contact_dates
+
+    stations = [_station(4390, "RHOF"), _station(4440, "SAVI"), _station(4316, "HEDI")]
+    reports = {
+        4390: _cd_report(
+            4390, "RHOF", [_cd_violation(4961, "operator", "2024-08-14T09:30:16")]
+        ),
+        4440: _cd_report(
+            4440, "SAVI", [_cd_violation(5052, "owner", "2025-02-04T15:32:38")]
+        ),
+        4316: _cd_report(4316, "HEDI", []),  # clean
+    }
+
+    with patch(
+        "tostools.fleet_ops.audit_station_contact_dates",
+        side_effect=lambda client, *, id_entity, **kw: reports[id_entity],
+    ):
+        summary = run_fleet_contact_dates(
+            None, stations=stations, generated_at=FROZEN_TS
+        )
+
+    assert summary.stations_audited == 3
+    assert summary.clean == 1
+    assert summary.with_violations == 2
+    assert summary.total_violations == 2
+
+
+def test_run_fleet_contact_dates_captures_per_station_error():
+    from tostools.fleet_ops import run_fleet_contact_dates
+
+    stations = [_station(4390, "RHOF"), _station(4440, "SAVI")]
+
+    def fake_audit(client, *, id_entity, **kw):
+        if id_entity == 4390:
+            raise RuntimeError("boom")
+        return _cd_report(
+            4440, "SAVI", [_cd_violation(5052, "owner", "2025-02-04T15:32:38")]
+        )
+
+    with patch(
+        "tostools.fleet_ops.audit_station_contact_dates", side_effect=fake_audit
+    ):
+        summary = run_fleet_contact_dates(
+            None, stations=stations, generated_at=FROZEN_TS
+        )
+
+    assert summary.errors == 1
+    assert summary.total_violations == 1  # SAVI still audited
+
+
+def test_fleet_contact_dates_triage_splits_owner_vs_other():
+    """Owner role → uncommented (backdate safe); non-owner → commented."""
+    from tostools.fleet_ops import (
+        FleetContactDatesStation,
+        FleetContactDatesSummary,
+        format_fleet_contact_dates_triage,
+    )
+
+    summary = FleetContactDatesSummary(generated_at=FROZEN_TS)
+    summary.stations = [
+        FleetContactDatesStation(
+            marker="SAVI",
+            station_id=4440,
+            violations=[_cd_violation(5052, "owner", "2025-02-04T15:32:38")],
+        ),
+        FleetContactDatesStation(
+            marker="RHOF",
+            station_id=4390,
+            violations=[_cd_violation(4961, "operator", "2024-08-14T09:30:16")],
+        ),
+    ]
+    out = format_fleet_contact_dates_triage(summary)
+
+    # Owner line is uncommented + correct shape.
+    assert "ACTION 4440 patch-contact-relationship 5052 time_from start" in out
+    assert (
+        "\nACTION 4440 patch-contact-relationship 5052 time_from start" in out
+    )  # not preceded by '#'
+    # Operator line is commented.
+    assert "#ACTION 4390 patch-contact-relationship 4961 time_from start" in out
+    # Header tallies.
+    assert "HIGH (owner role, uncommented, ready to apply): 1" in out
+    assert "LOW  (non-owner role, commented for review):    1" in out
+
+
+def test_fleet_contact_dates_to_dict_shape():
+    from tostools.fleet_ops import (
+        FleetContactDatesStation,
+        FleetContactDatesSummary,
+        fleet_contact_dates_to_dict,
+    )
+
+    summary = FleetContactDatesSummary(generated_at=FROZEN_TS)
+    summary.stations = [
+        FleetContactDatesStation(
+            marker="SAVI",
+            station_id=4440,
+            violations=[_cd_violation(5052, "owner", "2025-02-04T15:32:38")],
+        ),
+    ]
+    d = fleet_contact_dates_to_dict(summary)
+    assert d["kind"] == "fleet-contact-dates"
+    assert d["totals"]["total_violations"] == 1
+    assert d["violations"][0]["id_relationship"] == 5052
+    assert d["violations"][0]["role"] == "owner"
+
+
+def test_cli_fleet_contact_dates_triage(tmp_path, capsys):
+    """End-to-end: tos fleet contact-dates --triage writes the combined file."""
+    from tostools.tos import main as tos_main
+
+    stations = [_station(4440, "SAVI")]
+    report = _cd_report(
+        4440, "SAVI", [_cd_violation(5052, "owner", "2025-02-04T15:32:38")]
+    )
+    out_path = tmp_path / "fleet_cd.txt"
+
+    with (
+        patch("tostools.fleet_ops.enumerate_fleet_stations", return_value=stations),
+        patch(
+            "tostools.fleet_ops.audit_station_contact_dates",
+            side_effect=lambda client, *, id_entity, **kw: report,
+        ),
+    ):
+        rc = tos_main(["fleet", "contact-dates", "--triage", str(out_path)])
+
+    assert rc == 1  # violations present
+    content = out_path.read_text()
+    assert "ACTION 4440 patch-contact-relationship 5052 time_from start" in content
