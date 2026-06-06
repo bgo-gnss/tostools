@@ -207,8 +207,14 @@ uncommented (backdating to `start`/founding is always correct — the
 owner owned the station from founding regardless of which org);
 non-owner roles (data_owner / operator / observer) commented for review
 (they may have a genuinely recent start date). First fleet run
-(2026-06-04): 129 violations across 192 stations — 100 owner
-(ready-to-apply) + 29 non-owner (review). Provenance:
+(2026-06-04): 129 violations across 192 stations — **94 owner (ready-to-apply,
+uncommented) + 6 ownership-transfer (commented) + 29 non-owner
+(commented)**. The triage splits three ways: owner relationships that
+are CLOSED or share a station with another flagged owner are
+ownership-transfer histories (e.g. Jarðvísindastofnun → Veðurstofa on
+GRIV/NBIO/THNA) where the current owner's `time_from` is the real
+transfer date, not founding — backdating those blindly would overlap
+periods, so they're demoted to a commented REVIEW section. Provenance:
 `data/triage/contact_dates_fleet_20260604.txt`. In `fleet_ops.py`:
 `run_fleet_contact_dates` + `format_fleet_contact_dates_triage`.
 

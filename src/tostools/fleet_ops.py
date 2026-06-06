@@ -687,37 +687,89 @@ def run_fleet_contact_dates(
 _HIGH_CONFIDENCE_CONTACT_ROLES = frozenset({"owner"})
 
 
+def _classify_contact_violation(
+    s: "FleetContactDatesStation",
+    v: "ContactDateViolation",
+    owner_counts: Dict[Optional[int], int],
+) -> str:
+    """Three-way confidence bucket for one flagged relationship.
+
+    * ``high``  — owner role, **open** (per_time_to is None), and the
+      ONLY flagged owner on its station. Backdating to ``start``
+      (founding) is unambiguously correct. Emitted uncommented.
+    * ``transfer`` — owner role but **closed** (per_time_to set) OR the
+      station has >1 flagged owner. These are ownership-transfer /
+      multi-owner histories where a blanket backdate-to-founding would
+      overlap periods or erase the transfer (e.g. Jarðvísindastofnun →
+      Veðurstofa). The *current* owner's time_from is often the real
+      transfer date, not founding. Emitted COMMENTED for review.
+    * ``low``   — non-owner role (data_owner / operator / observer);
+      may have a genuinely recent real start date. Emitted COMMENTED.
+    """
+    role = v.role or ""
+    if role not in _HIGH_CONFIDENCE_CONTACT_ROLES:
+        return "low"
+    if v.per_time_to is not None:
+        return "transfer"
+    if owner_counts.get(s.station_id, 0) > 1:
+        return "transfer"
+    return "high"
+
+
 def format_fleet_contact_dates_triage(
     summary: FleetContactDatesSummary,
 ) -> str:
     """Render a single combined triage file for the fleet sweep.
 
-    ``role == owner`` violations are emitted **uncommented** (backdating
-    to ``start`` is always correct — the owner owned the station from
-    founding). All other roles are emitted **commented** for operator
-    review (they may have genuinely recent start dates). Each line is a
-    ``patch-contact-relationship <id_rel> time_from start`` ACTION whose
-    ``id_entity`` slot is the station (so ``start`` resolves against the
-    station's earliest_known).
+    Three confidence buckets (see :func:`_classify_contact_violation`):
+
+    * **HIGH** (owner, open, single-owner-on-station) — emitted
+      **uncommented**: backdating to ``start``/founding is unambiguous.
+    * **TRANSFER** (owner but closed or multi-owner station) — emitted
+      **commented**: ownership-transfer histories where a blanket
+      backdate would overlap/erase periods. Needs operator review.
+    * **LOW** (non-owner roles) — emitted **commented** for review.
+
+    Each line is a ``patch-contact-relationship <id_rel> time_from
+    start`` ACTION whose ``id_entity`` slot is the station.
     """
-    high = [
-        (s, v)
-        for s, v in summary.all_violations
-        if (v.role or "") in _HIGH_CONFIDENCE_CONTACT_ROLES
-    ]
-    low = [
-        (s, v)
-        for s, v in summary.all_violations
-        if (v.role or "") not in _HIGH_CONFIDENCE_CONTACT_ROLES
-    ]
+    # Per-station count of flagged OWNER relationships — drives the
+    # multi-owner / transfer demotion.
+    owner_counts: Dict[Optional[int], int] = {}
+    for s, v in summary.all_violations:
+        if (v.role or "") in _HIGH_CONFIDENCE_CONTACT_ROLES:
+            owner_counts[s.station_id] = owner_counts.get(s.station_id, 0) + 1
+
+    high, transfer, low = [], [], []
+    for s, v in summary.all_violations:
+        bucket = _classify_contact_violation(s, v, owner_counts)
+        {"high": high, "transfer": transfer, "low": low}[bucket].append((s, v))
+
+    def _emit(items, *, commented: bool) -> None:
+        prefix = "#ACTION" if commented else "ACTION"
+        if not items:
+            lines.append("# (none)")
+            return
+        for s, v in sorted(items, key=lambda sv: (sv[0].marker, sv[1].id_relationship)):
+            label = f" {v.contact_label!r}" if v.contact_label else ""
+            to_note = f" → {v.per_time_to}" if v.per_time_to else ""
+            lines.append(
+                f"# {s.marker} rel {v.id_relationship}{label} role={v.role}"
+                f"  (per_time_from={v.per_time_from}{to_note})"
+            )
+            lines.append(
+                f"{prefix} {s.station_id} patch-contact-relationship "
+                f"{v.id_relationship} time_from start"
+            )
 
     lines: List[str] = []
     lines.append("# === tos fleet contact-dates — combined triage action file ===")
     lines.append(f"# Generated:  {summary.generated_at}")
     lines.append(f"# Stations:   {summary.stations_audited} audited")
     lines.append(f"# Violations: {summary.total_violations} total")
-    lines.append(f"#   HIGH (owner role, uncommented, ready to apply): {len(high)}")
-    lines.append(f"#   LOW  (non-owner role, commented for review):    {len(low)}")
+    lines.append(f"#   HIGH     (owner, open, single — uncommented):   {len(high)}")
+    lines.append(f"#   TRANSFER (owner but closed / multi-owner):      {len(transfer)}")
+    lines.append(f"#   LOW      (non-owner role):                      {len(low)}")
     lines.append("#")
     lines.append("# Each line backdates time_from to `start` (the station's")
     lines.append("# earliest_known / founding date), resolved at apply time.")
@@ -727,37 +779,23 @@ def format_fleet_contact_dates_triage(
     lines.append("#   tos audit apply <file> --apply  # commit writes")
     lines.append("")
 
-    lines.append("# ── HIGH confidence: owner relationships (owner owned the station")
-    lines.append("#    from founding, so `start` is the correct backdate) ──")
-    if not high:
-        lines.append("# (none)")
-    for s, v in sorted(high, key=lambda sv: (sv[0].marker, sv[1].id_relationship)):
-        label = f" {v.contact_label!r}" if v.contact_label else ""
-        lines.append(
-            f"# {s.marker} rel {v.id_relationship}{label} role={v.role}"
-            f"  (per_time_from={v.per_time_from})"
-        )
-        lines.append(
-            f"ACTION {s.station_id} patch-contact-relationship "
-            f"{v.id_relationship} time_from start"
-        )
+    lines.append("# ── HIGH confidence: owner relationships, open, sole owner of the")
+    lines.append("#    station (owner owned it from founding → `start` is correct) ──")
+    _emit(high, commented=False)
+    lines.append("")
+
+    lines.append("# ── TRANSFER / multi-owner: owner relationships that are CLOSED or")
+    lines.append("#    share the station with another flagged owner. The current")
+    lines.append("#    owner's time_from is often the real TRANSFER date, not")
+    lines.append("#    founding — backdating blindly overlaps periods / erases the")
+    lines.append("#    transfer. REVIEW each station's owner history first ──")
+    _emit(transfer, commented=True)
     lines.append("")
 
     lines.append("# ── LOW confidence: non-owner roles (data_owner / operator /")
     lines.append("#    observer) may have a genuinely recent start date — REVIEW")
     lines.append("#    each before uncommenting ──")
-    if not low:
-        lines.append("# (none)")
-    for s, v in sorted(low, key=lambda sv: (sv[0].marker, sv[1].id_relationship)):
-        label = f" {v.contact_label!r}" if v.contact_label else ""
-        lines.append(
-            f"# {s.marker} rel {v.id_relationship}{label} role={v.role}"
-            f"  (per_time_from={v.per_time_from})"
-        )
-        lines.append(
-            f"#ACTION {s.station_id} patch-contact-relationship "
-            f"{v.id_relationship} time_from start"
-        )
+    _emit(low, commented=True)
     lines.append("")
     return "\n".join(lines)
 
@@ -809,6 +847,7 @@ def fleet_contact_dates_to_dict(summary: FleetContactDatesSummary) -> Dict[str, 
                 "contact_label": v.contact_label,
                 "role": v.role,
                 "per_time_from": v.per_time_from,
+                "per_time_to": v.per_time_to,
             }
             for s, v in summary.all_violations
         ],

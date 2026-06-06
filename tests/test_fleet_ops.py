@@ -608,6 +608,21 @@ def _cd_violation(id_rel, role, per_time_from, *, id_contact=1256, label="VÍ"):
     )
 
 
+def _cd_violation_to(
+    id_rel, role, per_time_from, per_time_to, *, id_contact=1256, label="VÍ"
+):
+    from tostools.audit_contact_dates import ContactDateViolation
+
+    return ContactDateViolation(
+        id_relationship=id_rel,
+        id_contact=id_contact,
+        contact_label=label,
+        role=role,
+        per_time_from=per_time_from,
+        per_time_to=per_time_to,
+    )
+
+
 def test_run_fleet_contact_dates_aggregates():
     from tostools.fleet_ops import run_fleet_contact_dates
 
@@ -690,8 +705,8 @@ def test_fleet_contact_dates_triage_splits_owner_vs_other():
     # Operator line is commented.
     assert "#ACTION 4390 patch-contact-relationship 4961 time_from start" in out
     # Header tallies.
-    assert "HIGH (owner role, uncommented, ready to apply): 1" in out
-    assert "LOW  (non-owner role, commented for review):    1" in out
+    assert "HIGH     (owner, open, single — uncommented):   1" in out
+    assert "LOW      (non-owner role):                      1" in out
 
 
 def test_fleet_contact_dates_to_dict_shape():
@@ -738,3 +753,120 @@ def test_cli_fleet_contact_dates_triage(tmp_path, capsys):
     assert rc == 1  # violations present
     content = out_path.read_text()
     assert "ACTION 4440 patch-contact-relationship 5052 time_from start" in content
+
+
+def test_fleet_contact_dates_triage_demotes_transfer_and_multiowner():
+    """Owner relationships that are CLOSED or share a station with
+    another flagged owner are ownership-transfer cases — they must be
+    COMMENTED (not auto-applied), because the current owner's time_from
+    is often the real transfer date, not founding. Regression for the
+    GRIV/NBIO/THNA bug found reviewing PR #46."""
+    from tostools.fleet_ops import (
+        FleetContactDatesStation,
+        FleetContactDatesSummary,
+        format_fleet_contact_dates_triage,
+    )
+
+    summary = FleetContactDatesSummary(generated_at=FROZEN_TS)
+    summary.stations = [
+        # Single open owner → HIGH (uncommented).
+        FleetContactDatesStation(
+            marker="SAVI",
+            station_id=4440,
+            violations=[_cd_violation(5052, "owner", "2025-02-04T15:32:38")],
+        ),
+        # Transfer: closed old owner + open current owner → both COMMENTED.
+        FleetContactDatesStation(
+            marker="NBIO",
+            station_id=19961,
+            violations=[
+                _cd_violation_to(
+                    5045, "owner", "2025-02-04T15:32:38", "2025-09-08T15:19:43"
+                ),
+                _cd_violation(
+                    5135, "owner", "2025-09-08T15:17:05"
+                ),  # open current owner
+            ],
+        ),
+    ]
+    out = format_fleet_contact_dates_triage(summary)
+
+    # SAVI single open owner stays uncommented.
+    assert "\nACTION 4440 patch-contact-relationship 5052 time_from start" in out
+    # Both NBIO owners demoted to commented (multi-owner / transfer).
+    assert "#ACTION 19961 patch-contact-relationship 5045 time_from start" in out
+    assert "#ACTION 19961 patch-contact-relationship 5135 time_from start" in out
+    # The open current owner (5135) must NOT appear uncommented.
+    assert "\nACTION 19961 patch-contact-relationship 5135" not in out
+    # Header tallies: 1 HIGH, 2 TRANSFER, 0 LOW.
+    assert "HIGH     (owner, open, single — uncommented):   1" in out
+    assert "TRANSFER (owner but closed / multi-owner):      2" in out
+
+
+def test_fleet_contact_dates_triage_closed_single_owner_demoted():
+    """Even a SOLE owner relationship that is closed (per_time_to set)
+    is demoted — a closed owner is part of a history, not the simple
+    'owned from founding to now' case."""
+    from tostools.fleet_ops import (
+        FleetContactDatesStation,
+        FleetContactDatesSummary,
+        format_fleet_contact_dates_triage,
+    )
+
+    summary = FleetContactDatesSummary(generated_at=FROZEN_TS)
+    summary.stations = [
+        FleetContactDatesStation(
+            marker="XXXX",
+            station_id=9999,
+            violations=[
+                _cd_violation_to(
+                    7001, "owner", "2025-02-04T15:32:38", "2025-06-01T00:00:00"
+                )
+            ],
+        ),
+    ]
+    out = format_fleet_contact_dates_triage(summary)
+    assert "#ACTION 9999 patch-contact-relationship 7001 time_from start" in out
+    assert "\nACTION 9999 patch-contact-relationship 7001" not in out
+    assert "TRANSFER (owner but closed / multi-owner):      1" in out
+
+
+def test_contact_date_violation_carries_per_time_to():
+    """audit_station_contact_dates must populate per_time_to so the
+    fleet triage can detect closed/transfer relationships."""
+    from tostools.api.tos_client import TOSClient
+    from tostools.audit_contact_dates import audit_station_contact_dates
+
+    contacts = [
+        {
+            "id_contact_entity_relationship": 5045,
+            "id_contact": 2489,
+            "name": "Jarðvísindastofnun",
+            "role": "owner",
+            "per_time_from": "2025-02-04T15:32:38",
+            "per_time_to": "2025-09-08T15:19:43",
+        }
+    ]
+    with (
+        patch.object(
+            TOSClient,
+            "basic_search",
+            return_value=[
+                {
+                    "code": "marker",
+                    "distance": 0,
+                    "value_varchar": "nbio",
+                    "type_lvl_two": "stöð",
+                    "id_entity": 19961,
+                }
+            ],
+        ),
+        patch.object(
+            TOSClient,
+            "get_entity_history",
+            return_value={"id_entity": 19961, "attributes": []},
+        ),
+        patch.object(TOSClient, "get_contacts", return_value=contacts),
+    ):
+        report = audit_station_contact_dates(TOSClient(), name="NBIO")
+    assert report.violations[0].per_time_to == "2025-09-08T15:19:43"
