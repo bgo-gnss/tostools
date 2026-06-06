@@ -352,6 +352,9 @@ def build_sim_card_attributes(
         "model": model,
         "owner": owner,
         "status": status,
+        # date_start is its own attribute_value row (matches build_required_
+        # attributes + the existing fleet convention / web-UI "Upphafsdagsetning").
+        "date_start": date_start,
         "comment": comment,
     }
     if extra:
@@ -397,6 +400,9 @@ def build_modem_gsm_attributes(
         "model": model,
         "owner": owner,
         "status": status,
+        # date_start is its own attribute_value row (matches build_required_
+        # attributes + the existing fleet convention / web-UI "Upphafsdagsetning").
+        "date_start": date_start,
         "ip_address": ip_address,
         "phone_number": phone_number,
         "provider": provider,

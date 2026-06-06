@@ -537,25 +537,28 @@ def test_validate_model_telemetry_empty_raises() -> None:
 
 
 def test_build_sim_card_attributes_ip_only() -> None:
-    # ip_address (required) + status default "virkt"; all other codes omitted.
+    # ip_address (required) + status default "virkt" + date_start; rest omitted.
     attrs = build_sim_card_attributes("10.4.1.225", "2026-06-06")
     by_code = {a["code"]: a for a in attrs}
-    assert set(by_code) == {"ip_address", "status"}
+    assert set(by_code) == {"ip_address", "status", "date_start"}
     assert by_code["ip_address"]["value"] == "10.4.1.225"
     assert by_code["ip_address"]["date_from"] == "2026-06-06"
     assert by_code["ip_address"]["date_to"] is None
     assert by_code["status"]["value"] == "virkt"
+    assert by_code["date_start"]["value"] == "2026-06-06"
 
 
 def test_build_sim_card_attributes_status_none_omits() -> None:
-    codes = [a["code"] for a in build_sim_card_attributes("10.4.1.225", "x", status=None)]
-    assert codes == ["ip_address"]
+    codes = [
+        a["code"] for a in build_sim_card_attributes("10.4.1.225", "x", status=None)
+    ]
+    assert codes == ["ip_address", "date_start"]
 
 
 def test_build_sim_card_attributes_with_phone() -> None:
     attrs = build_sim_card_attributes("10.4.1.225", "2026-06-06", "8400754")
     codes = [a["code"] for a in attrs]
-    assert codes == ["ip_address", "phone_number", "status"]
+    assert codes == ["ip_address", "phone_number", "status", "date_start"]
     phone = next(a for a in attrs if a["code"] == "phone_number")
     assert phone["value"] == "8400754"
     assert phone["date_to"] is None
@@ -564,7 +567,7 @@ def test_build_sim_card_attributes_with_phone() -> None:
 def test_build_sim_card_attributes_omits_blank_phone() -> None:
     # Falsy phone (None or "") is dropped, not written as empty.
     codes = [a["code"] for a in build_sim_card_attributes("10.4.1.225", "x", "")]
-    assert codes == ["ip_address", "status"]
+    assert codes == ["ip_address", "status", "date_start"]
 
 
 def test_build_sim_card_attributes_full_set() -> None:
@@ -588,6 +591,7 @@ def test_build_sim_card_attributes_full_set() -> None:
         "model",
         "owner",
         "status",
+        "date_start",
         "comment",
         "date_end",
     }
@@ -605,8 +609,9 @@ def test_build_sim_card_extra_overrides_named() -> None:
 def test_build_modem_gsm_attributes_minimal() -> None:
     attrs = build_modem_gsm_attributes("5347577", "Conel XR5i v2", "J", "2026-06-06")
     codes = [a["code"] for a in attrs]
-    assert codes == ["serial_number", "model", "owner", "status"]
+    assert codes == ["serial_number", "model", "owner", "status", "date_start"]
     assert next(a for a in attrs if a["code"] == "status")["value"] == "virkt"
+    assert next(a for a in attrs if a["code"] == "date_start")["value"] == "2026-06-06"
 
 
 def test_build_modem_gsm_attributes_full_set() -> None:
@@ -630,6 +635,7 @@ def test_build_modem_gsm_attributes_full_set() -> None:
         "model",
         "owner",
         "status",
+        "date_start",
         "ip_address",
         "phone_number",
         "provider",
