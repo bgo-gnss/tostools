@@ -1,6 +1,6 @@
 [project]
 name = "tostools"
-version = "0.6.0"
+version = "0.6.1"
 authors = [
     { name = "Benedikt Gunnar Ófeigsson", email = "bgo@vedur.is" },
     { name = "Tryggvi Hjörvar" },
