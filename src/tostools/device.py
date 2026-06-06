@@ -248,54 +248,167 @@ def build_required_attributes(
     ]
 
 
-def build_sim_card_attributes(
-    ip_address: str,
+# Telemetry attribute vocabularies — the set of attribute codes operators may
+# set on each subtype, discovered by a fleet-wide TOS scan on 2026-06-06
+# (B9 warehouse 641 children + 226 deployed units across 194 stations).
+# System-managed fields (``voltage`` — a live measurement; ``created_by_user``
+# — set by TOS) are intentionally excluded: they are never hand-entered.
+SIM_CARD_ATTR_CODES: Tuple[str, ...] = (
+    "ip_address",
+    "phone_number",
+    "serial_number",
+    "provider",
+    "model",
+    "owner",
+    "status",
+    "date_start",
+    "date_end",
+    "comment",
+)
+MODEM_GSM_ATTR_CODES: Tuple[str, ...] = (
+    "serial_number",
+    "model",
+    "owner",
+    "status",
+    "date_start",
+    "ip_address",
+    "phone_number",
+    "provider",
+    "mac_address",
+    "manufacturer",
+    "io_type",
+    "subtype",
+    "comment",
+)
+
+
+def attributes_from_mapping(
+    mapping: Dict[str, Optional[str]],
     date_start: str,
-    phone_number: Optional[str] = None,
 ) -> List[Dict[str, Optional[str]]]:
-    """Build the attribute list for a ``sim_card`` device.
+    """Turn a ``{code: value}`` mapping into the TOS attribute-dict list.
 
-    A ``sim_card`` does NOT use the canonical device shape
-    (serial/model/owner/status) — verified against the live TOS schema
-    (GSIG's sim_card id=5785 on 2026-06-06 carried only ``ip_address`` and
-    ``phone_number``). So this is a separate builder rather than reusing
-    :func:`build_required_attributes`.
+    Falsy values (``None`` / ``""``) are dropped so callers can pass a wide
+    mapping with optional fields left unset. Each emitted attribute carries
+    ``date_from=date_start`` and an explicit ``date_to: None`` (open period),
+    matching :func:`build_required_attributes` and the ``/entities``
+    endpoint's required-present-field expectation.
 
-    ``ip_address`` is required (it's the operationally important field — the
-    address the scheduler/probe reaches the station through). ``phone_number``
-    is optional and omitted from the list when not given.
-
-    Each attribute carries an explicit ``date_to: None`` (open period), matching
-    :func:`build_required_attributes` and the ``/entities`` endpoint's
-    required-present-field expectation.
+    This is the generic builder underneath the typed telemetry builders; it is
+    also what backs the CLI's generic ``--attr code=value`` escape hatch.
 
     Args:
-        ip_address: The SIM's IP address (e.g. ``"10.4.1.225"``).
-        date_start: ISO-8601 date/datetime the SIM became active. Doubles as
-            ``date_from`` for the attribute periods.
-        phone_number: Optional MSISDN / phone number string.
+        mapping: ``{attribute_code: value}``. Insertion order is preserved in
+            the output (Python dicts are ordered), so callers control ordering.
+        date_start: ISO-8601 date/datetime; the ``date_from`` for every row.
 
     Returns:
         Attribute-dict list for :meth:`TOSWriter.create_device`.
     """
-    attrs: List[Dict[str, Optional[str]]] = [
-        {
-            "code": "ip_address",
-            "value": ip_address,
-            "date_from": date_start,
-            "date_to": None,
-        },
+    return [
+        {"code": code, "value": value, "date_from": date_start, "date_to": None}
+        for code, value in mapping.items()
+        if value
     ]
-    if phone_number:
-        attrs.append(
-            {
-                "code": "phone_number",
-                "value": phone_number,
-                "date_from": date_start,
-                "date_to": None,
-            }
-        )
-    return attrs
+
+
+def build_sim_card_attributes(
+    ip_address: str,
+    date_start: str,
+    phone_number: Optional[str] = None,
+    *,
+    serial_number: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    owner: Optional[str] = None,
+    status: Optional[str] = "virkt",
+    comment: Optional[str] = None,
+    extra: Optional[Dict[str, Optional[str]]] = None,
+) -> List[Dict[str, Optional[str]]]:
+    """Build the attribute list for a ``sim_card`` device.
+
+    A ``sim_card`` does NOT use the canonical device shape — verified against
+    the live TOS schema (fleet scan 2026-06-06). ``ip_address`` is the only
+    required field (the address the scheduler/probe reaches the station
+    through); every other attribute in :data:`SIM_CARD_ATTR_CODES` is optional
+    and omitted when falsy.
+
+    ``status`` defaults to ``"virkt"`` (active) — the canonical "device is
+    alive" marker, matching :func:`build_required_attributes`. Pass
+    ``status=None`` to omit it.
+
+    ``extra`` is an escape hatch for any code not covered by the named
+    parameters (backs the CLI ``--attr code=value`` flag); it is merged last so
+    it can also override a named value.
+
+    Returns:
+        Attribute-dict list for :meth:`TOSWriter.create_device`.
+    """
+    mapping: Dict[str, Optional[str]] = {
+        "ip_address": ip_address,
+        "phone_number": phone_number,
+        "serial_number": serial_number,
+        "provider": provider,
+        "model": model,
+        "owner": owner,
+        "status": status,
+        "comment": comment,
+    }
+    if extra:
+        mapping.update(extra)
+    return attributes_from_mapping(mapping, date_start)
+
+
+def build_modem_gsm_attributes(
+    serial: str,
+    model: str,
+    owner: str,
+    date_start: str,
+    *,
+    status: Optional[str] = "virkt",
+    ip_address: Optional[str] = None,
+    phone_number: Optional[str] = None,
+    provider: Optional[str] = None,
+    mac_address: Optional[str] = None,
+    manufacturer: Optional[str] = None,
+    io_type: Optional[str] = None,
+    modem_subtype: Optional[str] = None,
+    comment: Optional[str] = None,
+    extra: Optional[Dict[str, Optional[str]]] = None,
+) -> List[Dict[str, Optional[str]]]:
+    """Build the attribute list for a ``modem_gsm`` (router/modem) device.
+
+    ``modem_gsm`` carries the canonical device core (serial/model/owner/
+    status/date_start) plus telemetry-specific optionals discovered by the
+    fleet scan (:data:`MODEM_GSM_ATTR_CODES`): ip_address, phone_number,
+    provider, mac_address, manufacturer, io_type, subtype, comment.
+
+    ``serial``, ``model``, ``owner`` are required (the device identity);
+    everything else is optional and omitted when falsy. ``status`` defaults to
+    ``"virkt"``. ``modem_subtype`` maps to the TOS ``subtype`` attribute (e.g.
+    ``"3G"``/``"4G"``) — named ``modem_subtype`` here to avoid colliding with
+    the entity ``code_entity_subtype``. ``extra`` is the override/escape hatch.
+
+    Returns:
+        Attribute-dict list for :meth:`TOSWriter.create_device`.
+    """
+    mapping: Dict[str, Optional[str]] = {
+        "serial_number": serial,
+        "model": model,
+        "owner": owner,
+        "status": status,
+        "ip_address": ip_address,
+        "phone_number": phone_number,
+        "provider": provider,
+        "mac_address": mac_address,
+        "manufacturer": manufacturer,
+        "io_type": io_type,
+        "subtype": modem_subtype,
+        "comment": comment,
+    }
+    if extra:
+        mapping.update(extra)
+    return attributes_from_mapping(mapping, date_start)
 
 
 def iter_optional_attributes(

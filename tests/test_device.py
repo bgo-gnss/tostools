@@ -15,6 +15,8 @@ from tostools.device import (
     OPTIONAL_ATTR_CODES,
     REQUIRED_ATTR_CODES,
     VALID_SUBTYPES,
+    attributes_from_mapping,
+    build_modem_gsm_attributes,
     build_required_attributes,
     build_sim_card_attributes,
     iter_optional_attributes,
@@ -535,21 +537,25 @@ def test_validate_model_telemetry_empty_raises() -> None:
 
 
 def test_build_sim_card_attributes_ip_only() -> None:
+    # ip_address (required) + status default "virkt"; all other codes omitted.
     attrs = build_sim_card_attributes("10.4.1.225", "2026-06-06")
-    assert attrs == [
-        {
-            "code": "ip_address",
-            "value": "10.4.1.225",
-            "date_from": "2026-06-06",
-            "date_to": None,
-        }
-    ]
+    by_code = {a["code"]: a for a in attrs}
+    assert set(by_code) == {"ip_address", "status"}
+    assert by_code["ip_address"]["value"] == "10.4.1.225"
+    assert by_code["ip_address"]["date_from"] == "2026-06-06"
+    assert by_code["ip_address"]["date_to"] is None
+    assert by_code["status"]["value"] == "virkt"
+
+
+def test_build_sim_card_attributes_status_none_omits() -> None:
+    codes = [a["code"] for a in build_sim_card_attributes("10.4.1.225", "x", status=None)]
+    assert codes == ["ip_address"]
 
 
 def test_build_sim_card_attributes_with_phone() -> None:
     attrs = build_sim_card_attributes("10.4.1.225", "2026-06-06", "8400754")
     codes = [a["code"] for a in attrs]
-    assert codes == ["ip_address", "phone_number"]
+    assert codes == ["ip_address", "phone_number", "status"]
     phone = next(a for a in attrs if a["code"] == "phone_number")
     assert phone["value"] == "8400754"
     assert phone["date_to"] is None
@@ -557,4 +563,85 @@ def test_build_sim_card_attributes_with_phone() -> None:
 
 def test_build_sim_card_attributes_omits_blank_phone() -> None:
     # Falsy phone (None or "") is dropped, not written as empty.
-    assert len(build_sim_card_attributes("10.4.1.225", "2026-06-06", "")) == 1
+    codes = [a["code"] for a in build_sim_card_attributes("10.4.1.225", "x", "")]
+    assert codes == ["ip_address", "status"]
+
+
+def test_build_sim_card_attributes_full_set() -> None:
+    attrs = build_sim_card_attributes(
+        "10.4.1.225",
+        "2026-06-06",
+        "8400754",
+        serial_number="89354010120801048520",
+        provider="Síminn",
+        model="sim kort",
+        owner="Jarðeðlismælihópur",
+        comment="note",
+        extra={"date_end": "2027-01-01"},
+    )
+    codes = {a["code"] for a in attrs}
+    assert codes == {
+        "ip_address",
+        "phone_number",
+        "serial_number",
+        "provider",
+        "model",
+        "owner",
+        "status",
+        "comment",
+        "date_end",
+    }
+
+
+def test_build_sim_card_extra_overrides_named() -> None:
+    # extra is merged last → can override a named value.
+    attrs = build_sim_card_attributes(
+        "10.4.1.225", "x", provider="Síminn", extra={"provider": "Nova"}
+    )
+    prov = next(a for a in attrs if a["code"] == "provider")
+    assert prov["value"] == "Nova"
+
+
+def test_build_modem_gsm_attributes_minimal() -> None:
+    attrs = build_modem_gsm_attributes("5347577", "Conel XR5i v2", "J", "2026-06-06")
+    codes = [a["code"] for a in attrs]
+    assert codes == ["serial_number", "model", "owner", "status"]
+    assert next(a for a in attrs if a["code"] == "status")["value"] == "virkt"
+
+
+def test_build_modem_gsm_attributes_full_set() -> None:
+    attrs = build_modem_gsm_attributes(
+        "5347577",
+        "Conel XR5i v2",
+        "Jarðeðlismælihópur",
+        "2026-06-06",
+        ip_address="157.157.24.132",
+        phone_number="8400754",
+        provider="Nova",
+        mac_address="00:0A:14:85:54:A0",
+        manufacturer="Conel",
+        io_type="Ethernet+RS232",
+        modem_subtype="4G",
+        comment="note",
+    )
+    codes = {a["code"] for a in attrs}
+    assert codes == {
+        "serial_number",
+        "model",
+        "owner",
+        "status",
+        "ip_address",
+        "phone_number",
+        "provider",
+        "mac_address",
+        "manufacturer",
+        "io_type",
+        "subtype",  # modem_subtype maps to TOS `subtype`
+        "comment",
+    }
+
+
+def test_attributes_from_mapping_drops_falsy() -> None:
+    attrs = attributes_from_mapping({"a": "1", "b": None, "c": "", "d": "4"}, "2026")
+    assert [a["code"] for a in attrs] == ["a", "d"]
+    assert all(a["date_from"] == "2026" and a["date_to"] is None for a in attrs)
