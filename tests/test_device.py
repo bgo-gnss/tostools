@@ -16,6 +16,7 @@ from tostools.device import (
     REQUIRED_ATTR_CODES,
     VALID_SUBTYPES,
     build_required_attributes,
+    build_sim_card_attributes,
     iter_optional_attributes,
     normalize_date_start,
     validate_model,
@@ -270,7 +271,15 @@ def test_iter_optional_attributes_partial() -> None:
 
 
 def test_valid_subtypes_are_the_supported_ones() -> None:
-    assert set(VALID_SUBTYPES) == {"gnss_receiver", "antenna", "radome", "monument"}
+    assert set(VALID_SUBTYPES) == {
+        "gnss_receiver",
+        "antenna",
+        "radome",
+        "monument",
+        "modem_gsm",
+        "sim_card",
+        "router",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -494,3 +503,58 @@ def test_device_main_requires_add_action() -> None:
     with pytest.raises(SystemExit) as exc:
         _device_main([])
     assert exc.value.code != 0
+
+
+# ---------------------------------------------------------------------------
+# Telemetry subtypes (modem_gsm / sim_card / router) + sim_card builder
+# ---------------------------------------------------------------------------
+
+
+def test_valid_subtypes_includes_telemetry() -> None:
+    for sub in ("modem_gsm", "sim_card", "router"):
+        assert sub in VALID_SUBTYPES
+
+
+def test_validate_model_modem_gsm_passthrough() -> None:
+    # Free-text vendor name, no IGS table — returned unchanged.
+    assert validate_model("modem_gsm", "Teltonika RUT200") == "Teltonika RUT200"
+
+
+def test_validate_model_sim_card_passthrough() -> None:
+    assert validate_model("sim_card", "anything") == "anything"
+
+
+def test_validate_model_router_passthrough() -> None:
+    assert validate_model("router", "Conel") == "Conel"
+
+
+def test_validate_model_telemetry_empty_raises() -> None:
+    # Empty model still rejected (the non-empty guard runs before the branch).
+    with pytest.raises(ValueError, match="--model is required"):
+        validate_model("modem_gsm", "")
+
+
+def test_build_sim_card_attributes_ip_only() -> None:
+    attrs = build_sim_card_attributes("10.4.1.225", "2026-06-06")
+    assert attrs == [
+        {
+            "code": "ip_address",
+            "value": "10.4.1.225",
+            "date_from": "2026-06-06",
+            "date_to": None,
+        }
+    ]
+
+
+def test_build_sim_card_attributes_with_phone() -> None:
+    attrs = build_sim_card_attributes("10.4.1.225", "2026-06-06", "8400754")
+    codes = [a["code"] for a in attrs]
+    assert codes == ["ip_address", "phone_number"]
+    phone = next(a for a in attrs if a["code"] == "phone_number")
+    assert phone["value"] == "8400754"
+    assert phone["date_to"] is None
+
+
+def test_build_sim_card_attributes_omits_blank_phone() -> None:
+    # Falsy phone (None or "") is dropped, not written as empty.
+    assert len(build_sim_card_attributes("10.4.1.225", "2026-06-06", "")) == 1

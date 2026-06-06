@@ -2123,3 +2123,29 @@ def test_patch_contact_missing_contact_raises():
     with patch.object(w, "_request", return_value=None):
         with pytest.raises(ValueError, match="no contact"):
             w.patch_contact(99999, name="X")
+
+
+# ---------------------------------------------------------------------------
+# delete_maintenance
+# ---------------------------------------------------------------------------
+
+
+def test_delete_maintenance_hits_admin_endpoint():
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request", return_value=None) as mock_req:
+        w.delete_maintenance(5147)
+    mock_req.assert_called_once_with("DELETE", "/admin_maintenance_row/5147")
+
+
+def test_delete_maintenance_respects_dry_run():
+    w = _logged_in_writer(dry_run=True)
+    with patch.object(w, "_request") as mock_req:
+        mock_req.return_value = DryRunResult(
+            method="DELETE",
+            endpoint="/admin_maintenance_row/5147",
+            payload=None,
+        )
+        result = w.delete_maintenance(5147)
+    assert isinstance(result, DryRunResult)
+    assert result.method == "DELETE"
+    assert result.endpoint == "/admin_maintenance_row/5147"

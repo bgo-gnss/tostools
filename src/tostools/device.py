@@ -46,6 +46,15 @@ VALID_SUBTYPES: Tuple[str, ...] = (
     "antenna",
     "radome",
     "monument",
+    # Telemetry hardware. modem_gsm carries the canonical device shape
+    # (serial/model/owner/status/date_start — same as gnss_receiver, so
+    # build_required_attributes fits). sim_card carries only ip_address +
+    # phone_number (see build_sim_card_attributes). router is accepted for
+    # completeness; no builder yet (add when a router-as-distinct-entity
+    # use case appears — most fleet sites model the unit as modem_gsm).
+    "modem_gsm",
+    "sim_card",
+    "router",
 )
 
 REQUIRED_ATTR_CODES: Tuple[str, ...] = (
@@ -165,8 +174,10 @@ def validate_model(subtype: str, raw: str) -> str:
             )
         return to_igs_radome(raw) or "NONE"
 
-    if subtype == "monument":
-        # No IGS table for monuments — accept the raw string.
+    if subtype in ("monument", "modem_gsm", "sim_card", "router"):
+        # No IGS table for monuments or telemetry hardware — accept the raw
+        # string (e.g. "Teltonika RUT200", "Conel"). The model is free-text
+        # vendor naming, not a standards-governed code.
         return raw
 
     raise ValueError(
@@ -235,6 +246,56 @@ def build_required_attributes(
             "date_to": None,
         },
     ]
+
+
+def build_sim_card_attributes(
+    ip_address: str,
+    date_start: str,
+    phone_number: Optional[str] = None,
+) -> List[Dict[str, Optional[str]]]:
+    """Build the attribute list for a ``sim_card`` device.
+
+    A ``sim_card`` does NOT use the canonical device shape
+    (serial/model/owner/status) — verified against the live TOS schema
+    (GSIG's sim_card id=5785 on 2026-06-06 carried only ``ip_address`` and
+    ``phone_number``). So this is a separate builder rather than reusing
+    :func:`build_required_attributes`.
+
+    ``ip_address`` is required (it's the operationally important field — the
+    address the scheduler/probe reaches the station through). ``phone_number``
+    is optional and omitted from the list when not given.
+
+    Each attribute carries an explicit ``date_to: None`` (open period), matching
+    :func:`build_required_attributes` and the ``/entities`` endpoint's
+    required-present-field expectation.
+
+    Args:
+        ip_address: The SIM's IP address (e.g. ``"10.4.1.225"``).
+        date_start: ISO-8601 date/datetime the SIM became active. Doubles as
+            ``date_from`` for the attribute periods.
+        phone_number: Optional MSISDN / phone number string.
+
+    Returns:
+        Attribute-dict list for :meth:`TOSWriter.create_device`.
+    """
+    attrs: List[Dict[str, Optional[str]]] = [
+        {
+            "code": "ip_address",
+            "value": ip_address,
+            "date_from": date_start,
+            "date_to": None,
+        },
+    ]
+    if phone_number:
+        attrs.append(
+            {
+                "code": "phone_number",
+                "value": phone_number,
+                "date_from": date_start,
+                "date_to": None,
+            }
+        )
+    return attrs
 
 
 def iter_optional_attributes(
