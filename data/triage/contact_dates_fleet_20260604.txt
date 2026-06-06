@@ -1,9 +1,10 @@
 # === tos fleet contact-dates — combined triage action file ===
-# Generated:  2026-06-04T07:55:16Z
+# Generated:  2026-06-06T20:46:32Z
 # Stations:   192 audited
 # Violations: 129 total
-#   HIGH (owner role, uncommented, ready to apply): 100
-#   LOW  (non-owner role, commented for review):    29
+#   HIGH     (owner, open, single — uncommented):   94
+#   TRANSFER (owner but closed / multi-owner):      6
+#   LOW      (non-owner role):                      29
 #
 # Each line backdates time_from to `start` (the station's
 # earliest_known / founding date), resolved at apply time.
@@ -12,8 +13,8 @@
 #   tos audit apply <file>          # dry-run preview
 #   tos audit apply <file> --apply  # commit writes
 
-# ── HIGH confidence: owner relationships (owner owned the station
-#    from founding, so `start` is the correct backdate) ──
+# ── HIGH confidence: owner relationships, open, sole owner of the
+#    station (owner owned it from founding → `start` is correct) ──
 # ARHO rel 4991 'Veðurstofa Íslands' role=owner  (per_time_from=2025-02-04T15:32:38)
 ACTION 4233 patch-contact-relationship 4991 time_from start
 # BALD rel 4994 'Veðurstofa Íslands' role=owner  (per_time_from=2025-02-04T15:32:38)
@@ -54,10 +55,6 @@ ACTION 4300 patch-contact-relationship 5007 time_from start
 ACTION 4302 patch-contact-relationship 5009 time_from start
 # GRAN rel 5008 'Veðurstofa Íslands' role=owner  (per_time_from=2025-02-04T15:32:38)
 ACTION 4306 patch-contact-relationship 5008 time_from start
-# GRIV rel 5087 'Jarðvísindastofnun Háskóla Íslands' role=owner  (per_time_from=2025-02-05T11:19:42)
-ACTION 19943 patch-contact-relationship 5087 time_from start
-# GRIV rel 5132 'Veðurstofa Íslands' role=owner  (per_time_from=2025-09-08T13:40:51)
-ACTION 19943 patch-contact-relationship 5132 time_from start
 # GRVA rel 5010 'Veðurstofa Íslands' role=owner  (per_time_from=2025-02-04T15:32:38)
 ACTION 4310 patch-contact-relationship 5010 time_from start
 # HAFC rel 5011 'Veðurstofa Íslands' role=owner  (per_time_from=2025-02-04T15:32:38)
@@ -128,10 +125,6 @@ ACTION 4446 patch-contact-relationship 5041 time_from start
 ACTION 4380 patch-contact-relationship 5042 time_from start
 # NAMC rel 5043 'Veðurstofa Íslands' role=owner  (per_time_from=2025-02-04T15:32:38)
 ACTION 18401 patch-contact-relationship 5043 time_from start
-# NBIO rel 5045 'Jarðvísindastofnun Háskóla Íslands' role=owner  (per_time_from=2025-02-04T15:32:38)
-ACTION 19961 patch-contact-relationship 5045 time_from start
-# NBIO rel 5135 'Veðurstofa Íslands' role=owner  (per_time_from=2025-09-08T15:17:05)
-ACTION 19961 patch-contact-relationship 5135 time_from start
 # NORS rel 5046 'Veðurstofa Íslands' role=owner  (per_time_from=2025-02-04T15:32:38)
 ACTION 4364 patch-contact-relationship 5046 time_from start
 # NVEL rel 5044 'Veðurstofa Íslands' role=owner  (per_time_from=2025-02-04T15:32:38)
@@ -200,10 +193,6 @@ ACTION 4418 patch-contact-relationship 5076 time_from start
 ACTION 16081 patch-contact-relationship 5078 time_from start
 # SVIN rel 5079 'Veðurstofa Íslands' role=owner  (per_time_from=2025-02-05T11:19:42)
 ACTION 16082 patch-contact-relationship 5079 time_from start
-# THNA rel 5084 'Veðurstofa Íslands' role=owner  (per_time_from=2025-02-05T11:19:42)
-ACTION 20089 patch-contact-relationship 5084 time_from start
-# THNA rel 5085 'Jarðvísindastofnun Háskóla Íslands' role=owner  (per_time_from=2025-02-05T11:19:42)
-ACTION 20089 patch-contact-relationship 5085 time_from start
 # THOB rel 5083 'Veðurstofa Íslands' role=owner  (per_time_from=2025-02-05T11:19:42)
 ACTION 16803 patch-contact-relationship 5083 time_from start
 # URHC rel 5080 'Veðurstofa Íslands' role=owner  (per_time_from=2025-02-05T11:19:42)
@@ -214,6 +203,24 @@ ACTION 19803 patch-contact-relationship 4536 time_from start
 ACTION 18406 patch-contact-relationship 5081 time_from start
 # VOGS rel 5082 'Veðurstofa Íslands' role=owner  (per_time_from=2025-02-05T11:19:42)
 ACTION 4432 patch-contact-relationship 5082 time_from start
+
+# ── TRANSFER / multi-owner: owner relationships that are CLOSED or
+#    share the station with another flagged owner. The current
+#    owner's time_from is often the real TRANSFER date, not
+#    founding — backdating blindly overlaps periods / erases the
+#    transfer. REVIEW each station's owner history first ──
+# GRIV rel 5087 'Jarðvísindastofnun Háskóla Íslands' role=owner  (per_time_from=2025-02-05T11:19:42 → 2025-09-08T14:17:45)
+#ACTION 19943 patch-contact-relationship 5087 time_from start
+# GRIV rel 5132 'Veðurstofa Íslands' role=owner  (per_time_from=2025-09-08T13:40:51)
+#ACTION 19943 patch-contact-relationship 5132 time_from start
+# NBIO rel 5045 'Jarðvísindastofnun Háskóla Íslands' role=owner  (per_time_from=2025-02-04T15:32:38 → 2025-09-08T15:19:43)
+#ACTION 19961 patch-contact-relationship 5045 time_from start
+# NBIO rel 5135 'Veðurstofa Íslands' role=owner  (per_time_from=2025-09-08T15:17:05)
+#ACTION 19961 patch-contact-relationship 5135 time_from start
+# THNA rel 5084 'Veðurstofa Íslands' role=owner  (per_time_from=2025-02-05T11:19:42 → 2025-02-05T11:42:38)
+#ACTION 20089 patch-contact-relationship 5084 time_from start
+# THNA rel 5085 'Jarðvísindastofnun Háskóla Íslands' role=owner  (per_time_from=2025-02-05T11:19:42)
+#ACTION 20089 patch-contact-relationship 5085 time_from start
 
 # ── LOW confidence: non-owner roles (data_owner / operator /
 #    observer) may have a genuinely recent start date — REVIEW
@@ -254,23 +261,23 @@ ACTION 4432 patch-contact-relationship 5082 time_from start
 #ACTION 4366 patch-contact-relationship 5144 time_from start
 # RHOF rel 4961 'Veðurstofa Íslands' role=operator  (per_time_from=2024-08-14T09:30:16)
 #ACTION 4390 patch-contact-relationship 4961 time_from start
-# RHOF rel 4987 'Benedikt G. Ófeigsson' role=operator  (per_time_from=2024-11-07T13:19:27)
+# RHOF rel 4987 'Benedikt G. Ófeigsson' role=operator  (per_time_from=2024-11-07T13:19:27 → 2024-11-07T13:44:48)
 #ACTION 4390 patch-contact-relationship 4987 time_from start
 # SENG rel 5118 'Veðurstofa Íslands' role=data_owner  (per_time_from=2025-08-19T13:21:44)
 #ACTION 16818 patch-contact-relationship 5118 time_from start
 # SENG rel 5120 'Veðurstofa Íslands' role=operator  (per_time_from=2025-08-19T13:21:44)
 #ACTION 16818 patch-contact-relationship 5120 time_from start
-# SEY1 rel 5059 'Veðurstofa Íslands' role=observer  (per_time_from=2025-02-05T11:19:42)
+# SEY1 rel 5059 'Veðurstofa Íslands' role=observer  (per_time_from=2025-02-05T11:19:42 → 2025-02-05T11:24:48)
 #ACTION 18279 patch-contact-relationship 5059 time_from start
-# SEYD rel 5058 'Veðurstofa Íslands' role=observer  (per_time_from=2025-02-05T11:19:42)
+# SEYD rel 5058 'Veðurstofa Íslands' role=observer  (per_time_from=2025-02-05T11:19:42 → 2025-02-05T11:24:13)
 #ACTION 18277 patch-contact-relationship 5058 time_from start
 # SKSH rel 5121 'Veðurstofa Íslands' role=data_owner  (per_time_from=2025-08-19T13:40:57)
 #ACTION 16821 patch-contact-relationship 5121 time_from start
 # SKSH rel 5123 'Veðurstofa Íslands' role=operator  (per_time_from=2025-08-19T13:40:57)
 #ACTION 16821 patch-contact-relationship 5123 time_from start
-# STAN rel 5057 'Jarðvísindastofnun Háskóla Íslands' role=observer  (per_time_from=2025-02-05T11:19:42)
+# STAN rel 5057 'Jarðvísindastofnun Háskóla Íslands' role=observer  (per_time_from=2025-02-05T11:19:42 → 2025-02-05T11:22:52)
 #ACTION 20168 patch-contact-relationship 5057 time_from start
-# TORK rel 5126 'Veðurstofa Íslands' role=operator  (per_time_from=2025-08-28T11:52:49)
+# TORK rel 5126 'Veðurstofa Íslands' role=operator  (per_time_from=2025-08-28T11:52:49 → 2025-08-28T11:54:11)
 #ACTION 19419 patch-contact-relationship 5126 time_from start
 # TORK rel 5127 'Jarðvísindastofnun Háskóla Íslands' role=operator  (per_time_from=2025-08-28T11:52:49)
 #ACTION 19419 patch-contact-relationship 5127 time_from start

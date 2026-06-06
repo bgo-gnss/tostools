@@ -70,7 +70,9 @@ class ContactDateViolation:
     ``id_relationship`` is the ``id_contact_entity_relationship`` the
     ACTION targets, ``per_time_from`` is the suspect timestamp,
     ``contact_label`` is the contact's name/organization, ``role`` is
-    its role on the station.
+    its role on the station. ``per_time_to`` (None = open) lets the
+    fleet triage detect closed / transfer relationships, where a blanket
+    backdate-to-founding is unsafe.
     """
 
     id_relationship: int
@@ -78,6 +80,7 @@ class ContactDateViolation:
     contact_label: Optional[str]
     role: Optional[str]
     per_time_from: str
+    per_time_to: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -286,6 +289,7 @@ def audit_station_contact_dates(
             contact_label=rel.get("name") or rel.get("organization"),
             role=rel.get("role"),
             per_time_from=str(per_time_from),
+            per_time_to=rel.get("per_time_to"),
         )
 
         supp_line = suppressions.get(id_relationship)
