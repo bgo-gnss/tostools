@@ -2072,6 +2072,32 @@ class TOSWriter:
             "after": payload,
         }
 
+    def delete_maintenance(self, id_maintenance: int) -> Any:
+        """Permanently remove a vitjun (maintenance record) from TOS.
+
+        .. warning::
+
+           Destructive admin endpoint. Use only to clean up known-bad
+           records — e.g. a visit created by accident. To close out a
+           visit that genuinely happened, prefer
+           :meth:`update_maintenance_visit` with ``completed=True``,
+           which preserves the history; deletion erases it.
+
+        Uses ``DELETE /admin_maintenance_row/{id}`` — the singular
+        ``admin_*_row`` form established by :meth:`delete_entity_connection`
+        (``/admin_entity_connection_row/{id}``) and
+        :meth:`delete_attribute_value` (``/admin_attribute_value_row/{id}``).
+        Requires admin-level TOS access (same scope as other admin writes).
+
+        Args:
+            id_maintenance: The ``id_maintenance`` of the vitjun to delete.
+
+        Returns:
+            API response (typically an empty 204), or
+            :class:`DryRunResult` in dry-run mode.
+        """
+        return self._request("DELETE", f"/admin_maintenance_row/{id_maintenance}")
+
 
 # ---------------------------------------------------------------------------
 # Context manager helper for per-call dry_run override
