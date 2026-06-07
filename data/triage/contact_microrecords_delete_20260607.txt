@@ -1,0 +1,42 @@
+# === contact micro-record cleanup — DELETE triage (all commented for review) ===
+# Generated:  2026-06-07
+#
+# 6 contact↔station relationship rows that were CLOSED within 1-25 minutes
+# of creation on the TOS migration days — spurious duplicates layered on top
+# of a real open record. They represent no real contact period.
+#
+# ALL LINES ARE COMMENTED. Review each against the evidence, uncomment the
+# ones you want to remove, then:
+#   tos audit apply data/triage/contact_microrecords_delete_20260607.txt           # dry-run
+#   tos audit apply data/triage/contact_microrecords_delete_20260607.txt --apply   # commit
+#
+# delete-contact-relationship is DESTRUCTIVE (erases the row). These are
+# micro-duration migration glitches, so deletion loses nothing real — but
+# leaving them is also harmless (a closed 5-min contact period affects
+# nothing operationally). Your call per line.
+#
+# Format: ACTION <station_id> delete-contact-relationship <id_relationship>
+
+# THNA (20089) — VÍ owner, 2025-02-05T11:19:42 → 11:42:38 (23 min)
+#   superseded by: rel 5085 Jarðvísindastofnun owner (OPEN, current owner of THNA)
+#ACTION 20089 delete-contact-relationship 5084
+
+# RHOF (4390) — Benedikt G. Ófeigsson operator, 2024-11-07T13:19:27 → 13:44:48 (25 min)
+#   superseded by: rel 4961 VÍ operator (OPEN) + rel 4387 VÍ owner (OPEN since 2001)
+#ACTION 4390 delete-contact-relationship 4987
+
+# SEY1 (18279) — VÍ observer, 2025-02-05T11:19:42 → 11:24:48 (5 min)
+#   superseded by: rel 5063 VÍ owner (OPEN since 2021-01-30)
+#ACTION 18279 delete-contact-relationship 5059
+
+# SEYD (18277) — VÍ observer, 2025-02-05T11:19:42 → 11:24:13 (5 min)
+#   superseded by: rel 5062 VÍ owner (OPEN since 2021-01-31)
+#ACTION 18277 delete-contact-relationship 5058
+
+# STAN (20168) — Jarðvísindastofnun observer, 2025-02-05T11:19:42 → 11:22:52 (3 min)
+#   superseded by: rel 5060 VÍ owner (OPEN since 2021-03-18)
+#ACTION 20168 delete-contact-relationship 5057
+
+# TORK (19419) — VÍ operator, 2025-08-28T11:52:49 → 11:54:11 (1 min)
+#   superseded by: rel 5127 Jarðvísindastofnun operator (OPEN) + rel 4529 Jarð owner (OPEN)
+#ACTION 19419 delete-contact-relationship 5126
