@@ -68,7 +68,7 @@ devices:
     description: Manufacturer / model designation (e.g. "TRIMBLE NETR9", "TRM57971.00")
     classification: inherent
     tos_required_for: [gnss_receiver, antenna, radome]
-    gps_required_for: [gnss_receiver, antenna, radome, monument] # USER FILLS IN — strict superset of tos
+    gps_required_for: [gnss_receiver, antenna, radome] # monument structure type lives in infrastructure_type instead
     default_value: ~ # USER OPTIONAL — what TOS records as the default
     applies_to: [gnss_receiver, antenna, radome, monument]
     gps_relevance: "yes"
@@ -298,6 +298,14 @@ devices:
     why: "Read by sitelog renderer (legacy/gps_metadata_functions.py:775) with empty-string fallback. Icelandic label guessed as 'Áletrun' — confirm against TOS UI."
 
   # --- GNSS constellation toggles (gnss_receiver only) ---
+  #
+  # Power-budget convention across the fleet: many stations run on solar
+  # + battery with limited supply, so GPS + GLONASS is the conservative
+  # default. Defaulting the additional constellations to `true` would
+  # silently enable them and drain the battery, so GAL/BDS/QZSS/SBAS/IRN
+  # are left without a catalog default — the operator must consciously
+  # decide per device based on the receiver's capability AND the site's
+  # power budget. See each entry's `why` field for details.
 
   GPS:
     icelandic_label: GPS
@@ -312,7 +320,7 @@ devices:
     sample_values: ["true"]
     n_devices: 2
     walked: true
-    why: ""
+    why: "Baseline constellation — always on for any GPS station."
 
   GLO:
     icelandic_label: GLO
@@ -327,7 +335,7 @@ devices:
     sample_values: ["true"]
     n_devices: 1
     walked: true
-    why: ""
+    why: "Baseline-with-GPS — the GPS+GLO combination is the fleet's power-budget-safe default."
 
   GAL:
     icelandic_label: GAL
@@ -335,14 +343,14 @@ devices:
     classification: mutable
     tos_required_for: []
     gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
-    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    default_value: ~ # no default — power-budget convention; operator decides
     applies_to: [gnss_receiver]
     gps_relevance: "yes"
     subtypes_observed: []
     sample_values: []
     n_devices: 0
     walked: false
-    why: ""
+    why: "No default by design — many stations run on solar/battery and keep only GPS+GLO active to conserve power. Operator decides per device based on receiver capability and site power budget."
 
   BDS:
     icelandic_label: BDS
@@ -350,14 +358,14 @@ devices:
     classification: mutable
     tos_required_for: []
     gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
-    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    default_value: ~ # no default — power-budget convention; operator decides
     applies_to: [gnss_receiver]
     gps_relevance: "yes"
     subtypes_observed: []
     sample_values: []
     n_devices: 0
     walked: false
-    why: ""
+    why: "No default by design — power-budget convention. See GAL.why for the rationale."
 
   QZSS:
     icelandic_label: QZSS
@@ -365,14 +373,14 @@ devices:
     classification: mutable
     tos_required_for: []
     gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
-    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    default_value: ~ # no default — power-budget convention; operator decides
     applies_to: [gnss_receiver]
     gps_relevance: "yes"
     subtypes_observed: []
     sample_values: []
     n_devices: 0
     walked: false
-    why: ""
+    why: "No default by design — power-budget convention. See GAL.why for the rationale."
 
   SBAS:
     icelandic_label: SBAS
@@ -380,14 +388,14 @@ devices:
     classification: mutable
     tos_required_for: []
     gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
-    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    default_value: ~ # no default — power-budget convention; operator decides
     applies_to: [gnss_receiver]
     gps_relevance: "yes"
     subtypes_observed: []
     sample_values: []
     n_devices: 0
     walked: false
-    why: ""
+    why: "No default by design — power-budget convention. See GAL.why for the rationale."
 
   IRN:
     icelandic_label: IRN
@@ -395,24 +403,26 @@ devices:
     classification: mutable
     tos_required_for: []
     gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
-    default_value: ~ # USER OPTIONAL — what TOS records as the default
+    default_value: ~ # no default — power-budget convention; operator decides
     applies_to: [gnss_receiver]
     gps_relevance: "yes"
     subtypes_observed: []
     sample_values: []
     n_devices: 0
     walked: false
-    why: ""
+    why: "No default by design — power-budget convention. See GAL.why for the rationale."
 
   # --- Receiver network / ports ---
 
   http_port:
     icelandic_label: HTTP-port
-    description: HTTP port the device is accessible on (e.g. 80, 8060)
+    description: Receiver LOCAL HTTP port. NOT the router's port-forward
+      (e.g. 8060 forwarding to receiver:80) — that belongs on the router
+      entity. Default 80 is the standard receiver-side port.
     classification: mutable # mutable — network reconfig
     tos_required_for: []
     gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
-    default_value: "80" # USER OPTIONAL — what TOS records as the default
+    default_value: "80" # local receiver port — convention across the fleet
     applies_to: [gnss_receiver]
     gps_relevance: "yes"
     subtypes_observed: [gnss_receiver]
@@ -424,7 +434,7 @@ devices:
   soh_port:
     icelandic_label: SOH-port
     description: State-Of-Health port (e.g. 50000)
-    classification: mutable  # SOH port is reconfigurable
+    classification: mutable # SOH port is reconfigurable
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: "28784" # USER OPTIONAL — what TOS records as the default
@@ -751,11 +761,13 @@ devices:
 
   ip_address:
     icelandic_label: IP-tala tækis
-    description: IP address of the device
+    description: Receiver LOCAL IP address (on the station's internal LAN). NOT
+      the external/SIM IP — that belongs on the router entity. Default reflects
+      the standard receiver-side convention; override only for non-standard sites.
     classification: mutable
     tos_required_for: []
     gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
-    default_value: "192.168.100.60" # USER OPTIONAL — what TOS records as the default
+    default_value: "192.168.100.60" # local receiver IP — convention across the fleet
     applies_to: [gnss_receiver]
     gps_relevance: "yes"
     subtypes_observed: []
@@ -1663,7 +1675,7 @@ stations:
   lon:
     icelandic_label: Lengdargráða
     description: Station longitude (decimal degrees)
-    classification: inherent  # station longitude is fixed by location
+    classification: inherent # station longitude is fixed by location
     tos_required_for: [geophysical]
     gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
@@ -1672,10 +1684,10 @@ stations:
     walked: false
     why: ""
 
-  visit_class:
+  operational_class:
     icelandic_label: Vitjanaflokkur
     description: Visit cadence class — A (<=1 week), B (<=3 weeks), C (3-6 weeks)
-    classification: mutable  # cadence class can change with operator policy
+    classification: mutable # cadence class can change with operator policy
     tos_required_for: [geophysical]
     gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: "B" # USER OPTIONAL — what TOS records as the default
@@ -1712,10 +1724,10 @@ stations:
 
   description:
     icelandic_label: Lýsing
-    description: Station description
+    description: Station description — free text; nice-to-have, not operationally required
     classification: inherent
     tos_required_for: [geophysical]
-    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
+    gps_required_for: [] # optional — TOS form marks it required but the audit doesn't enforce
     default_value: ~ # USER OPTIONAL — what TOS records as the default
     applies_to: [geophysical]
     gps_relevance: "yes"
@@ -1726,10 +1738,10 @@ stations:
 
   close_date:
     icelandic_label: Lokadagsetning
-    description: Station close date
+    description: Station close date — only set when the station is permanently decommissioned
     classification: inherent
     tos_required_for: []
-    gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
+    gps_required_for: [] # conditional — only required at decommissioning, never on active stations
     default_value: ~ # USER OPTIONAL — what TOS records as the default
     applies_to: [geophysical]
     gps_relevance: "yes"
@@ -1763,7 +1775,7 @@ stations:
   iers_domes_number:
     icelandic_label: IERS domes number
     description: IERS DOMES site number — IGS site log section 1
-    classification: inherent  # DOMES site number is assigned once and permanent
+    classification: inherent # DOMES site number is assigned once and permanent
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
@@ -1835,14 +1847,14 @@ stations:
   continuity:
     icelandic_label: Samfella
     description: GNSS measurement continuity — continuous | campaign
-    classification: inherent
+    classification: mutable # campaign stations can be promoted to continuous (and vice versa)
     tos_required_for: []
     gps_required_for: [geophysical] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
     applies_to: [geophysical]
     gps_relevance: "yes"
     walked: false
-    why: "Continuous vs campaign — critical for processing pipeline"
+    why: "Continuous vs campaign — critical for processing pipeline. Mutable: a station's continuity can change over its lifetime."
 
   short_name:
     icelandic_label: Nafn stutt
