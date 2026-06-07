@@ -1,4 +1,10 @@
 # === tos fleet contact-dates — combined triage action file ===
+# ✅ APPLIED 2026-06-06: the 94 uncommented (HIGH) owner backdates were
+#    committed to live TOS — `tos audit apply ... --apply` → 94 ok, 0 failed.
+#    Spot-checked + re-audited clean (SAVI/ARHO/BUDH). The 6 TRANSFER +
+#    29 LOW lines below remain COMMENTED for operator review.
+#    Rollback any line: tos contact patch-relationship <id_rel> \
+#      --time-from "<orig_ts>" --no-dry-run   (originals in comments).
 # Generated:  2026-06-06T20:46:32Z
 # Stations:   192 audited
 # Violations: 129 total
