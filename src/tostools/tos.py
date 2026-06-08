@@ -2212,6 +2212,8 @@ def _station_main(argv):
     )
     p_show.add_argument("--port", type=int, default=443)
 
+    _add_station_add_parser(sub)
+
     args = p.parse_args(argv)
 
     if args.verb == "triage":
@@ -2220,8 +2222,146 @@ def _station_main(argv):
         return _station_verify_main(args)
     if args.verb == "show":
         return _station_show_main(args)
+    if args.verb == "add":
+        return _station_add_main(args)
 
     return 2
+
+
+def _add_station_add_parser(sub) -> None:
+    """Register ``tos station add`` — create a geophysical station + site-join.
+
+    Creates the ``geophysical`` station shell (required attributes from the
+    catalog, operator-overridable defaults), find-or-creates its ``land`` site
+    (see :mod:`tostools.location`), and joins the two. Devices are added
+    afterwards via ``tos device add`` + ``create-join`` (station-shell only —
+    see docs/architecture/station-location-add.md).
+    """
+    p_add = sub.add_parser(
+        "add",
+        help=(
+            "Create a geophysical station (shell) + find-or-create its land "
+            "site + join them. Dry-run by default."
+        ),
+        description=(
+            "Create a new GPS station entity and attach it to its land site.\n\n"
+            "Must-provide attributes (no catalog default): --marker, --name, "
+            "--lat, --lon, --altitude, --date-start, --continuity.\n"
+            "Catalog-defaulted (override if needed): --subtype, "
+            "--operational-class, --geological-characteristic, "
+            "--is-near-fault-zones, --bedrock-condition, --bedrock-type, "
+            "--in-network-epos.\n\n"
+            "Location: by default the site is found-or-created by name "
+            "(--name); the station's own coordinates seed a new site. Use "
+            "--location-id to attach to a specific existing site, or "
+            "--create-location to require a fresh one."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    # --- must-provide (no catalog default) ---
+    p_add.add_argument(
+        "--marker", required=True, help="4-char RINEX marker, e.g. HEDI."
+    )
+    p_add.add_argument(
+        "--name", required=True, help="Station name, e.g. 'Héðinshöfði'."
+    )
+    p_add.add_argument("--lat", required=True, help="Latitude, decimal degrees.")
+    p_add.add_argument("--lon", required=True, help="Longitude, decimal degrees.")
+    p_add.add_argument("--altitude", required=True, help="Altitude, metres.")
+    p_add.add_argument(
+        "--date-start",
+        required=True,
+        help="Station start date (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS); the "
+        "date_from for every attribute and the site join.",
+    )
+    p_add.add_argument(
+        "--continuity",
+        required=True,
+        help="Measurement continuity, e.g. 'continuous' or 'campaign'.",
+    )
+    # --- catalog-defaulted (override only) ---
+    p_add.add_argument(
+        "--subtype",
+        default=None,
+        help="Station kind attribute (catalog default: 'GPS stöð').",
+    )
+    p_add.add_argument(
+        "--operational-class", default=None, help="Operational class (default: 'B')."
+    )
+    p_add.add_argument(
+        "--geological-characteristic",
+        default=None,
+        help="Geological characteristic (default: 'bedrock').",
+    )
+    p_add.add_argument(
+        "--is-near-fault-zones",
+        default=None,
+        help="Near fault zones (default: 'yes').",
+    )
+    p_add.add_argument(
+        "--bedrock-condition",
+        default=None,
+        help="Bedrock condition (default: 'weathered').",
+    )
+    p_add.add_argument(
+        "--bedrock-type", default=None, help="Bedrock type (default: 'igneous')."
+    )
+    p_add.add_argument(
+        "--in-network-epos", default=None, help="In EPOS network (default: 'nei')."
+    )
+    # --- location resolution (find-or-create) ---
+    loc_group = p_add.add_mutually_exclusive_group()
+    loc_group.add_argument(
+        "--location-id",
+        type=int,
+        default=None,
+        help="Attach to this existing `land` site id_entity (must be a land "
+        "entity). Skips find-or-create.",
+    )
+    loc_group.add_argument(
+        "--location-name",
+        default=None,
+        help="Site name to find-or-create (default: --name).",
+    )
+    p_add.add_argument(
+        "--create-location",
+        action="store_true",
+        help="Require a FRESH site: error if a site with the resolved name "
+        "already exists (instead of reusing it).",
+    )
+    # --- common ---
+    p_add.add_argument(
+        "--force",
+        action="store_true",
+        help="Create the station even if its marker already exists in TOS "
+        "(bypasses the duplicate-marker guard).",
+    )
+    p_add.add_argument(
+        "--no-dry-run",
+        action="store_true",
+        help="Commit the writes. Without this flag, payloads are logged only.",
+    )
+    p_add.add_argument(
+        "--json", action="store_true", help="Emit a structured JSON summary."
+    )
+    p_add.add_argument(
+        "--triage",
+        type=Path,
+        default=None,
+        help="Substitute the new station id_entity into a triage file "
+        "in-place (requires --placeholder).",
+    )
+    p_add.add_argument(
+        "--placeholder",
+        help="Token name to substitute in --triage (matched as '<TOKEN>'). "
+        "Required when --triage is given.",
+    )
+    p_add.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_add.add_argument("--port", type=int, default=443)
 
 
 def _station_triage_main(args) -> int:
@@ -3180,6 +3320,228 @@ def _filter_contacts(
                 continue
         out.append(c)
     return out
+
+
+def _station_add_main(args) -> int:
+    """Create a geophysical station shell + find-or-create its land site + join.
+
+    Station-shell only (devices added afterwards via ``tos device add`` +
+    ``create-join``). See docs/architecture/station-location-add.md.
+    """
+    from . import location as location_helpers
+    from . import station as station_helpers
+    from .api.tos_writer import TOSWriter
+
+    # ---- Validate + shape station attributes -----------------------------
+    try:
+        date_start = station_helpers.normalize_date_start(args.date_start)
+    except ValueError as e:
+        print(f"Invalid --date-start: {e}", file=sys.stderr)
+        return 2
+
+    provided = {
+        "marker": args.marker,
+        "name": args.name,
+        "lat": args.lat,
+        "lon": args.lon,
+        "altitude": args.altitude,
+        "continuity": args.continuity,
+        "subtype": args.subtype,
+        "operational_class": args.operational_class,
+        "geological_characteristic": args.geological_characteristic,
+        "is_near_fault_zones": args.is_near_fault_zones,
+        "bedrock_condition": args.bedrock_condition,
+        "bedrock_type": args.bedrock_type,
+        "in_network_epos": args.in_network_epos,
+    }
+    try:
+        station_attrs = station_helpers.build_required_station_attributes(
+            provided=provided, date_start=date_start
+        )
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
+    if (args.triage is not None) != (args.placeholder is not None):
+        print("--triage and --placeholder must be used together", file=sys.stderr)
+        return 2
+
+    # ---- Writer setup ----------------------------------------------------
+    scheme = "https" if args.port == 443 else "http"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    dry_run = not args.no_dry_run
+    writer = TOSWriter(base_url=base_url, dry_run=dry_run)
+
+    # ---- Pre-flight: duplicate-marker guard ------------------------------
+    existing_marker_id = writer.find_station_by_marker(args.marker)
+    if existing_marker_id is not None and not args.force:
+        print(
+            f"A station with marker {args.marker!r} already exists "
+            f"(id_entity={existing_marker_id}). Pass --force to add anyway, "
+            f"or pick a different marker.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # ---- Resolve the land site (find-or-create) --------------------------
+    site_id, site_reused, rc = _resolve_station_site(
+        writer, args, date_start, location_helpers
+    )
+    if rc is not None:
+        return rc
+
+    # ---- Create the station entity ---------------------------------------
+    try:
+        response = writer.create_entity(station_helpers.STATION_SUBTYPE, station_attrs)
+    except Exception as e:  # noqa: BLE001 — a just-minted site may be orphaned
+        msg = f"Station create failed: {e}."
+        if not site_reused and site_id is not None:
+            # A fresh `land` site was minted moments ago and TOS has no
+            # entity-delete — flag the orphan so the operator reuses it.
+            msg += (
+                f" NOTE: a new `land` site (id_entity={site_id}) was just "
+                f"created and CANNOT be deleted — reuse it on retry with "
+                f"--location-id {site_id}."
+            )
+        print(msg, file=sys.stderr)
+        return 1
+    station_id = response.get("id_entity") if isinstance(response, dict) else None
+    if not args.json:
+        suffix = " (dry-run)" if dry_run else ""
+        id_str = station_id if station_id is not None else "<would be assigned>"
+        print(
+            f"Created station marker={args.marker!r} subtype=geophysical "
+            f"id_entity={id_str}{suffix}"
+        )
+
+    # ---- Join station under the site -------------------------------------
+    join_response: Any
+    if dry_run or station_id is None or site_id is None:
+        if not args.json:
+            print(
+                f"  Would join station (child={station_id or '<new>'}) under "
+                f"site (parent={site_id or '<new>'}) at time_from={date_start}."
+            )
+        join_response = {"dry_run": True, "parent": site_id, "child": station_id}
+    else:
+        try:
+            join_response = writer.create_entity_connection(
+                id_parent=site_id, id_child=station_id, time_from=date_start
+            )
+        except Exception as e:  # noqa: BLE001 — surface the orphaned station id
+            print(
+                f"Station created (id_entity={station_id}) but the join to "
+                f"site {site_id} failed: {e}. Re-run the join manually "
+                f"(ACTION {station_id} create-join {site_id} {args.date_start}).",
+                file=sys.stderr,
+            )
+            return 1
+
+    # ---- Triage handoff (station id) + JSON ------------------------------
+    _location_triage_handoff(args, station_id)
+
+    if args.json:
+        import json as _json
+
+        print(
+            _json.dumps(
+                {
+                    "marker": args.marker,
+                    "name": args.name,
+                    "station_id": station_id,
+                    "site_id": site_id,
+                    "site_reused": site_reused,
+                    "dry_run": dry_run,
+                    "date_start": date_start,
+                    "attributes": station_attrs,
+                    "join": join_response,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    return 0
+
+
+def _resolve_station_site(writer, args, date_start, location_helpers):
+    """Resolve the land site for a station add — find-or-create.
+
+    Returns ``(site_id, site_reused, rc)``. When ``rc`` is not ``None`` the
+    caller should return it immediately (an error). ``site_id`` is ``None``
+    only when a fresh site is minted in dry-run (no real id yet).
+    """
+    # Explicit existing site by id.
+    if args.location_id is not None:
+        history = writer.get_entity_history(args.location_id)
+        subtype = history.get("code_entity_subtype") if history else None
+        if subtype != location_helpers.LOCATION_SUBTYPE:
+            print(
+                f"--location-id {args.location_id} is not a `land` site "
+                f"(code_entity_subtype={subtype!r}). Pass the id of a land "
+                f"location.",
+                file=sys.stderr,
+            )
+            return None, False, 2
+        if not args.json:
+            print(f"Attaching to existing site id_entity={args.location_id}.")
+            _print_location_children(
+                location_helpers.summarize_location_children(writer, args.location_id)
+            )
+            _print_site_power(writer, args.location_id)
+        return args.location_id, True, None
+
+    # Resolve by name (default: the station's own name).
+    site_name = args.location_name or args.name
+    found = writer.find_land_location_by_name(site_name)
+
+    if found is not None:
+        if args.create_location:
+            print(
+                f"--create-location was given but a `land` site named "
+                f"{site_name!r} already exists (id_entity={found}). Drop "
+                f"--create-location to reuse it, or pick another name.",
+                file=sys.stderr,
+            )
+            return None, False, 2
+        if not args.json:
+            print(
+                f"Site {site_name!r} already exists (id_entity={found}) — "
+                f"attaching the new station to it."
+            )
+            _print_location_children(
+                location_helpers.summarize_location_children(writer, found)
+            )
+            _print_site_power(writer, found)
+        return found, True, None
+
+    # No site → auto-mint from the station's name + coordinates.
+    try:
+        site_attrs = location_helpers.build_location_attributes(
+            name=site_name,
+            lat=args.lat,
+            lon=args.lon,
+            altitude=args.altitude,
+            date_start=date_start,
+        )
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return None, False, 2
+
+    dry_run = not args.no_dry_run
+    if not args.json:
+        print(
+            f"No existing `land` site named {site_name!r} — creating one from "
+            f"the station's coordinates. NOTE: a `land` entity is NOT "
+            f"deletable in TOS; this write is irreversible once committed.",
+            file=sys.stderr,
+        )
+    response = writer.create_entity(location_helpers.LOCATION_SUBTYPE, site_attrs)
+    site_id = response.get("id_entity") if isinstance(response, dict) else None
+    if not args.json:
+        suffix = " (dry-run)" if dry_run else ""
+        id_str = site_id if site_id is not None else "<would be assigned>"
+        print(f"Created land site {site_name!r} id_entity={id_str}{suffix}")
+    return site_id, False, None
 
 
 def _location_main(argv):
@@ -9983,6 +10345,10 @@ def _print_top_level_help() -> None:
         "             `tos device show --id N`.\n"
         "\n"
         "  station    Top-level station orchestration. Subverbs:\n"
+        "               station add --marker M --name N ...\n"
+        "                                       Create a geophysical station\n"
+        "                                       shell + find-or-create its land\n"
+        "                                       site + join. Dry-run default.\n"
         "               station triage <STN>    Generate combined triage file\n"
         "                                       (commented ACTION lines).\n"
         "               station verify <STN>    Re-run audits; exit 0 clean,\n"

@@ -1,7 +1,8 @@
 # Scope — `tos station add` + `tos location add`
 
-Status: **in progress** (design agreed 2026-06-07: find-or-create location ·
-station shell only · CLI verb + `--triage` handoff).
+Status: **implemented** (design agreed 2026-06-07: find-or-create location ·
+station shell only · CLI verb + `--triage` handoff). Both verbs landed; create
+paths are live-unverified (irreversible — verify on first genuine use).
 
 - **`tos location add`** + `TOSWriter.find_land_location_by_name` —
   implemented 2026-06-07. `src/tostools/location.py`,
@@ -24,7 +25,21 @@ station shell only · CLI verb + `--triage` handoff).
       `_subtype_to_entity_type_cache` (so the monument-114 precedent does not
       apply) — the only open question is whether `/entities` accepts a
       location-type subtype, which the first live create will settle.
-- ⬜ **`tos station add`** — not yet started.
+- **`tos station add`** — implemented 2026-06-08. `src/tostools/station.py`
+  (`station_required_codes` / `build_required_station_attributes` read the
+  catalog `stations` scope dynamically — 7 must-provide, 7 catalog-defaulted),
+  `_station_add_main` / `_resolve_station_site` in `tos.py`, pinned by
+  `tests/test_station_add.py` (19 tests). Station-shell only (Q2a); find-or-
+  create site (Q1a) reusing `find_land_location_by_name`; duplicate-marker
+  guard (`find_station_by_marker`, `--force`); join via
+  `create_entity_connection`; orphaned-station-on-join-failure surfaced as a
+  `create-join` ACTION hint; `--triage` handoff carries the station id; W1
+  `summarize_site_power` surfaced when attaching to an existing site. **Same
+  live-unverified caveat as location create** — the station + site POSTs are
+  dry-run/`_FakeWriter` only; verify on first genuine use (irreversible).
+  Dry-run live-validated: ZZZZ→Mjóaskarð (reuse existing powered site),
+  QQQ9→fresh site (auto-mint), duplicate-marker refusal, non-land
+  `--location-id` rejection.
 
 ## 1. Problem
 
