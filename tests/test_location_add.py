@@ -290,6 +290,7 @@ class _FakeWriter:
         self.dry_run = kwargs.get("dry_run", True)
         self.existing_id: Optional[int] = None
         self.children: List[Dict[str, Any]] = []
+        self.power_rows: List[Dict[str, Any]] = []
         self.create_calls: List[tuple] = []
         self.create_response: Any = {"id_entity": None}
         _FakeWriter.last_instance = self
@@ -327,12 +328,19 @@ def _run_cli(argv: List[str], configure=None) -> int:
             if configure:
                 configure(self)
 
+    import tostools.power as power_mod
+
     with (
         patch("tostools.api.tos_writer.TOSWriter", _Configured),
         patch.object(
             location_mod,
             "summarize_location_children",
             lambda w, lid, **kw: getattr(w, "children", []),
+        ),
+        patch.object(
+            power_mod,
+            "summarize_site_power",
+            lambda w, lid, **kw: getattr(w, "power_rows", []),
         ),
     ):
         return _location_main(argv)
@@ -377,6 +385,40 @@ def test_cli_reuse_existing_skips_create(capsys) -> None:
     # No create on the reuse path.
     assert _FakeWriter.last_instance is not None
     assert _FakeWriter.last_instance.create_calls == []
+
+
+def test_cli_reuse_surfaces_site_power(capsys) -> None:
+    def cfg(w: _FakeWriter) -> None:
+        w.existing_id = 4360
+        w.power_rows = [
+            {
+                "id_entity": 16486,
+                "subtype": "battery",
+                "model": "Vision",
+                "on_station": 5487,
+                "on_station_name": "Mjóaskarð",
+                "sensor_tied": False,
+            },
+        ]
+
+    rc = _run_cli(_base_args(), configure=cfg)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "Site power" in out
+    assert "battery" in out
+    assert "Mjóaskarð" in out
+    assert "don't duplicate" in out
+
+
+def test_cli_reuse_reports_no_site_power(capsys) -> None:
+    def cfg(w: _FakeWriter) -> None:
+        w.existing_id = 4315
+        w.power_rows = []  # HEDI: no power modelled
+
+    rc = _run_cli(_base_args(), configure=cfg)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "none modelled yet" in out
 
 
 def test_cli_create_path_warns_exact_match_and_irreversible(capsys) -> None:

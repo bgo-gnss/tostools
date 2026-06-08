@@ -3310,6 +3310,7 @@ def _location_add_main(args) -> int:
                     f"duplicate."
                 )
                 _print_location_children(children)
+                _print_site_power(writer, existing_id)
                 print(
                     "\nUse this id as the parent for a new station:\n"
                     f"  tos station add --location-id {existing_id} ..."
@@ -3324,6 +3325,7 @@ def _location_add_main(args) -> int:
                 file=sys.stderr,
             )
             _print_location_children(children)
+            _print_site_power(writer, existing_id)
             id_entity = _create_land_site(writer, attributes, dry_run, args)
     else:
         # No EXACT-name match. The reuse guard is case-sensitive and does not
@@ -3395,6 +3397,35 @@ def _print_location_children(children) -> None:
         print(
             f"    - {label:10} id={c['id_entity']:<7} {name}  "
             f"(since {c.get('time_from')})"
+        )
+
+
+def _print_site_power(writer, land_id) -> None:
+    """Surface the power already present at a site (shared-power model, W1).
+
+    Aggregates power devices across the colocated stations so an operator
+    reusing a site sees the existing supply and does not add a duplicate. See
+    ``docs/architecture/shared-power-model.md``.
+    """
+    from .power import summarize_site_power
+
+    rows = summarize_site_power(writer, land_id)
+    if not rows:
+        print(
+            "  Site power: none modelled yet (neither on the site nor its " "stations)."
+        )
+        return
+    print("  Site power (shared across colocated stations — don't duplicate):")
+    for r in rows:
+        if r.get("on_station") is None:
+            where = "on the site"
+        else:
+            where = f"on {r.get('on_station_name') or 'station'} ({r['on_station']})"
+        model = r.get("model") or ""
+        tied = "  [sensor-tied]" if r.get("sensor_tied") else ""
+        print(
+            f"    - {r['subtype']:22} id={r['id_entity']:<7} {model:14} "
+            f"{where}{tied}"
         )
 
 

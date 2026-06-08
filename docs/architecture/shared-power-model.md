@@ -59,7 +59,7 @@ a dedicated source entity, or implicit in which power devices hang off the site.
 
 Ordered cheapest-/least-risky first. Only W1 is near-term; W3 is the heavy one.
 
-### W1 — Surface existing site power (Q2a) — read-only, near-term
+### W1 — Surface existing site power (Q2a) — ✅ IMPLEMENTED 2026-06-08
 
 Extend the reuse view already built in `tos location add` (and the future
 `tos station add`) so that when a site is found/reused, the operator sees the
@@ -77,12 +77,18 @@ Location 'Héðinshöfði' already exists (id_entity=4315) — reusing.
   (none on the site itself yet — see shared-power-model.md)
 ```
 
-Implementation: a helper next to `summarize_location_children` —
-`summarize_site_power(client, land_id)` — that walks the site's `land`
-children + each colocated station's children, filters to the power-device
-subtype set, and returns `{id_entity, subtype, on_station, open}`. Pure read;
-reuses `open_attribute`. Pin in `tests/test_location_add.py` /
-`tests/test_*power*`.
+Implemented as `tostools.power.summarize_site_power(writer, land_id)` — walks
+the `land` children + each colocated station's children, filters to
+`POWER_DEVICE_SUBTYPES`, returns `{id_entity, subtype, model, serial,
+on_station, on_station_name, sensor_tied, time_from, open}` (site-direct power
+sorts first, then by station). Also handles power joined **directly** to the
+site (W3 target state) so it keeps working as power moves site-ward. Wired into
+the `tos location add` reuse view via `_print_site_power`; live-verified on
+Mjóaskarð (`land` 4360 — 9 power devices across the GPS + SIL + Endurvarpi
+stations surfaced with per-station attribution and a "don't duplicate"
+prompt). Pinned by `tests/test_power.py` (8) + `tests/test_location_add.py`
+site-power cases. `SENSOR_TIED_POWER_SUBTYPES` (`anemometer_power_pack`) is
+flagged in each row so the W2 audit can exclude instrument-private power.
 
 ### W2 — Audit invariant: colocated stations must share power (Q2b)
 
