@@ -15,6 +15,7 @@ KNOWN_SUBCOMMANDS = {
     "device",
     "audit",
     "station",
+    "location",
     "contact",
     "fleet",
     "visit",
@@ -3179,6 +3180,266 @@ def _filter_contacts(
                 continue
         out.append(c)
     return out
+
+
+def _location_main(argv):
+    """Handle ``tos location <verb>`` subcommands.
+
+    A "location" in TOS is a ``land`` site entity — the required parent of any
+    land station. Today the only verb is ``add`` (find-or-create a site);
+    inspection verbs may follow. Find-or-create is **idempotent**: a site that
+    already exists (commonly because a SIL seismic station is already there)
+    is reused and its attached stations shown, not duplicated.
+    """
+    p = argparse.ArgumentParser(
+        prog="tos location",
+        description="Manage TOS `land` site (location) entities.",
+    )
+    sub = p.add_subparsers(dest="action", required=True)
+
+    p_add = sub.add_parser(
+        "add",
+        help="Find-or-create a `land` site (idempotent; dry-run by default).",
+    )
+    p_add.add_argument("--name", required=True, help="Site name, e.g. 'Héðinshöfði'.")
+    p_add.add_argument("--lat", required=True, help="Latitude, decimal degrees.")
+    p_add.add_argument("--lon", required=True, help="Longitude, decimal degrees.")
+    p_add.add_argument("--altitude", required=True, help="Altitude, metres.")
+    p_add.add_argument(
+        "--date-start",
+        required=True,
+        help="date_from for every site attribute (YYYY-MM-DD or "
+        "YYYY-MM-DDTHH:MM:SS).",
+    )
+    p_add.add_argument("--lon-isn93", help="Optional ISN93 easting.")
+    p_add.add_argument("--lat-isn93", help="Optional ISN93 northing.")
+    p_add.add_argument("--identifier", help="Optional site identifier.")
+    p_add.add_argument("--notes", help="Optional free-text notes.")
+    p_add.add_argument(
+        "--force",
+        action="store_true",
+        help="Create a NEW site even if one with this name already exists "
+        "(bypasses the idempotent reuse guard — rarely wanted).",
+    )
+    p_add.add_argument(
+        "--no-dry-run",
+        action="store_true",
+        help="Commit the write. Without this flag, the payload is logged only.",
+    )
+    p_add.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_add.add_argument("--port", type=int, default=443)
+    p_add.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a structured JSON summary instead of plain text.",
+    )
+    p_add.add_argument(
+        "--triage",
+        type=Path,
+        default=None,
+        help="Substitute the site's id_entity into a triage file in-place "
+        "(requires --placeholder). Works for both a freshly-created site "
+        "and a reused existing one — so the id flows into a waiting "
+        "`tos station add --location-id` line.",
+    )
+    p_add.add_argument(
+        "--placeholder",
+        help="Token name to substitute in --triage (matched as '<TOKEN>'). "
+        "Required when --triage is given.",
+    )
+
+    args = p.parse_args(argv)
+    if args.action != "add":
+        p.error(f"unknown action: {args.action}")
+        return 2
+    return _location_add_main(args)
+
+
+def _location_add_main(args) -> int:
+    """Find-or-create a ``land`` site. Idempotent reuse is the common path."""
+    from . import location as location_helpers
+    from .api.tos_writer import TOSWriter
+
+    # ---- Input validation ------------------------------------------------
+    try:
+        date_start = location_helpers.normalize_date_start(args.date_start)
+    except ValueError as e:
+        print(f"Invalid --date-start: {e}", file=sys.stderr)
+        return 2
+    try:
+        attributes = location_helpers.build_location_attributes(
+            name=args.name,
+            lat=args.lat,
+            lon=args.lon,
+            altitude=args.altitude,
+            date_start=date_start,
+            lon_isn93=args.lon_isn93,
+            lat_isn93=args.lat_isn93,
+            identifier=args.identifier,
+            notes=args.notes,
+        )
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
+    if (args.triage is not None) != (args.placeholder is not None):
+        print("--triage and --placeholder must be used together", file=sys.stderr)
+        return 2
+
+    # ---- Writer setup ----------------------------------------------------
+    scheme = "https" if args.port == 443 else "http"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    dry_run = not args.no_dry_run
+    writer = TOSWriter(base_url=base_url, dry_run=dry_run)
+
+    # ---- Pre-flight: find-or-create (idempotent reuse) -------------------
+    existing_id = writer.find_land_location_by_name(args.name)
+    reused = existing_id is not None and not args.force
+
+    if existing_id is not None:
+        children = location_helpers.summarize_location_children(writer, existing_id)
+        if reused:
+            if not args.json:
+                print(
+                    f"Location {args.name!r} already exists "
+                    f"(id_entity={existing_id}) — reusing, not creating a "
+                    f"duplicate."
+                )
+                _print_location_children(children)
+                print(
+                    "\nUse this id as the parent for a new station:\n"
+                    f"  tos station add --location-id {existing_id} ..."
+                )
+            id_entity = existing_id
+        else:
+            # --force: create a duplicate anyway. Warn loudly.
+            print(
+                f"WARNING: a site named {args.name!r} already exists "
+                f"(id_entity={existing_id}); --force will create a SECOND, "
+                f"duplicate `land` entity.",
+                file=sys.stderr,
+            )
+            _print_location_children(children)
+            id_entity = _create_land_site(writer, attributes, dry_run, args)
+    else:
+        # No EXACT-name match. The reuse guard is case-sensitive and does not
+        # normalise whitespace, so a site stored under a slightly different
+        # spelling (e.g. an existing SIL stöð) would NOT be found and we'd
+        # mint a duplicate. Make the operator look before committing.
+        if not args.json:
+            print(
+                f"No existing `land` site found with the exact name "
+                f"{args.name!r}.\n"
+                f"  NOTE: the match is exact + case-sensitive. If a SIL or "
+                f"other station may already\n"
+                f"  be at this site under a slightly different spelling, "
+                f"check first — e.g.:\n"
+                f"    tos audit station {args.name!r}\n"
+                f"  A created `land` entity is NOT deletable in TOS (no "
+                f"delete endpoint), so this\n"
+                f"  write is irreversible once committed with --no-dry-run.",
+                file=sys.stderr,
+            )
+        id_entity = _create_land_site(writer, attributes, dry_run, args)
+
+    # ---- Triage handoff (works for reused AND created ids) ---------------
+    _location_triage_handoff(args, id_entity)
+
+    # ---- JSON summary ----------------------------------------------------
+    if args.json:
+        import json as _json
+
+        print(
+            _json.dumps(
+                {
+                    "name": args.name,
+                    "id_entity": id_entity,
+                    "reused_existing": reused,
+                    "dry_run": dry_run,
+                    "date_start": date_start,
+                    "attributes": attributes,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    return 0
+
+
+def _create_land_site(writer, attributes, dry_run, args) -> "int | None":
+    """POST a new ``land`` entity; return its id_entity (None in dry-run)."""
+    from .location import LOCATION_SUBTYPE
+
+    response = writer.create_entity(LOCATION_SUBTYPE, attributes)
+    id_entity = response.get("id_entity") if isinstance(response, dict) else None
+    if not args.json:
+        suffix = " (dry-run)" if dry_run else ""
+        id_str = id_entity if id_entity is not None else "<would be assigned>"
+        print(f"Created land site {args.name!r} id_entity={id_str}{suffix}")
+    return id_entity
+
+
+def _print_location_children(children) -> None:
+    """Render the stations/devices already attached to a site."""
+    if not children:
+        print("  (no stations currently attached)")
+        return
+    print("  Currently attached:")
+    for c in children:
+        label = c.get("subtype") or c.get("code_entity_subtype") or "?"
+        name = c.get("name") or ""
+        print(
+            f"    - {label:10} id={c['id_entity']:<7} {name}  "
+            f"(since {c.get('time_from')})"
+        )
+
+
+def _location_triage_handoff(args, id_entity) -> None:
+    """Substitute the site id into a waiting triage file, or print a hint.
+
+    Mirrors ``tos device add``. A reused (already-existing) site has a real id
+    even in dry-run, so substitution runs for it; a freshly-created site only
+    has an id in live mode (``id_entity is None`` until ``--no-dry-run``).
+    """
+    if args.triage is None:
+        if id_entity is not None and not args.json:
+            print(
+                f"\nTip: to drop this id into a triage file, run:\n"
+                f"  sed -i 's/<TOKEN>/{id_entity}/g' <triage-file>\n"
+                f"(or pass --triage <file> --placeholder TOKEN to do it in one "
+                f"shot)"
+            )
+        return
+    if id_entity is None:
+        if not args.json:
+            print(
+                f"Triage update skipped: no real id_entity yet (dry-run "
+                f"create). Re-run with --no-dry-run to substitute "
+                f"<{args.placeholder}> in {args.triage}.",
+                file=sys.stderr,
+            )
+        return
+    try:
+        result = _substitute_id_in_triage(args.triage, args.placeholder, id_entity)
+    except OSError as e:
+        print(f"Could not read triage file {args.triage}: {e}", file=sys.stderr)
+        return
+    if result["count"] == 0:
+        print(
+            f"Triage update: placeholder {result['token']!r} not found in "
+            f"{args.triage} (no changes written).",
+            file=sys.stderr,
+        )
+    elif not args.json:
+        n = result["count"]
+        print(
+            f"Updated {args.triage}: {result['token']} → {id_entity} "
+            f"({n} replacement{'s' if n != 1 else ''})"
+        )
 
 
 def _contact_main(argv):
@@ -9698,6 +9959,16 @@ def _print_top_level_help() -> None:
         "               station show <STN>      Show station identity, open\n"
         "                                       attributes, joined devices.\n"
         "\n"
+        "  location   Manage `land` site entities (the required parent of any\n"
+        "             land station; one site can host colocated GPS + SIL).\n"
+        "               location add --name N --lat .. --lon .. --altitude ..\n"
+        "                            --date-start DATE\n"
+        "                                       Find-or-create a site. Idempotent:\n"
+        "                                       reuses an existing site (shows\n"
+        "                                       what's attached) instead of\n"
+        "                                       duplicating. Dry-run default;\n"
+        "                                       --no-dry-run commits.\n"
+        "\n"
         "  contact    Inspect TOS contact records (id_contact namespace).\n"
         "               contact show --id N     One contact record.\n"
         "               contact list --station S  Contacts for a station.\n"
@@ -9787,6 +10058,8 @@ def main(argv=None):
             return _audit_main(rest)
         if subcmd == "station":
             return _station_main(rest)
+        if subcmd == "location":
+            return _location_main(rest)
         if subcmd == "contact":
             return _contact_main(rest)
         if subcmd == "fleet":

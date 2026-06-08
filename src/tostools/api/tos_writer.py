@@ -1639,6 +1639,72 @@ class TOSWriter:
                 return int(entity_id)
         return None
 
+    def find_land_location_by_name(self, name: str) -> Optional[int]:
+        """Look up a ``land`` site (location) entity by its ``name``.
+
+        The ``land`` location is the **required parent of any land station**
+        (TOS ``entity_subtype="land"``, ``entity_type=location``). Adding a
+        GPS station at a site that already hosts another instrument — most
+        often a SIL seismic station — means the land site already exists and
+        should be **reused**, not duplicated. This finder is the reuse lookup.
+
+        Unlike :meth:`find_station_by_marker` / :meth:`find_location_by_name`,
+        the ``land`` entity cannot be filtered by ``type_lvl_two``: in
+        ``basic_search`` results it surfaces with ``type_lvl_two=None`` and
+        ``id_lvl_two=None`` (it is a top-level / lvl-one entity, not a
+        station at lvl-two). We use ``id_lvl_two is None`` as the cheap
+        pre-filter, then confirm authoritatively via a history GET that
+        ``code_entity_subtype == "land"`` — so a same-named station never
+        masquerades as its own site.
+
+        Args:
+            name: Full site name as recorded in TOS (e.g. ``"Héðinshöfði"``).
+                Matched exactly (case-sensitive, no whitespace normalisation),
+                consistent with :meth:`find_location_by_name`.
+
+        Returns:
+            The land site's ``id_entity`` (int) or ``None`` if no ``land``
+            entity with that exact name exists.
+        """
+        if not name:
+            return None
+        results = self._request(
+            "POST",
+            "/basic_search/",
+            data={"search_term": name},
+            _force_send=True,
+        )
+        if not isinstance(results, list):
+            return None
+        # Confirm the strongest candidates first (lvl-one hits), but fall
+        # back to confirming any exact-name hit so we never miss a land
+        # entity whose basic_search shape differs from the observed one.
+        candidates: List[int] = []
+        seen: set[int] = set()
+        for prefer_lvl_one in (True, False):
+            for hit in results:
+                if hit.get("code") != "name":
+                    continue
+                if hit.get("distance") != 0:
+                    continue
+                if hit.get("value_varchar") != name:
+                    continue
+                if prefer_lvl_one and hit.get("id_lvl_two") is not None:
+                    continue
+                entity_id = hit.get("id_entity") or hit.get("id_lvl_two")
+                if not entity_id:
+                    continue
+                eid = int(entity_id)
+                if eid in seen:
+                    continue
+                seen.add(eid)
+                candidates.append(eid)
+        for eid in candidates:
+            history = self.get_entity_history(eid)
+            if history and history.get("code_entity_subtype") == "land":
+                return eid
+        return None
+
     # ---------------------------------------------------------------------
     # Entity-connection (join) helpers — Pattern 2 for joins
     # ---------------------------------------------------------------------

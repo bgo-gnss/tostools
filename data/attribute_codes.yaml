@@ -1523,10 +1523,10 @@ locations:
     icelandic_label: Nafn
     description: Location name
     classification: inherent
-    tos_required_for: [staðsetning]
-    gps_required_for: [staðsetning] # USER FILLS IN — strict superset of tos
+    tos_required_for: [land]
+    gps_required_for: [land] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [staðsetning]
+    applies_to: [land]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1535,10 +1535,10 @@ locations:
     icelandic_label: Breiddargráða
     description: Latitude (decimal degrees)
     classification: inherent
-    tos_required_for: [staðsetning]
-    gps_required_for: [staðsetning] # USER FILLS IN — strict superset of tos
+    tos_required_for: [land]
+    gps_required_for: [land] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [staðsetning]
+    applies_to: [land]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1547,10 +1547,10 @@ locations:
     icelandic_label: Lengdargráða
     description: Longitude (decimal degrees)
     classification: inherent
-    tos_required_for: [staðsetning]
-    gps_required_for: [staðsetning] # USER FILLS IN — strict superset of tos
+    tos_required_for: [land]
+    gps_required_for: [land] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [staðsetning]
+    applies_to: [land]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1559,10 +1559,10 @@ locations:
     icelandic_label: Hæð
     description: Altitude above sea level (m)
     classification: inherent
-    tos_required_for: [staðsetning]
-    gps_required_for: [staðsetning] # USER FILLS IN — strict superset of tos
+    tos_required_for: [land]
+    gps_required_for: [land] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [staðsetning]
+    applies_to: [land]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1574,7 +1574,7 @@ locations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [staðsetning]
+    applies_to: [land]
     gps_relevance: "no"
     walked: false
     why: ""
@@ -1586,7 +1586,7 @@ locations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [staðsetning]
+    applies_to: [land]
     gps_relevance: "no"
     walked: false
     why: ""
@@ -1598,7 +1598,7 @@ locations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [staðsetning]
+    applies_to: [land]
     gps_relevance: "yes"
     walked: false
     why: ""
@@ -1610,7 +1610,7 @@ locations:
     tos_required_for: []
     gps_required_for: [] # USER FILLS IN — strict superset of tos
     default_value: ~ # USER OPTIONAL — what TOS records as the default
-    applies_to: [staðsetning]
+    applies_to: [land]
     gps_relevance: "maybe"
     walked: false
     why: ""
