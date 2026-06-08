@@ -10,6 +10,7 @@ from typing import List, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from tostools.api.tos_writer import (
     DryRunResult,
@@ -594,6 +595,58 @@ def test_patch_attribute_value_raises_with_no_fields():
     w = _logged_in_writer()
     with pytest.raises(ValueError, match="at least one field"):
         w.patch_attribute_value(42)
+
+
+def _http_401() -> "requests.HTTPError":
+    resp = MagicMock()
+    resp.status_code = 401
+    return requests.HTTPError(response=resp)
+
+
+def test_patch_attribute_value_success_no_reread():
+    """Happy path: a 2xx PATCH returns directly, no re-read."""
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request", return_value={"ok": True}) as mock_req:
+        out = w.patch_attribute_value(143503, value="5.7.0")
+    assert out == {"ok": True}
+    assert mock_req.call_count == 1
+    assert mock_req.call_args.args[0] == "PATCH"
+
+
+def test_patch_attribute_value_401_but_committed_is_success():
+    """Known quirk: 401 returned but the change landed → re-read confirms → success."""
+    w = _logged_in_writer(dry_run=False)
+    row = {
+        "id_attribute_value": 143503,
+        "value": "5.5.0",
+        "date_to": "2026-06-08T00:00:00",
+    }
+    with patch.object(w, "_request", side_effect=[_http_401(), row]) as mock_req:
+        out = w.patch_attribute_value(143503, date_to="2026-06-08")
+    assert out == row  # treated as committed, not a failure
+    assert mock_req.call_args_list[0].args[0] == "PATCH"
+    assert mock_req.call_args_list[1].args[0] == "GET"
+
+
+def test_patch_attribute_value_401_not_committed_reraises():
+    """401 where the re-read shows the change did NOT land → genuine failure."""
+    w = _logged_in_writer(dry_run=False)
+    row = {"id_attribute_value": 143503, "value": "5.5.0", "date_to": None}
+    with patch.object(w, "_request", side_effect=[_http_401(), row]):
+        with pytest.raises(requests.HTTPError):
+            w.patch_attribute_value(143503, date_to="2026-06-08")
+
+
+def test_patch_attribute_value_non_401_reraised_without_reread():
+    """A non-401 HTTP error is re-raised immediately (no re-read)."""
+    w = _logged_in_writer(dry_run=False)
+    resp = MagicMock()
+    resp.status_code = 500
+    err = requests.HTTPError(response=resp)
+    with patch.object(w, "_request", side_effect=err) as mock_req:
+        with pytest.raises(requests.HTTPError):
+            w.patch_attribute_value(143503, value="x")
+    assert mock_req.call_count == 1  # PATCH only, no GET re-read
 
 
 def test_patch_entity_connection_raises_with_no_kwargs():
