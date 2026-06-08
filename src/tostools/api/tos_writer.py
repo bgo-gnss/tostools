@@ -1018,6 +1018,15 @@ class TOSWriter:
         """Modify an existing attribute value by its primary key.
 
         Only fields that are not None are included in the PATCH body.
+
+        Resilient to a known TOS quirk: the public ``/attribute_value/{id}``
+        endpoint intermittently returns ``401 "User provided an invalid token"``
+        even with a valid JWT — and sometimes does so *after* committing the
+        write (observed on the live API, e.g. a fw-version transition that
+        landed despite the 401). On a 401 we therefore re-read the row via
+        ``GET /attribute_value/{id}`` and, if the change is already present,
+        treat the write as committed instead of raising a false failure. A 401
+        where the change did *not* land is re-raised as a genuine error.
         """
         body: Dict[str, Any] = {}
         if value is not None:
@@ -1030,9 +1039,30 @@ class TOSWriter:
             raise ValueError(
                 "patch_attribute_value: at least one field must be provided"
             )
-        return self._request(
-            "PATCH", f"/attribute_value/{id_attribute_value}", data=body
-        )
+        try:
+            return self._request(
+                "PATCH", f"/attribute_value/{id_attribute_value}", data=body
+            )
+        except requests.HTTPError as exc:
+            resp = getattr(exc, "response", None)
+            if resp is None or resp.status_code != 401:
+                raise
+            # Re-read and check whether the PATCH actually landed despite the 401.
+            try:
+                row = self._request("GET", f"/attribute_value/{id_attribute_value}")
+            except Exception:  # noqa: BLE001 — re-read failed; surface original 401
+                raise exc from None
+            if isinstance(row, dict) and all(
+                str(row.get(k)) == str(v) for k, v in body.items()
+            ):
+                self._logger.warning(
+                    "PATCH /attribute_value/%s returned 401 but the change is "
+                    "present on re-read — treating as committed (known TOS "
+                    "public-endpoint quirk).",
+                    id_attribute_value,
+                )
+                return row
+            raise exc from None
 
     def upsert_attribute_value(
         self,
@@ -1882,7 +1912,7 @@ class TOSWriter:
         new_id = created.get("id") if isinstance(created, dict) else None
         if new_id is None:
             raise RuntimeError(
-                f"add_maintenance_visit: POST returned no id; got " f"{created!r}"
+                f"add_maintenance_visit: POST returned no id; got {created!r}"
             )
         new_id = int(new_id)
 
