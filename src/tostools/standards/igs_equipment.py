@@ -40,8 +40,11 @@ RECEIVER_IGS: dict[str, str] = {
     # Upper-case variants seen in some contexts:
     "POLARX5": "SEPT POLARX5",
     # Septentrio mosaic-X5 -----------------------------------------------------
-    "mosaic-X5": "SEPT MOSAICX5",
-    "MOSAICX5": "SEPT MOSAICX5",
+    # rcvr_ant.tab spells this with a hyphen: "SEPT MOSAIC-X5".
+    "mosaic-X5": "SEPT MOSAIC-X5",
+    "mosaicX5": "SEPT MOSAIC-X5",
+    "MOSAIC-X5": "SEPT MOSAIC-X5",
+    "MOSAICX5": "SEPT MOSAIC-X5",
     # Septentrio PolaRX3e (historical) -----------------------------------------
     "PolaRX3e": "SEPT POLARX3E",
     "POLARX3E": "SEPT POLARX3E",
@@ -86,6 +89,7 @@ ANTENNA_IGS: dict[str, str] = {
     "TRM41249.00": "TRM41249.00",
     "TRM55971.00": "TRM55971.00",
     "TRM57971.00": "TRM57971.00",
+    "TRM115000.10": "TRM115000.10",  # deployed at GONH
     # Leica antenna ------------------------------------------------------------
     "LEIAR25.R4": "LEIAR25.R4",
     # Ashtech / pre-IGS names seen in historical data:
@@ -180,6 +184,11 @@ def to_igs_antenna(raw: Optional[str]) -> Optional[str]:
     for key, value in ANTENNA_IGS.items():
         if key.upper() == upper:
             return value
+    # Canonical-name identity — accept any value already known to the dict, so an
+    # operator/extractor can supply the rcvr_ant.tab spelling directly without a
+    # redundant identity entry (mirrors to_igs_receiver).
+    if raw in set(ANTENNA_IGS.values()):
+        return raw
     return None
 
 
