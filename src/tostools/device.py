@@ -313,6 +313,66 @@ def build_antenna_attributes(
     return attrs
 
 
+def build_monument_attributes(
+    serial: str,
+    owner: str,
+    date_start: str,
+    antenna_height: str,
+    comment: Optional[str] = None,
+) -> List[Dict[str, Optional[str]]]:
+    """Build the attribute list for a new ``monument`` device.
+
+    A monument is the survey mark/pillar the antenna sits on; in TOS it carries
+    the ``antenna_height`` offset (mark → antenna reference point) and a minimal
+    identity — **no ``model``** (monuments have no vendor/IGS model). This mirrors
+    the existing fleet monuments (e.g. ``monument-REYK-19980913`` with attributes
+    ``serial_number`` / ``owner`` / ``date_start`` / ``antenna_height`` / ``comment``).
+    TOS records one monument per antenna-height epoch, so the serial is typically
+    synthetic (:func:`synthetic_serial` → ``monument-<STID>-<YYYYMMDD>``).
+
+    Args:
+        serial: Monument serial (real or synthetic placeholder).
+        owner: Owner label (must match the TOS OwnersCache).
+        date_start: Install/epoch date — ``YYYY-MM-DD`` or full ISO datetime.
+        antenna_height: Mark → ARP height in metres as a string (e.g. ``"0.0"``).
+        comment: Free-text note (e.g. the synthetic-serial provenance).
+
+    Returns:
+        Attribute-value dicts ready for :meth:`TOSWriter.create_device`.
+    """
+    attrs: List[Dict[str, Optional[str]]] = [
+        {
+            "code": "serial_number",
+            "value": serial,
+            "date_from": date_start,
+            "date_to": None,
+        },
+        {"code": "owner", "value": owner, "date_from": date_start, "date_to": None},
+        {
+            "code": "date_start",
+            "value": date_start,
+            "date_from": date_start,
+            "date_to": None,
+        },
+        {
+            "code": "antenna_height",
+            "value": str(antenna_height),
+            "date_from": date_start,
+            "date_to": None,
+        },
+    ]
+    if comment:
+        attrs.append(
+            {
+                "code": "comment",
+                "value": comment,
+                "date_from": date_start,
+                "date_to": None,
+            }
+        )
+    return attrs
+
+
 # Telemetry attribute vocabularies — the set of attribute codes operators may
 # set on each subtype, discovered by a fleet-wide TOS scan on 2026-06-06
 # (B9 warehouse 641 children + 226 deployed units across 194 stations).
