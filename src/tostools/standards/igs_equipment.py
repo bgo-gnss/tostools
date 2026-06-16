@@ -58,6 +58,14 @@ RECEIVER_IGS: dict[str, str] = {
     "PolaRX2E": "SEPT POLARX2E",
     "PolaRx2E": "SEPT POLARX2E",
     "POLARX2E": "SEPT POLARX2E",
+    # Trimble 5700 (historical campaign receiver; seen in GAMIT station.info
+    # campaign occupations, e.g. VOTT 2012/2016):
+    "TRIMBLE 5700": "TRIMBLE 5700",
+    "5700": "TRIMBLE 5700",
+    # Trimble R7 / R7 GNSS (historical campaign receiver):
+    "TRIMBLE R7 GNSS": "TRIMBLE R7 GNSS",
+    "R7 GNSS": "TRIMBLE R7 GNSS",
+    "TRIMBLE R7": "TRIMBLE R7",
     # Trimble NetR9 ------------------------------------------------------------
     "NetR9": "TRIMBLE NETR9",
     "NETR9": "TRIMBLE NETR9",
