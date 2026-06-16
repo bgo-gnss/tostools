@@ -248,6 +248,135 @@ def build_required_attributes(
     ]
 
 
+def synthetic_serial(subtype: str, station: str, date_start: str) -> str:
+    """Build a synthetic serial for a serial-less device.
+
+    TOS (:meth:`TOSWriter.create_device`) requires every device to carry a
+    **non-empty** ``serial_number`` — it is the duplicate-check and lookup key.
+    Some devices genuinely have no factory serial (radomes always; antennas
+    frequently, when the serial was never recorded at install). The fleet
+    convention, verified against existing TOS data, is a synthetic serial of
+    the form ``<subtype>-<STATION>-<YYYYMMDD>`` (e.g. ``radome-REYK-20130502``).
+    This mirrors that convention so a serial-less antenna/radome stays unique
+    per station+install and is visibly a placeholder.
+
+    Args:
+        subtype: Device subtype (e.g. ``"antenna"``, ``"radome"``).
+        station: 4-char station marker the device installs at.
+        date_start: Install date — ``YYYY-MM-DD`` or full ISO datetime; only
+            the date part is used.
+
+    Returns:
+        ``f"{subtype}-{station}-{YYYYMMDD}"``.
+    """
+    date_part = normalize_date_start(date_start)[:10].replace("-", "")
+    return f"{subtype}-{station}-{date_part}"
+
+
+def build_antenna_attributes(
+    serial: str,
+    model: str,
+    owner: str,
+    date_start: str,
+    antenna_height: Optional[str] = None,
+) -> List[Dict[str, Optional[str]]]:
+    """Build the attribute list for a new ``antenna`` device.
+
+    Reuses :func:`build_required_attributes` for the canonical device shape
+    (serial/model/owner/status/date_start) and appends ``antenna_height`` when
+    supplied. The ARP height is **optional** in TOS — a brand-new antenna whose
+    height was never recorded is created without it (the RINEX ``ANTENNA: DELTA
+    H`` defaults to 0.0 until corrected). The TOS attribute code is
+    ``antenna_height`` (read back by ``tos_adapter.current_antenna_height`` and
+    the RINEX header builders).
+
+    Args:
+        serial: Antenna serial (real, or :func:`synthetic_serial` placeholder).
+        model: IGS-standard antenna model (run through :func:`validate_model`).
+        owner: Owner label (must match the TOS OwnersCache).
+        date_start: Install date — ``YYYY-MM-DD`` or full ISO datetime.
+        antenna_height: ARP height in metres as a string, or ``None`` to omit.
+
+    Returns:
+        Attribute-value dicts ready for :meth:`TOSWriter.create_device`.
+    """
+    attrs = build_required_attributes(serial, model, owner, date_start)
+    if antenna_height is not None and str(antenna_height) != "":
+        attrs.append(
+            {
+                "code": "antenna_height",
+                "value": str(antenna_height),
+                "date_from": date_start,
+                "date_to": None,
+            }
+        )
+    return attrs
+
+
+def build_monument_attributes(
+    serial: str,
+    owner: str,
+    date_start: str,
+    monument_height: str,
+    comment: Optional[str] = None,
+) -> List[Dict[str, Optional[str]]]:
+    """Build the attribute list for a new ``monument`` device.
+
+    A monument is the survey mark/pillar the antenna sits on; in TOS it carries
+    the ``monument_height`` offset (mark → antenna reference point) and a minimal
+    identity — **no ``model``** (monuments have no vendor/IGS model).
+
+    The height attribute code is ``monument_height`` — the monument-scoped code
+    the metadata readers use (``gps_metadata_qc``: ``device["monument_height"]``
+    with ``antenna_height`` only as a *legacy* fallback). The ``antenna_height``
+    code is scoped to the ``antenna`` entity type and the TOS ``/entities`` POST
+    rejects it on a ``monument`` (null ``id_attribute`` → 400), even though old
+    records (e.g. ``monument-REYK-19980913``) stored it that way. Serial is
+    typically synthetic (:func:`synthetic_serial` → ``monument-<STID>-<YYYYMMDD>``).
+
+    Args:
+        serial: Monument serial (real or synthetic placeholder).
+        owner: Owner label (must match the TOS OwnersCache).
+        date_start: Install/epoch date — ``YYYY-MM-DD`` or full ISO datetime.
+        monument_height: Mark → ARP height in metres as a string (e.g. ``"0.0"``).
+        comment: Free-text note (e.g. the synthetic-serial provenance).
+
+    Returns:
+        Attribute-value dicts ready for :meth:`TOSWriter.create_device`.
+    """
+    attrs: List[Dict[str, Optional[str]]] = [
+        {
+            "code": "serial_number",
+            "value": serial,
+            "date_from": date_start,
+            "date_to": None,
+        },
+        {"code": "owner", "value": owner, "date_from": date_start, "date_to": None},
+        {
+            "code": "date_start",
+            "value": date_start,
+            "date_from": date_start,
+            "date_to": None,
+        },
+        {
+            "code": "monument_height",
+            "value": str(monument_height),
+            "date_from": date_start,
+            "date_to": None,
+        },
+    ]
+    if comment:
+        attrs.append(
+            {
+                "code": "comment",
+                "value": comment,
+                "date_from": date_start,
+                "date_to": None,
+            }
+        )
+    return attrs
+
+
 # Telemetry attribute vocabularies — the set of attribute codes operators may
 # set on each subtype, discovered by a fleet-wide TOS scan on 2026-06-06
 # (B9 warehouse 641 children + 226 deployed units across 194 stations).

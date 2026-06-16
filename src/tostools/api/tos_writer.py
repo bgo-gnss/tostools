@@ -1629,17 +1629,26 @@ class TOSWriter:
     ) -> Optional[int]:
         """Look up a GPS station entity by its 4-char marker code.
 
-        Wraps ``POST /basic_search/`` looking for hits with
-        ``code='marker'``, ``distance=0``, and an exact case-insensitive
-        match on ``value_varchar``. TOS records markers in lowercase
-        (e.g. ``"hrac"``); we lowercase the needle for comparison so
-        callers can pass either ``"HRAC"`` or ``"hrac"``.
+        Primary path is the **live** ``POST /entity/search/station/{domain}/``
+        endpoint (body ``{"code": "marker", "value": <lowercased marker>}``) —
+        the same one the TOS web UI's station filter uses. It reads station
+        entities directly, so a **freshly-created station is found immediately**.
+        This replaces the previous reliance on ``/basic_search/``, whose fuzzy
+        index lags entity creation and left new stations invisible to the CLI
+        (e.g. VOTT right after ``tos station add``), blocking ``move-device`` /
+        ``add-antenna`` / ``cfg reconcile``.
+
+        Markers are stored lowercase in TOS; the needle is lowercased so callers
+        may pass ``"HRAC"`` or ``"hrac"``. Searches the station domains in turn
+        (geophysical first — the GPS case), returning the first exact marker
+        match. Falls back to the legacy ``/basic_search/`` lookup if the live
+        search yields nothing, so nothing that resolved before stops resolving.
 
         Args:
             marker: 4-character RINEX marker.
-            type_filter: Restrict to a TOS ``type_lvl_two`` (default
-                ``"stöð"`` for any station). Empty / ``None`` disables
-                the type filter.
+            type_filter: Retained for backward compatibility. The
+                ``/entity/search/station/`` endpoint already restricts to
+                stations; the value still gates the ``/basic_search/`` fallback.
 
         Returns:
             The station's ``id_entity`` or ``None`` if no exact match.
@@ -1647,6 +1656,42 @@ class TOSWriter:
         if not marker:
             return None
         needle = marker.lower()
+        for domain in ("geophysical", "meteorological", "hydrological"):
+            try:
+                hits = self._request(
+                    "POST",
+                    f"/entity/search/station/{domain}/",
+                    data={"code": "marker", "value": needle},
+                    _force_send=True,
+                )
+            except Exception:  # noqa: BLE001 — next domain, then fallback
+                continue
+            if isinstance(hits, dict):
+                hits = hits.get("objects") or []
+            if not isinstance(hits, list):
+                continue
+            for hit in hits:
+                if not isinstance(hit, dict):
+                    continue
+                hit_marker = next(
+                    (
+                        a.get("value")
+                        for a in (hit.get("attributes") or [])
+                        if a.get("code") == "marker" and a.get("date_to") is None
+                    ),
+                    None,
+                )
+                if hit_marker and hit_marker.lower() == needle and hit.get("id_entity"):
+                    return int(hit["id_entity"])
+        # Fallback: the legacy fuzzy index, for any edge case the live search
+        # misses — preserves prior behavior so nothing that resolved before stops.
+        return self._find_station_by_marker_via_basic_search(needle, type_filter)
+
+    def _find_station_by_marker_via_basic_search(
+        self, needle: str, type_filter: str
+    ) -> Optional[int]:
+        """Legacy ``/basic_search/`` marker lookup — fallback for
+        :meth:`find_station_by_marker`. ``needle`` is already lowercased."""
         results = self._request(
             "POST",
             "/basic_search/",
@@ -1667,6 +1712,72 @@ class TOSWriter:
             entity_id = hit.get("id_entity") or hit.get("id_lvl_two")
             if entity_id:
                 return int(entity_id)
+        return None
+
+    def find_land_location_by_name(self, name: str) -> Optional[int]:
+        """Look up a ``land`` site (location) entity by its ``name``.
+
+        The ``land`` location is the **required parent of any land station**
+        (TOS ``entity_subtype="land"``, ``entity_type=location``). Adding a
+        GPS station at a site that already hosts another instrument — most
+        often a SIL seismic station — means the land site already exists and
+        should be **reused**, not duplicated. This finder is the reuse lookup.
+
+        Unlike :meth:`find_station_by_marker` / :meth:`find_location_by_name`,
+        the ``land`` entity cannot be filtered by ``type_lvl_two``: in
+        ``basic_search`` results it surfaces with ``type_lvl_two=None`` and
+        ``id_lvl_two=None`` (it is a top-level / lvl-one entity, not a
+        station at lvl-two). We use ``id_lvl_two is None`` as the cheap
+        pre-filter, then confirm authoritatively via a history GET that
+        ``code_entity_subtype == "land"`` — so a same-named station never
+        masquerades as its own site.
+
+        Args:
+            name: Full site name as recorded in TOS (e.g. ``"Héðinshöfði"``).
+                Matched exactly (case-sensitive, no whitespace normalisation),
+                consistent with :meth:`find_location_by_name`.
+
+        Returns:
+            The land site's ``id_entity`` (int) or ``None`` if no ``land``
+            entity with that exact name exists.
+        """
+        if not name:
+            return None
+        results = self._request(
+            "POST",
+            "/basic_search/",
+            data={"search_term": name},
+            _force_send=True,
+        )
+        if not isinstance(results, list):
+            return None
+        # Confirm the strongest candidates first (lvl-one hits), but fall
+        # back to confirming any exact-name hit so we never miss a land
+        # entity whose basic_search shape differs from the observed one.
+        candidates: List[int] = []
+        seen: set[int] = set()
+        for prefer_lvl_one in (True, False):
+            for hit in results:
+                if hit.get("code") != "name":
+                    continue
+                if hit.get("distance") != 0:
+                    continue
+                if hit.get("value_varchar") != name:
+                    continue
+                if prefer_lvl_one and hit.get("id_lvl_two") is not None:
+                    continue
+                entity_id = hit.get("id_entity") or hit.get("id_lvl_two")
+                if not entity_id:
+                    continue
+                eid = int(entity_id)
+                if eid in seen:
+                    continue
+                seen.add(eid)
+                candidates.append(eid)
+        for eid in candidates:
+            history = self.get_entity_history(eid)
+            if history and history.get("code_entity_subtype") == "land":
+                return eid
         return None
 
     # ---------------------------------------------------------------------

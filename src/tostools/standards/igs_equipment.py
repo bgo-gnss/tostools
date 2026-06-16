@@ -97,6 +97,15 @@ ANTENNA_IGS: dict[str, str] = {
     "ASH701945C_M": "ASH701945C_M",
     # Septentrio choke-ring ----------------------------------------------------
     "SEPCHOKE_B3E6": "SEPCHOKE_B3E6",
+    # Septentrio PolaNt-x — compact GNSS antennas (multi/single frequency).
+    # Deployed across the fleet (e.g. SEY9); IGS rcvr_ant.tab canonical names.
+    "SEPPOLANT_X_MF": "SEPPOLANT_X_MF",
+    "SEPPOLANT_X_SF": "SEPPOLANT_X_SF",
+    # ArduSimple AS-ANT3B, NGS-calibrated ("CAL"). Low-cost survey antenna on
+    # the fleet's mosaic/ASTERX/NetRS low-cost stations (BLAL, TORK, VOTT).
+    # Present in NGS ngs20.atx + GAMIT station.info; NOT in IGS rcvr_ant.tab
+    # (and not yet in okada antmod.dat — phase-center gap to fold in separately).
+    "AS-ANT3BCAL": "AS-ANT3BCAL",
 }
 
 # ---------------------------------------------------------------------------
