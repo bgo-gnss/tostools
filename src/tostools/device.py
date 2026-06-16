@@ -317,24 +317,28 @@ def build_monument_attributes(
     serial: str,
     owner: str,
     date_start: str,
-    antenna_height: str,
+    monument_height: str,
     comment: Optional[str] = None,
 ) -> List[Dict[str, Optional[str]]]:
     """Build the attribute list for a new ``monument`` device.
 
     A monument is the survey mark/pillar the antenna sits on; in TOS it carries
-    the ``antenna_height`` offset (mark → antenna reference point) and a minimal
-    identity — **no ``model``** (monuments have no vendor/IGS model). This mirrors
-    the existing fleet monuments (e.g. ``monument-REYK-19980913`` with attributes
-    ``serial_number`` / ``owner`` / ``date_start`` / ``antenna_height`` / ``comment``).
-    TOS records one monument per antenna-height epoch, so the serial is typically
-    synthetic (:func:`synthetic_serial` → ``monument-<STID>-<YYYYMMDD>``).
+    the ``monument_height`` offset (mark → antenna reference point) and a minimal
+    identity — **no ``model``** (monuments have no vendor/IGS model).
+
+    The height attribute code is ``monument_height`` — the monument-scoped code
+    the metadata readers use (``gps_metadata_qc``: ``device["monument_height"]``
+    with ``antenna_height`` only as a *legacy* fallback). The ``antenna_height``
+    code is scoped to the ``antenna`` entity type and the TOS ``/entities`` POST
+    rejects it on a ``monument`` (null ``id_attribute`` → 400), even though old
+    records (e.g. ``monument-REYK-19980913``) stored it that way. Serial is
+    typically synthetic (:func:`synthetic_serial` → ``monument-<STID>-<YYYYMMDD>``).
 
     Args:
         serial: Monument serial (real or synthetic placeholder).
         owner: Owner label (must match the TOS OwnersCache).
         date_start: Install/epoch date — ``YYYY-MM-DD`` or full ISO datetime.
-        antenna_height: Mark → ARP height in metres as a string (e.g. ``"0.0"``).
+        monument_height: Mark → ARP height in metres as a string (e.g. ``"0.0"``).
         comment: Free-text note (e.g. the synthetic-serial provenance).
 
     Returns:
@@ -355,8 +359,8 @@ def build_monument_attributes(
             "date_to": None,
         },
         {
-            "code": "antenna_height",
-            "value": str(antenna_height),
+            "code": "monument_height",
+            "value": str(monument_height),
             "date_from": date_start,
             "date_to": None,
         },
