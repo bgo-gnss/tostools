@@ -97,6 +97,10 @@ ANTENNA_IGS: dict[str, str] = {
     "ASH701945C_M": "ASH701945C_M",
     # Septentrio choke-ring ----------------------------------------------------
     "SEPCHOKE_B3E6": "SEPCHOKE_B3E6",
+    # Septentrio PolaNt-x — compact GNSS antennas (multi/single frequency).
+    # Deployed across the fleet (e.g. SEY9); IGS rcvr_ant.tab canonical names.
+    "SEPPOLANT_X_MF": "SEPPOLANT_X_MF",
+    "SEPPOLANT_X_SF": "SEPPOLANT_X_SF",
 }
 
 # ---------------------------------------------------------------------------
