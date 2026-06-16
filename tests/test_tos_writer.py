@@ -1332,6 +1332,56 @@ def test_find_station_by_marker_empty_short_circuits():
     mock_req.assert_not_called()
 
 
+def _entity_search_station_hit(marker: str, entity_id: int) -> dict:
+    """Mirror a /entity/search/station/{domain}/ live-search hit (full entity)."""
+    return {
+        "id_entity": entity_id,
+        "code_entity_subtype": "geophysical",
+        "attributes": [
+            {
+                "code": "marker",
+                "value": marker,
+                "date_from": "2012-06-03T00:00:00",
+                "date_to": None,
+            },
+        ],
+    }
+
+
+def test_find_station_by_marker_uses_live_entity_search():
+    """Primary path: the live /entity/search endpoint resolves a freshly-created
+    station (e.g. VOTT) without falling back to the lagging /basic_search/."""
+    w = _logged_in_writer(dry_run=False)
+
+    def fake_request(method, endpoint, **kwargs):
+        if "/entity/search/station/geophysical/" in endpoint:
+            return [_entity_search_station_hit("vott", 21559)]
+        if "/entity/search/" in endpoint:
+            return []
+        if endpoint == "/basic_search/":
+            raise AssertionError("basic_search must not be reached on a live hit")
+        return []
+
+    with patch.object(w, "_request", side_effect=fake_request):
+        assert w.find_station_by_marker("VOTT") == 21559
+
+
+def test_find_station_by_marker_falls_back_to_basic_search():
+    """When the live search yields nothing, the legacy /basic_search/ lookup
+    still resolves the marker — no previously-resolvable station stops."""
+    w = _logged_in_writer(dry_run=False)
+
+    def fake_request(method, endpoint, **kwargs):
+        if "/entity/search/" in endpoint:
+            return []
+        if endpoint == "/basic_search/":
+            return [_basic_search_marker_hit("hrac", entity_id=16096)]
+        return []
+
+    with patch.object(w, "_request", side_effect=fake_request):
+        assert w.find_station_by_marker("HRAC") == 16096
+
+
 # ---------------------------------------------------------------------------
 # get_open_parent_join / move_device — Pattern 2 for joins
 # ---------------------------------------------------------------------------

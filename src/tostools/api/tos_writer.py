@@ -1599,17 +1599,26 @@ class TOSWriter:
     ) -> Optional[int]:
         """Look up a GPS station entity by its 4-char marker code.
 
-        Wraps ``POST /basic_search/`` looking for hits with
-        ``code='marker'``, ``distance=0``, and an exact case-insensitive
-        match on ``value_varchar``. TOS records markers in lowercase
-        (e.g. ``"hrac"``); we lowercase the needle for comparison so
-        callers can pass either ``"HRAC"`` or ``"hrac"``.
+        Primary path is the **live** ``POST /entity/search/station/{domain}/``
+        endpoint (body ``{"code": "marker", "value": <lowercased marker>}``) —
+        the same one the TOS web UI's station filter uses. It reads station
+        entities directly, so a **freshly-created station is found immediately**.
+        This replaces the previous reliance on ``/basic_search/``, whose fuzzy
+        index lags entity creation and left new stations invisible to the CLI
+        (e.g. VOTT right after ``tos station add``), blocking ``move-device`` /
+        ``add-antenna`` / ``cfg reconcile``.
+
+        Markers are stored lowercase in TOS; the needle is lowercased so callers
+        may pass ``"HRAC"`` or ``"hrac"``. Searches the station domains in turn
+        (geophysical first — the GPS case), returning the first exact marker
+        match. Falls back to the legacy ``/basic_search/`` lookup if the live
+        search yields nothing, so nothing that resolved before stops resolving.
 
         Args:
             marker: 4-character RINEX marker.
-            type_filter: Restrict to a TOS ``type_lvl_two`` (default
-                ``"stöð"`` for any station). Empty / ``None`` disables
-                the type filter.
+            type_filter: Retained for backward compatibility. The
+                ``/entity/search/station/`` endpoint already restricts to
+                stations; the value still gates the ``/basic_search/`` fallback.
 
         Returns:
             The station's ``id_entity`` or ``None`` if no exact match.
@@ -1617,6 +1626,42 @@ class TOSWriter:
         if not marker:
             return None
         needle = marker.lower()
+        for domain in ("geophysical", "meteorological", "hydrological"):
+            try:
+                hits = self._request(
+                    "POST",
+                    f"/entity/search/station/{domain}/",
+                    data={"code": "marker", "value": needle},
+                    _force_send=True,
+                )
+            except Exception:  # noqa: BLE001 — next domain, then fallback
+                continue
+            if isinstance(hits, dict):
+                hits = hits.get("objects") or []
+            if not isinstance(hits, list):
+                continue
+            for hit in hits:
+                if not isinstance(hit, dict):
+                    continue
+                hit_marker = next(
+                    (
+                        a.get("value")
+                        for a in (hit.get("attributes") or [])
+                        if a.get("code") == "marker" and a.get("date_to") is None
+                    ),
+                    None,
+                )
+                if hit_marker and hit_marker.lower() == needle and hit.get("id_entity"):
+                    return int(hit["id_entity"])
+        # Fallback: the legacy fuzzy index, for any edge case the live search
+        # misses — preserves prior behavior so nothing that resolved before stops.
+        return self._find_station_by_marker_via_basic_search(needle, type_filter)
+
+    def _find_station_by_marker_via_basic_search(
+        self, needle: str, type_filter: str
+    ) -> Optional[int]:
+        """Legacy ``/basic_search/`` marker lookup — fallback for
+        :meth:`find_station_by_marker`. ``needle`` is already lowercased."""
         results = self._request(
             "POST",
             "/basic_search/",
