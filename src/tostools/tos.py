@@ -1857,6 +1857,23 @@ def _audit_verify_from_rinex_main(args, client) -> int:
                 }
                 for r in report.receivers
             ],
+            "current_receiver": (
+                {
+                    "status": report.current_receiver.status,
+                    "detail": report.current_receiver.detail,
+                    "rinex_type": report.current_receiver.rinex_type,
+                    "rinex_serial": report.current_receiver.rinex_serial,
+                    "rinex_firmware": report.current_receiver.rinex_firmware,
+                    "rinex_install_date": report.current_receiver.rinex_install_date,
+                    "tos_type": report.current_receiver.tos_type,
+                    "tos_serial": report.current_receiver.tos_serial,
+                    "tos_firmware": report.current_receiver.tos_firmware,
+                    "tos_time_from": report.current_receiver.tos_time_from,
+                    "suggested_command": report.current_receiver.suggested_command,
+                }
+                if report.current_receiver is not None
+                else None
+            ),
         }
         print(_json.dumps(payload, ensure_ascii=False, indent=2, default=str))
         return 1 if report.has_findings else 0
@@ -1995,6 +2012,28 @@ def _print_rinex_audit_report(report, *, min_gap_days: float) -> None:
             )
             for line in report.suggested_actions:
                 console.print(f"  {line}")
+
+    cr = report.current_receiver
+    if cr is not None and cr.status != "ok":
+        console.print()
+        _CR_STYLE = {
+            "type_mismatch": "red",
+            "serial_mismatch": "red",
+            "firmware_drift": "yellow",
+            "no_open_join": "yellow",
+            "no_rinex_receiver": "dim",
+        }
+        style = _CR_STYLE.get(cr.status, "white")
+        console.print(
+            f"[bold]Current receiver[/bold] (archive header vs TOS open join): "
+            f"[{style}]{cr.status}[/{style}] — {cr.detail}"
+        )
+        if cr.suggested_command:
+            console.print(
+                "  Suggested fix — run MANUALLY after reviewing the date "
+                "(RINEX install date is a proxy):"
+            )
+            console.print(f"    {cr.suggested_command}")
 
 
 def _station_main(argv):
@@ -2657,6 +2696,23 @@ def _rinex_report_to_dict(report) -> Dict[str, Any]:
             for r in report.receivers
         ],
         "suggested_actions": list(report.suggested_actions),
+        "current_receiver": (
+            {
+                "status": report.current_receiver.status,
+                "detail": report.current_receiver.detail,
+                "rinex_type": report.current_receiver.rinex_type,
+                "rinex_serial": report.current_receiver.rinex_serial,
+                "rinex_firmware": report.current_receiver.rinex_firmware,
+                "rinex_install_date": report.current_receiver.rinex_install_date,
+                "tos_type": report.current_receiver.tos_type,
+                "tos_serial": report.current_receiver.tos_serial,
+                "tos_firmware": report.current_receiver.tos_firmware,
+                "tos_time_from": report.current_receiver.tos_time_from,
+                "suggested_command": report.current_receiver.suggested_command,
+            }
+            if report.current_receiver is not None
+            else None
+        ),
     }
 
 

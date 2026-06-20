@@ -6,9 +6,11 @@ from pathlib import Path
 from tostools.archive import ArchiveDay
 from tostools.receiver_timeline import (
     ReceiverHeader,
+    ReceiverSegment,
     _norm_fw,
     _norm_serial,
     _segment_range,
+    current_receiver_install_date,
     parse_receiver_line,
 )
 
@@ -148,3 +150,137 @@ class TestSegmentRange:
 
     def test_all_none_is_empty(self):
         assert _segs("----") == []
+
+
+# ------------------------------------------------------ current_receiver_install_date
+class TestCurrentReceiverInstallDate:
+    """The install date must look PAST firmware-only segment boundaries to the
+    date the physical receiver UNIT first appeared (the OLKE bug: PolaRX5 sn
+    3016143 fragmented across fw 5.1.1/5.3.0/5.6.0 must date to 2017, not the
+    latest bump)."""
+
+    def _seg(self, start, end, rtype, serial, fw):
+        return ReceiverSegment(start, end, ReceiverHeader(serial, rtype, fw))
+
+    def test_back_coalesces_across_firmware_bumps(self):
+        timeline = [
+            self._seg(
+                date(2013, 2, 28),
+                date(2017, 6, 25),
+                "TRIMBLE NETR9",
+                "5218K84655",
+                "4.62",
+            ),
+            self._seg(
+                date(2017, 7, 8), date(2019, 10, 14), "SEPT POLARX5", "3016143", "5.1.1"
+            ),
+            self._seg(
+                date(2019, 10, 15),
+                date(2026, 5, 17),
+                "SEPT POLARX5",
+                "3016143",
+                "5.3.0",
+            ),
+            self._seg(
+                date(2026, 5, 18), date(2026, 5, 23), "SEPT POLARX5", "3016143", "5.6.0"
+            ),
+        ]
+        assert current_receiver_install_date(timeline) == date(2017, 7, 8)
+
+    def test_stops_at_serial_change(self):
+        """A genuine serial change (different unit, same model) is a boundary."""
+        timeline = [
+            self._seg(
+                date(2018, 1, 1), date(2019, 1, 1), "SEPT POLARX5", "1111111", "5.1.1"
+            ),
+            self._seg(
+                date(2019, 1, 2), date(2020, 1, 1), "SEPT POLARX5", "2222222", "5.3.0"
+            ),
+        ]
+        assert current_receiver_install_date(timeline) == date(2019, 1, 2)
+
+    def test_unknown_serial_is_wildcard(self):
+        """A None (garbled) serial mid-run does not break the unit run."""
+        timeline = [
+            self._seg(
+                date(2017, 7, 8), date(2018, 1, 1), "SEPT POLARX5", "3016143", "5.1.1"
+            ),
+            self._seg(
+                date(2018, 1, 2), date(2018, 2, 1), "SEPT POLARX5", None, "5.1.1"
+            ),
+            self._seg(
+                date(2018, 2, 2), date(2020, 1, 1), "SEPT POLARX5", "3016143", "5.3.0"
+            ),
+        ]
+        assert current_receiver_install_date(timeline) == date(2017, 7, 8)
+
+    def test_single_segment(self):
+        timeline = [
+            self._seg(
+                date(2024, 1, 1), date(2024, 6, 1), "SEPT POLARX5", "3016143", "5.5.0"
+            )
+        ]
+        assert current_receiver_install_date(timeline) == date(2024, 1, 1)
+
+    def test_empty(self):
+        assert current_receiver_install_date([]) is None
+
+
+# ----------------------------------------------------- streaming header reader
+class TestFastHeaderRead:
+    """`read_receiver_header` streams gzip -dc and stops at END OF HEADER,
+    falling back to the shared reader otherwise. Both paths must yield the
+    same parsed receiver identity."""
+
+    _HEADER = (
+        "     3.04           OBSERVATION DATA    M                   "
+        "RINEX VERSION / TYPE\n"
+        "3016143             SEPT POLARX5        5.6.0               "
+        "REC # / TYPE / VERS\n"
+        "                                                            "
+        "END OF HEADER\n"
+    )
+
+    def _write_gz(self, tmp_path, name, header, tail_mb=0):
+        import gzip
+
+        body = header + ("X" * (tail_mb * 1024 * 1024))  # bulk after the header
+        p = tmp_path / name
+        with gzip.open(p, "wb") as f:
+            f.write(body.encode())
+        return p
+
+    def test_fast_path_gz_parses_rec_line(self, tmp_path):
+        from tostools.receiver_timeline import read_receiver_header
+
+        p = self._write_gz(tmp_path, "OLKE1410.26D.gz", self._HEADER, tail_mb=2)
+        h = read_receiver_header(p)
+        assert h is not None
+        assert (h.serial, h.rtype, h.firmware) == ("3016143", "SEPT POLARX5", "5.6.0")
+
+    def test_fast_path_stops_early(self, tmp_path):
+        """Header is found without inflating a large tail — _fast_header_text
+        returns only up to END OF HEADER, not the whole 3 MB body."""
+        from tostools.receiver_timeline import _fast_header_text
+
+        p = self._write_gz(tmp_path, "OLKE1420.26D.gz", self._HEADER, tail_mb=3)
+        text = _fast_header_text(p)
+        assert text is not None
+        assert text.rstrip().endswith("END OF HEADER")
+        assert len(text) < 100 * 1024  # nowhere near the 3 MB body
+
+    def test_uncompressed_name_falls_back(self, tmp_path):
+        """A non-.Z/.gz name isn't fast-pathed → _fast_header_text returns None
+        (caller falls back to the shared reader)."""
+        from tostools.receiver_timeline import _fast_header_text
+
+        p = tmp_path / "OLKE1410.26o"
+        p.write_text(self._HEADER)
+        assert _fast_header_text(p) is None
+
+    def test_no_marker_bails_to_none(self, tmp_path):
+        """A .gz stream with no END OF HEADER bails (→ fallback), doesn't hang."""
+        from tostools.receiver_timeline import _fast_header_text
+
+        p = self._write_gz(tmp_path, "junk.gz", "no marker here\n", tail_mb=0)
+        assert _fast_header_text(p) is None

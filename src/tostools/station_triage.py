@@ -354,6 +354,10 @@ def format_station_triage(report: StationTriageReport) -> str:
         or report.rinex.data_gaps
         or report.rinex.suggested_actions
         or report.rinex.rinex_only_spans
+        or (
+            report.rinex.current_receiver is not None
+            and report.rinex.current_receiver.is_actionable
+        )
     ):
         parts.append(_section_rinex(report))
 
@@ -380,11 +384,17 @@ def _build_header(report: StationTriageReport) -> str:
         # summary line — operators rarely need the per-signal counts
         # in the header; they're surfaced in the section body below.
         rx = report.rinex
+        swap = (
+            1
+            if rx.current_receiver is not None and rx.current_receiver.is_actionable
+            else 0
+        )
         summary_lines.append(
             f"#   verify-from-rinex:   {rx.finding_count} finding(s) "
             f"({len(rx.brand_transitions)} transitions, "
             f"{len(rx.data_gaps)} gaps, "
-            f"{len(rx.suggested_actions)} suggested ACTIONs)"
+            f"{len(rx.suggested_actions)} suggested ACTIONs, "
+            f"{swap} receiver swap)"
         )
     if report.coverage is not None:
         cov = report.coverage
@@ -476,8 +486,9 @@ def _section_rinex(report: StationTriageReport) -> str:
         "# CONFIDENCE: MEDIUM — file-extension signal is authoritative for\n"
         "# what was archived, but actionability depends on operator context\n"
         "# (was the gap planned downtime? was the transition logged elsewhere?).\n"
-        "# Brand transitions + data gaps are informational; only ACTION lines\n"
-        "# carry pre-built suggestions.\n"
+        "# Brand transitions + data gaps are informational; ACTION lines carry\n"
+        "# pre-built suggestions, and a receiver-swap line (if any) is a\n"
+        "# run-manually 'cfg replace-receiver' command, not a tos-apply ACTION.\n"
         "# ──────────────────────────────────────────────────────────────────"
     )
     return header + "\n" + body.rstrip()

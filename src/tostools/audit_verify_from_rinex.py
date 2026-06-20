@@ -24,11 +24,29 @@ Outputs ``StationRinexReport`` — same data the CLI handler and
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .api.tos_client import TOSClient
+from .receiver_timeline import ReceiverHeader
+
+logger = logging.getLogger(__name__)
+
+# IGS-normalized receiver type → ``cfg replace-receiver --new-type`` token.
+# Keys are the value of ``ReceiverHeader.key[0]`` (i.e. ``_norm_type`` output,
+# which runs ``to_igs_receiver`` first). Only the families the receivers verb
+# actually probes are mapped — see the ``--new-type`` choices in
+# ``receivers/src/receivers/cli/cfg.py``. Anything unmapped renders a
+# ``<TYPE?>`` placeholder for the operator to fill (the suggestion is a
+# review-first commented command, never auto-run).
+_REPLACE_TYPE_TOKEN = {
+    "SEPT POLARX5": "polarx5",
+    "TRIMBLE NETR9": "netr9",
+    "TRIMBLE NETRS": "netrs",
+    "TRIMBLE NETR5": "netr5",
+}
 
 # Model-substring → expected brand-family map. Keys are matched
 # case-insensitively against the device's open ``model`` attribute;
@@ -188,6 +206,185 @@ class TOSReceiverVerdict:
 
 
 @dataclass
+class CurrentReceiverVerdict:
+    """RINEX current-install vs TOS's currently-open ``gnss_receiver`` join.
+
+    The receiver-LEVEL counterpart to :class:`TOSReceiverVerdict` (which is
+    brand-level). Where the brand audit only sees the file-extension family —
+    and goes blind on the rinex-only spans where many current receivers live —
+    this reads the actual ``REC # / TYPE / VERS`` header via
+    :mod:`tostools.receiver_timeline`, so it catches the case that motivated
+    todo #40: TOS still holds a long-retired open receiver (OLKE's TRIMBLE 4700
+    from 2000) while the archive shows the PolaRX5 that's really been deployed
+    since 2017.
+
+    ``suggested_command`` carries an operator-pasteable **``receivers cfg
+    replace-receiver``** shell command (Pattern-2 device swap, dated to the
+    RINEX install proxy) — NOT a ``tos audit apply`` ACTION line. It is
+    populated only for actionable disagreements (``type_mismatch`` /
+    ``serial_mismatch``); ``None`` for clean / informational / firmware-only
+    statuses. RINEX dates are a strong proxy, never gospel: suggest, review,
+    run manually.
+
+    Status values:
+      * ``ok`` — RINEX and TOS open join agree on type and serial
+      * ``type_mismatch`` — different receiver type (the OLKE case)
+      * ``serial_mismatch`` — same type, different (both-known) serial
+      * ``firmware_drift`` — type+serial agree, firmware differs
+        (informational; recording it is todo #39, no replace-receiver)
+      * ``no_open_join`` — no open ``gnss_receiver`` join in TOS
+      * ``no_rinex_receiver`` — archive header carries no usable identity
+    """
+
+    status: str
+    detail: str
+    rinex_type: Optional[str] = None
+    rinex_serial: Optional[str] = None
+    rinex_firmware: Optional[str] = None
+    rinex_install_date: Optional[str] = None
+    tos_type: Optional[str] = None
+    tos_serial: Optional[str] = None
+    tos_firmware: Optional[str] = None
+    tos_time_from: Optional[str] = None
+    suggested_command: Optional[str] = None
+
+    @property
+    def is_actionable(self) -> bool:
+        """True iff this verdict carries a replace-receiver suggestion."""
+        return self.suggested_command is not None
+
+
+def _replace_receiver_command(
+    station: str,
+    header: ReceiverHeader,
+    install_date: Optional[str],
+) -> str:
+    """Build the dated ``receivers cfg replace-receiver`` suggestion line.
+
+    The IGS-normalized type drives ``--new-type``; unmapped families render a
+    ``<TYPE?>`` placeholder (the operator fills it before running). Serial /
+    firmware / date are included when known so the line is as close to
+    runnable as the archive allows — but it stays commented in the triage file.
+    """
+    norm_type = header.key[0]
+    token = _REPLACE_TYPE_TOKEN.get(norm_type or "", "<TYPE?>")
+    parts = [
+        "receivers cfg replace-receiver",
+        f"--station {station.upper()}",
+        f"--new-type {token}",
+    ]
+    if header.serial:
+        parts.append(f"--new-serial {header.serial}")
+    if norm_type:
+        parts.append(f'--new-model "{norm_type}"')
+    if header.firmware:
+        parts.append(f"--new-firmware {header.firmware}")
+    if install_date:
+        parts.append(f"--date {install_date}")
+    return " ".join(parts)
+
+
+def classify_current_receiver(
+    station: str,
+    rinex_header: Optional[ReceiverHeader],
+    rinex_install_date: Optional[str],
+    tos_type: Optional[str],
+    tos_serial: Optional[str],
+    tos_firmware: Optional[str],
+    tos_time_from: Optional[str],
+) -> CurrentReceiverVerdict:
+    """Compare the archive's current receiver against TOS's open join.
+
+    Pure function — no archive walk, no TOS call — so it is unit-testable in
+    isolation. Both sides are normalized through the SAME
+    :class:`~tostools.receiver_timeline.ReceiverHeader` key (type via
+    ``to_igs_receiver``, firmware ``5.50``≡``5.5.0``, placeholder serials →
+    unknown): a disagreement is a real one, not header-vs-TOS spelling noise.
+    With most of the fleet already drifting this normalization parity is the
+    line between useful triage and a wall of false positives.
+
+    ``rinex_install_date`` is the ``start`` of the archive's current segment
+    (already an ISO ``YYYY-MM-DD`` string) — the install-date proxy that dates
+    the suggested ``replace-receiver``.
+    """
+    if rinex_header is None or not rinex_header.is_known:
+        return CurrentReceiverVerdict(
+            status="no_rinex_receiver",
+            detail="archive header carries no usable receiver identity",
+            rinex_install_date=rinex_install_date,
+        )
+
+    rtype, rserial, rfw = rinex_header.key
+    common = dict(
+        rinex_type=rinex_header.rtype,
+        rinex_serial=rinex_header.serial,
+        rinex_firmware=rinex_header.firmware,
+        rinex_install_date=rinex_install_date,
+        tos_type=tos_type,
+        tos_serial=tos_serial,
+        tos_firmware=tos_firmware,
+        tos_time_from=tos_time_from,
+    )
+
+    tos_header = ReceiverHeader(
+        serial=tos_serial, rtype=tos_type, firmware=tos_firmware
+    )
+    if not tos_header.is_known and not tos_time_from:
+        return CurrentReceiverVerdict(
+            status="no_open_join",
+            detail=(
+                "no open gnss_receiver join in TOS; archive shows "
+                f"{rinex_header.rtype or '?'} since {rinex_install_date or '?'}"
+            ),
+            **common,
+        )
+    ttype, tserial, tfw = tos_header.key
+
+    if rtype != ttype:
+        cmd = _replace_receiver_command(station, rinex_header, rinex_install_date)
+        return CurrentReceiverVerdict(
+            status="type_mismatch",
+            detail=(
+                f"TOS open receiver {tos_type or '?'} "
+                f"(since {tos_time_from or '?'}) but archive shows "
+                f"{rinex_header.rtype or '?'} since {rinex_install_date or '?'}"
+            ),
+            suggested_command=cmd,
+            **common,
+        )
+
+    if rserial is not None and tserial is not None and rserial != tserial:
+        cmd = _replace_receiver_command(station, rinex_header, rinex_install_date)
+        return CurrentReceiverVerdict(
+            status="serial_mismatch",
+            detail=(
+                f"same type ({rinex_header.rtype or '?'}) but TOS serial "
+                f"{tos_serial or '?'} ≠ archive serial {rinex_header.serial or '?'} "
+                f"(archive since {rinex_install_date or '?'})"
+            ),
+            suggested_command=cmd,
+            **common,
+        )
+
+    if rfw is not None and tfw is not None and rfw != tfw:
+        return CurrentReceiverVerdict(
+            status="firmware_drift",
+            detail=(
+                f"type+serial agree; firmware TOS {tos_firmware or '?'} ≠ "
+                f"archive {rinex_header.firmware or '?'} "
+                "(recording the change is todo #39 — no replace-receiver)"
+            ),
+            **common,
+        )
+
+    return CurrentReceiverVerdict(
+        status="ok",
+        detail=f"TOS open receiver matches archive ({rinex_header.rtype or '?'})",
+        **common,
+    )
+
+
+@dataclass
 class StationRinexReport:
     """Aggregated archive-vs-TOS findings for one station.
 
@@ -212,6 +409,7 @@ class StationRinexReport:
     rinex_only_spans: List[Any] = field(default_factory=list)
     receivers: List[TOSReceiverVerdict] = field(default_factory=list)
     suggested_actions: List[str] = field(default_factory=list)
+    current_receiver: Optional[CurrentReceiverVerdict] = None
 
     @property
     def has_findings(self) -> bool:
@@ -221,9 +419,13 @@ class StationRinexReport:
         always need a human read). Receiver verdicts contribute only
         when they carry a ``suggested_action`` (``join_too_wide``,
         ``late_start``, ``early_end``) — clean and informational
-        statuses don't count.
+        statuses don't count. The receiver-level current-install
+        verdict contributes when it carries a ``replace-receiver``
+        suggestion (``type_mismatch`` / ``serial_mismatch``).
         """
         if self.brand_transitions or self.data_gaps:
+            return True
+        if self.current_receiver is not None and self.current_receiver.is_actionable:
             return True
         return any(r.suggested_action for r in self.receivers)
 
@@ -237,10 +439,16 @@ class StationRinexReport:
         one place so the three call sites (station header, fleet
         per-station row, single-station verify summary) cannot drift.
         """
+        current = (
+            1
+            if self.current_receiver is not None and self.current_receiver.is_actionable
+            else 0
+        )
         return (
             len(self.brand_transitions)
             + len(self.data_gaps)
             + len(self.suggested_actions)
+            + current
         )
 
 
@@ -250,6 +458,7 @@ def audit_station_verify_from_rinex(
     *,
     archive_root: Optional[Path] = None,
     min_gap_days: float = 30.0,
+    check_current_receiver: bool = True,
 ) -> StationRinexReport:
     """Cross-check one station's TOS state against the cold RINEX archive.
 
@@ -265,6 +474,12 @@ def audit_station_verify_from_rinex(
     min_gap_days
         Minimum gap duration to flag (default 30; below ~7 the report
         fills with date-rounding noise).
+    check_current_receiver
+        When True (default) also build the RINEX-header receiver timeline
+        and compare its current install against TOS's open receiver join
+        (todo #40). This reads a few dozen RINEX headers — set False for the
+        brand-only audit (e.g. archive-offline workflows or fleet sweeps
+        where the header reads are too costly).
 
     Returns
     -------
@@ -309,6 +524,10 @@ def audit_station_verify_from_rinex(
     # side of the picture.
     parent_id = _resolve_station_id(client, station)
     receivers: List[TOSReceiverVerdict] = []
+    # Fields of the currently-OPEN gnss_receiver join (time_to is None) — the
+    # receiver-level current-install check below compares the archive's current
+    # receiver against this. Latest open join wins if (anomalously) more than one.
+    open_join: Optional[Dict[str, Optional[str]]] = None
     if parent_id is not None:
         parent = client.get_entity_history(parent_id)
         if parent:
@@ -326,6 +545,15 @@ def audit_station_verify_from_rinex(
                 tf = (conn.get("time_from") or "")[:10]
                 tt_raw = conn.get("time_to")
                 tt = tt_raw[:10] if tt_raw else None
+                if tt is None and (
+                    open_join is None or tf > (open_join["time_from"] or "")
+                ):
+                    open_join = {
+                        "model": open_attribute(child, "model"),
+                        "serial_number": open_attribute(child, "serial_number"),
+                        "firmware_version": open_attribute(child, "firmware_version"),
+                        "time_from": tf,
+                    }
                 expected_family = infer_expected_family(open_attribute(child, "model"))
                 verdict = classify_tos_join_against_archive(
                     tf, tt, expected_family, timeline
@@ -358,6 +586,37 @@ def audit_station_verify_from_rinex(
 
     suggested_actions = [r.suggested_action for r in receivers if r.suggested_action]
 
+    # Receiver-LEVEL current-install check (todo #40): read the archive's
+    # current receiver from RINEX headers and compare against TOS's open join.
+    # Guarded — a header/archive read failure degrades to no verdict, never
+    # sinks the brand-level report.
+    current_receiver: Optional[CurrentReceiverVerdict] = None
+    if check_current_receiver:
+        try:
+            from .receiver_timeline import (
+                build_receiver_timeline,
+                current_install,
+                current_receiver_install_date,
+            )
+
+            rcv_timeline = build_receiver_timeline(station, root=resolved_root)
+            cur = current_install(rcv_timeline)
+            if cur is not None:
+                # Install date of the receiver UNIT (back past firmware bumps),
+                # not the latest firmware segment's start.
+                install_date = current_receiver_install_date(rcv_timeline)
+                current_receiver = classify_current_receiver(
+                    station,
+                    cur.header,
+                    str(install_date) if install_date is not None else None,
+                    open_join["model"] if open_join else None,
+                    open_join["serial_number"] if open_join else None,
+                    open_join["firmware_version"] if open_join else None,
+                    open_join["time_from"] if open_join else None,
+                )
+        except Exception as exc:  # noqa: BLE001 — archive/header read is best-effort
+            logger.warning("current-receiver check failed on %s: %s", station, exc)
+
     return StationRinexReport(
         station=station,
         station_id=parent_id,
@@ -371,6 +630,7 @@ def audit_station_verify_from_rinex(
         rinex_only_spans=rinex_only_spans,
         receivers=receivers,
         suggested_actions=suggested_actions,
+        current_receiver=current_receiver,
     )
 
 
@@ -465,6 +725,19 @@ def format_triage_file(
             lines.append(f"#   {s.start} → {s.end}  ({s.days}d)")
         lines.append("#")
 
+    cr = report.current_receiver
+    if cr is not None and cr.is_actionable:
+        lines.append(
+            f"# Current receiver ({cr.status} — archive header vs TOS open join):"
+        )
+        lines.append(f"#   {cr.detail}")
+        lines.append(
+            "#   Suggested fix — run MANUALLY in the receivers package after "
+            "reviewing the date (RINEX install date is a proxy, not gospel):"
+        )
+        lines.append(f"#       {cr.suggested_command}")
+        lines.append("#")
+
     if report.suggested_actions:
         lines.append(
             f"# Suggested ACTION lines ({len(report.suggested_actions)} — "
@@ -473,7 +746,7 @@ def format_triage_file(
         for action in report.suggested_actions:
             lines.append(f"#{action}")
         lines.append("#")
-    else:
+    elif cr is None or not cr.is_actionable:
         lines.append(
             "# No actionable TOS-vs-archive discrepancies found "
             "(all receiver joins clean or informational)."
