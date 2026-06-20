@@ -2498,3 +2498,121 @@ def test_dispatch_delete_contact_relationship_non_int_rejected():
     assert result.status == "failed"
     assert "integer id_relationship" in result.detail
     writer.delete_contact_relationship.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Post-apply guard: no duplicate open singular device on a station
+# ---------------------------------------------------------------------------
+from tostools.tos import _verify_no_duplicate_open_singular  # noqa: E402
+
+
+def _dev_hist(did, subtype="gnss_receiver"):
+    return {"id_entity": did, "code_entity_subtype": subtype, "attributes": []}
+
+
+def _station_hist(
+    pid, *, subtype="geophysical", name="OLKE", open_children=(), closed_children=()
+):
+    conns = [{"id_entity_child": c, "time_to": None} for c in open_children]
+    conns += [
+        {"id_entity_child": c, "time_to": "2000-10-17T00:00:00"}
+        for c in closed_children
+    ]
+    return {
+        "id_entity": pid,
+        "code_entity_subtype": subtype,
+        "attributes": [{"code": "name", "value_varchar": name, "time_to": None}],
+        "children_connections": conns,
+    }
+
+
+def _guard_client(station, child_subtypes, opening_child_parent):
+    histories = {station["id_entity"]: station}
+    for cid, st in child_subtypes.items():
+        histories[cid] = _dev_hist(cid, st)
+    c = MagicMock()
+    c.get_entity_history.side_effect = lambda i: histories.get(int(i))
+
+    def _ph(cid):
+        pid = opening_child_parent.get(int(cid))
+        return (
+            []
+            if pid is None
+            else [
+                {
+                    "id": 9000 + int(cid),
+                    "id_entity_parent": pid,
+                    "id_entity_child": int(cid),
+                    "time_from": "2017-06-26",
+                    "time_to": None,
+                }
+            ]
+        )
+
+    c.get_parent_history.side_effect = _ph
+    return c
+
+
+def test_guard_clean_single_open_receiver():
+    """One open gnss_receiver (+ a closed phantom stub) → no violation."""
+    station = _station_hist(4370, open_children=[21580], closed_children=[4979])
+    c = _guard_client(
+        station, {21580: "gnss_receiver", 4979: "gnss_receiver"}, {21580: 4370}
+    )
+    assert (
+        _verify_no_duplicate_open_singular(
+            c, [_make_action(21580, "create-join", "4370", "2017-06-26")]
+        )
+        == []
+    )
+
+
+def test_guard_flags_two_open_receivers():
+    """Two open gnss_receivers (the failed-delete case) → violation."""
+    station = _station_hist(4370, open_children=[21580, 4979])
+    c = _guard_client(
+        station, {21580: "gnss_receiver", 4979: "gnss_receiver"}, {21580: 4370}
+    )
+    v = _verify_no_duplicate_open_singular(
+        c, [_make_action(21580, "create-join", "4370", "2017-06-26")]
+    )
+    assert len(v) == 1
+    assert "2 open gnss_receiver" in v[0]
+    assert "4979" in v[0] and "21580" in v[0]
+
+
+def test_guard_ignores_warehouse_parent():
+    """Warehouses hold multiple receivers by design → no violation."""
+    wh = _station_hist(
+        4, subtype="area", name="B9 - Kjallari - Jörð", open_children=[100, 200]
+    )
+    c = _guard_client(wh, {100: "gnss_receiver", 200: "gnss_receiver"}, {100: 4})
+    assert _verify_no_duplicate_open_singular(c, [_make_action(100, "move", "4")]) == []
+
+
+def test_guard_ignores_non_singular_subtype():
+    """Two open solar_panels on a station is legitimate → no violation."""
+    station = _station_hist(4370, open_children=[100, 200])
+    c = _guard_client(station, {100: "solar_panel", 200: "solar_panel"}, {100: 4370})
+    assert (
+        _verify_no_duplicate_open_singular(
+            c, [_make_action(100, "create-join", "4370", "2020-01-01")]
+        )
+        == []
+    )
+
+
+def test_guard_closed_stub_not_counted():
+    """A zero-duration / closed join doesn't count toward the open total."""
+    station = _station_hist(4370, open_children=[21580], closed_children=[4979, 4798])
+    c = _guard_client(
+        station,
+        {21580: "gnss_receiver", 4979: "gnss_receiver", 4798: "gnss_receiver"},
+        {21580: 4370},
+    )
+    assert (
+        _verify_no_duplicate_open_singular(
+            c, [_make_action(21580, "create-join", "4370", "2017-06-26")]
+        )
+        == []
+    )
