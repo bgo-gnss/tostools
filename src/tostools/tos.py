@@ -2212,6 +2212,34 @@ def _station_main(argv):
     )
     p_show.add_argument("--port", type=int, default=443)
 
+    p_rcv = sub.add_parser(
+        "receivers",
+        help=(
+            "Reconstruct the receiver/firmware history from the RINEX archive "
+            "(works on rinex-only spans the brand audit reads as ambiguous). "
+            "Report-only — proposes install dates for TOS correction."
+        ),
+        description=(
+            "Read the RINEX `REC # / TYPE / VERS` headers across the cold "
+            "archive and print the receiver/firmware timeline: each segment's "
+            "date span + type / serial / firmware. The most recent segment's "
+            "start is the current-install-date proxy for `cfg replace-receiver` "
+            "/ `reconcile --push-tos`. Unlike the brand audit (raw-extension "
+            "based), this identifies the receiver even where only RINEX was "
+            "archived. RINEX dates are a strong proxy, not gospel — review "
+            "before writing TOS."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rcv.add_argument("station", help="Station marker (e.g. OLKE).")
+    p_rcv.add_argument(
+        "--rate", default="15s_24hr", help="Archive rate dir (default: 15s_24hr)."
+    )
+    p_rcv.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of a table."
+    )
+    _add_archive_arguments(p_rcv)
+
     _add_station_add_parser(sub)
 
     args = p.parse_args(argv)
@@ -2222,6 +2250,8 @@ def _station_main(argv):
         return _station_verify_main(args)
     if args.verb == "show":
         return _station_show_main(args)
+    if args.verb == "receivers":
+        return _station_receivers_main(args)
     if args.verb == "add":
         return _station_add_main(args)
 
@@ -2404,6 +2434,57 @@ def _station_triage_main(args) -> int:
         f"  tos audit apply {out_path}            # dry-run\n"
         f"  tos audit apply {out_path} --apply    # commit"
     )
+    return 0
+
+
+def _station_receivers_main(args) -> int:
+    """`tos station receivers <STN>` — RINEX-header receiver/firmware timeline."""
+    from .receiver_timeline import build_receiver_timeline, current_install
+
+    station = args.station.upper()
+    timeline = build_receiver_timeline(
+        station,
+        root=getattr(args, "archive_root", None),
+        rate=getattr(args, "rate", "15s_24hr"),
+    )
+    if not timeline:
+        print(f"{station}: no archived RINEX found")
+        return 1
+
+    if getattr(args, "json", False):
+        import json
+
+        print(
+            json.dumps(
+                [
+                    {
+                        "start": s.start.isoformat(),
+                        "end": s.end.isoformat(),
+                        "type": s.header.rtype,
+                        "serial": s.header.serial,
+                        "firmware": s.header.firmware,
+                    }
+                    for s in timeline
+                ],
+                indent=2,
+            )
+        )
+        return 0
+
+    print(f"=== {station} receiver history (from RINEX headers) ===")
+    for s in timeline:
+        print(
+            f"  {s.start.isoformat()} .. {s.end.isoformat()}  "
+            f"{(s.header.rtype or '?'):<16} "
+            f"sn={(s.header.serial or '?'):<14} fw={s.header.firmware or '?'}"
+        )
+    cur = current_install(timeline)
+    if cur:
+        print(
+            f"\ncurrent: {cur.header.rtype} (sn {cur.header.serial}) — "
+            f"archive install-date proxy {cur.start.isoformat()}. "
+            "Review before any TOS write (cfg replace-receiver / reconcile --push-tos)."
+        )
     return 0
 
 
