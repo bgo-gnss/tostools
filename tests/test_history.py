@@ -480,6 +480,7 @@ from tostools.history import (  # noqa: E402  re-import to keep step-3 block sel
     _connection_to_join,
     _parse_iso,
     build_join_index,
+    device_timeline_via_parent_history,
 )
 
 
@@ -1828,3 +1829,101 @@ def test_device_timeline_report_is_frozen():
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         tl.id_entity = 999  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# device_timeline_via_parent_history — single-device fast path (no fleet index)
+# ---------------------------------------------------------------------------
+
+
+def test_parent_history_timeline_open_and_closed():
+    """Builds a device's timeline straight from parent_history; the connection
+    id comes from the row's `id` field, and the open join is detected."""
+    client = MagicMock()
+    client.get_parent_history.return_value = [
+        {
+            "id": 5821,
+            "id_entity_parent": 4370,
+            "id_entity_child": 100,
+            "time_from": "1999-05-24T00:00:00",
+            "time_to": "2013-02-28T00:00:00",
+        },
+        {
+            "id": 6120,
+            "id_entity_parent": 4,
+            "id_entity_child": 100,
+            "time_from": "2013-02-28T00:00:00",
+            "time_to": None,
+        },
+    ]
+    tl = device_timeline_via_parent_history(client, 100)
+    client.get_parent_history.assert_called_once_with(100)
+    assert len(tl.joins) == 2
+    opens = tl.open_joins
+    assert len(opens) == 1
+    assert opens[0].id_entity_connection == 6120
+    assert opens[0].id_entity_parent == 4
+    assert opens[0].id_entity_child == 100
+
+
+def test_parent_history_timeline_accepts_id_entity_connection_key():
+    """A children_connections-shaped row (id_entity_connection) also works."""
+    client = MagicMock()
+    client.get_parent_history.return_value = [
+        {
+            "id_entity_connection": 999,
+            "id_entity_parent": 4370,
+            "id_entity_child": 7,
+            "time_from": "2020-01-01",
+            "time_to": None,
+        },
+    ]
+    tl = device_timeline_via_parent_history(client, 7)
+    assert tl.open_joins[0].id_entity_connection == 999
+
+
+def test_parent_history_timeline_stringified_none_is_open():
+    """A leaked stringy 'None'/'' time_to is normalised to an open join."""
+    client = MagicMock()
+    client.get_parent_history.return_value = [
+        {
+            "id": 1,
+            "id_entity_parent": 4,
+            "id_entity_child": 7,
+            "time_from": "2020-01-01",
+            "time_to": "None",
+        },
+    ]
+    tl = device_timeline_via_parent_history(client, 7)
+    assert tl.open_joins and tl.open_joins[0].id_entity_connection == 1
+
+
+def test_parent_history_timeline_skips_rows_without_conn_id():
+    """A row carrying no usable connection id is skipped, not crashed on."""
+    client = MagicMock()
+    client.get_parent_history.return_value = [
+        {
+            "id_entity_parent": 4,
+            "id_entity_child": 7,
+            "time_from": "2020-01-01",
+            "time_to": None,
+        },
+        {
+            "id": 2,
+            "id_entity_parent": 4,
+            "id_entity_child": 7,
+            "time_from": "2021-01-01",
+            "time_to": None,
+        },
+    ]
+    tl = device_timeline_via_parent_history(client, 7)
+    assert [j.id_entity_connection for j in tl.joins] == [2]
+
+
+def test_parent_history_timeline_empty_means_no_open_join():
+    """No parent history → empty timeline, no open join (orphan / unknown)."""
+    client = MagicMock()
+    client.get_parent_history.return_value = []
+    tl = device_timeline_via_parent_history(client, 7)
+    assert tl.joins == []
+    assert tl.open_joins == []
