@@ -2616,3 +2616,90 @@ def test_guard_closed_stub_not_counted():
         )
         == []
     )
+
+
+# ---------------------------------------------------------------------------
+# Dry-run pre-flight: would the action SET leave a duplicate open singular?
+# ---------------------------------------------------------------------------
+from tostools.tos import _preflight_open_singular_conflicts  # noqa: E402
+
+
+def _preflight_client(pid, open_children, child_subtypes, *, subtype="geophysical"):
+    """open_children: list of (child_id, conn_id) currently open at the station."""
+    conns = [
+        {"id_entity_child": c, "id_entity_connection": cn, "time_to": None}
+        for c, cn in open_children
+    ]
+    station = {
+        "id_entity": pid,
+        "code_entity_subtype": subtype,
+        "attributes": [{"code": "name", "value_varchar": "OLKE", "time_to": None}],
+        "children_connections": conns,
+    }
+    histories = {pid: station}
+    for cid, st in child_subtypes.items():
+        histories[cid] = {"id_entity": cid, "code_entity_subtype": st, "attributes": []}
+    c = MagicMock()
+    c.get_entity_history.side_effect = lambda i: histories.get(int(i))
+    return c
+
+
+def test_preflight_flags_open_without_close():
+    """create-join a 2nd receiver without closing the 1st → warning."""
+    c = _preflight_client(
+        4370, [(4979, 6120)], {4979: "gnss_receiver", 21580: "gnss_receiver"}
+    )
+    w = _preflight_open_singular_conflicts(
+        c, [_make_action(21580, "create-join", "4370", "2017-06-26")]
+    )
+    assert len(w) == 1
+    assert "would leave 2 open gnss_receiver" in w[0]
+
+
+def test_preflight_clean_swap_delete_join_no_warning():
+    """delete-join old + create-join new = a clean swap → no warning."""
+    c = _preflight_client(
+        4370, [(4979, 6120)], {4979: "gnss_receiver", 21580: "gnss_receiver"}
+    )
+    actions = [
+        _make_action(4979, "delete-join", "6120"),
+        _make_action(21580, "create-join", "4370", "2017-06-26"),
+    ]
+    assert _preflight_open_singular_conflicts(c, actions) == []
+
+
+def test_preflight_clean_swap_decommission_no_warning():
+    """decommission old + create-join new → no warning."""
+    c = _preflight_client(
+        4370, [(4979, 6120)], {4979: "gnss_receiver", 21580: "gnss_receiver"}
+    )
+    actions = [
+        _make_action(4979, "decommission", "2000-10-17"),
+        _make_action(21580, "create-join", "4370", "2017-06-26"),
+    ]
+    assert _preflight_open_singular_conflicts(c, actions) == []
+
+
+def test_preflight_clean_swap_patch_join_date_no_warning():
+    """patch-join-date <conn> time_to <date> closes the old → no warning."""
+    c = _preflight_client(
+        4370, [(4979, 6120)], {4979: "gnss_receiver", 21580: "gnss_receiver"}
+    )
+    actions = [
+        _make_action(4979, "patch-join-date", "6120", "time_to", "2013-02-28"),
+        _make_action(21580, "create-join", "4370", "2017-06-26"),
+    ]
+    assert _preflight_open_singular_conflicts(c, actions) == []
+
+
+def test_preflight_warehouse_destination_ignored():
+    """Opening a receiver join at a warehouse is fine (holds many)."""
+    c = _preflight_client(
+        4, [(100, 7000)], {100: "gnss_receiver", 200: "gnss_receiver"}, subtype="area"
+    )
+    assert (
+        _preflight_open_singular_conflicts(
+            c, [_make_action(200, "create-join", "4", "2020-01-01")]
+        )
+        == []
+    )

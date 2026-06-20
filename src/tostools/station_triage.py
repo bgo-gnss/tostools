@@ -91,6 +91,11 @@ class StationTriageReport:
     dates: Optional[StationAttributeDateReport] = None
     rinex: Optional[StationRinexReport] = None
     coverage: Optional[StationVisitCoverageReport] = None
+    # Structural device-graph findings — currently "this station has >1 open
+    # join of a singular subtype" (gnss_receiver/antenna/radome/monument). One
+    # human-readable string per conflict. Detection complement to the
+    # apply-time guard in ``tos audit apply``.
+    device_conflicts: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
 
     @property
@@ -113,6 +118,7 @@ class StationTriageReport:
             n += self.rinex.finding_count
         if self.coverage is not None:
             n += len(self.coverage.violations)
+        n += len(self.device_conflicts)
         return n
 
 
@@ -312,6 +318,27 @@ def generate_station_triage(
     elif coverage_report is not None:
         station_id = coverage_report.station_id
 
+    # === Section: structural device-graph conflicts (always on) ===
+    # Detection complement to the apply-time guard: a station with >1 open join
+    # of a singular subtype (gnss_receiver/antenna/radome/monument) means an
+    # earlier swap's old-device close never landed. Cheap read; failures noted
+    # like the other audits.
+    device_conflicts: List[str] = []
+    if station_id is not None:
+        try:
+            from .devices import open_singular_conflicts
+
+            station_history = client.get_entity_history(station_id) or {}
+            for subtype, ids in open_singular_conflicts(client, station_history):
+                device_conflicts.append(
+                    f"{station}: {len(ids)} open {subtype} joins (devices "
+                    f"{', '.join(map(str, ids))}) — a station may have only one; "
+                    f"a prior device's join was never closed."
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("device-conflicts check failed on %s: %s", station, exc)
+            notes.append(f"device-conflicts check FAILED: {exc}")
+
     return StationTriageReport(
         station=station,
         station_id=station_id,
@@ -320,6 +347,7 @@ def generate_station_triage(
         dates=dates_report,
         rinex=rinex_report,
         coverage=coverage_report,
+        device_conflicts=device_conflicts,
         notes=notes,
     )
 
@@ -364,6 +392,9 @@ def format_station_triage(report: StationTriageReport) -> str:
     if report.coverage is not None and report.coverage.violations:
         parts.append(_section_coverage(report))
 
+    if report.device_conflicts:
+        parts.append(_section_device_conflicts(report))
+
     if report.notes:
         parts.append(_section_notes(report))
 
@@ -403,6 +434,10 @@ def _build_header(report: StationTriageReport) -> str:
             f"(±{cov.coverage_window_days}d window, since {cov.since}, "
             f"{cov.audited_events} events audited)"
         )
+    summary_lines.append(
+        f"#   device-conflicts:    {len(report.device_conflicts)} "
+        "duplicate open singular device(s)"
+    )
     return (
         f"# === {report.station} station triage — auto-generated "
         f"{report.generated_at} ===\n"
@@ -552,6 +587,19 @@ def _section_missing(report: StationTriageReport) -> str:
         "# ──────────────────────────────────────────────────────────────────"
     )
     return header + "\n" + body.rstrip()
+
+
+def _section_device_conflicts(report: StationTriageReport) -> str:
+    return (
+        "# ──────────────────────────────────────────────────────────────────\n"
+        "# Device-graph conflicts (HIGH — invalid TOS state)\n"
+        "# A station may have only one open join per singular subtype\n"
+        "# (gnss_receiver/antenna/radome/monument). >1 means a swap's old\n"
+        "# device was never closed. Fix: close the stale join (cfg move-device\n"
+        "# --serial <OLD> --to <warehouse>, or a `decommission` action).\n"
+        "# ──────────────────────────────────────────────────────────────────\n#\n"
+        + "\n".join(f"#   {c}" for c in report.device_conflicts)
+    )
 
 
 def _section_notes(report: StationTriageReport) -> str:

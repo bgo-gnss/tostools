@@ -1364,3 +1364,49 @@ def replace_device(
         initial_attributes=initial_attributes,
     )
     return {"decommissioned": decommission, "installed": install}
+
+
+# Subtypes a station may hold only ONE open join of at a time. A 2nd open join
+# of one of these means a swap didn't close the old device (the failure mode
+# that left OLKE with two open gnss_receivers when a delete-join silently
+# failed). Deliberately small: solar_panel / battery / windmill / sim_card /
+# modem_gsm legitimately repeat on one station, so they are NOT listed.
+SINGULAR_STATION_SUBTYPES: Tuple[str, ...] = (
+    "gnss_receiver",
+    "antenna",
+    "radome",
+    "monument",
+)
+
+
+def open_singular_conflicts(
+    client, station_history: Dict[str, Any]
+) -> List[Tuple[str, List[int]]]:
+    """Singular subtypes this station has more than one OPEN join of.
+
+    Pure per-station check: walks ``station_history['children_connections']``,
+    keeps the open ones (``time_to is None`` — a closed/zero-duration join such
+    as the OLKE phantom stub is ignored), reads each child's subtype, and
+    returns ``[(subtype, [device_ids…]), …]`` for every
+    :data:`SINGULAR_STATION_SUBTYPES` with >1 open join. Empty list = clean.
+
+    Does NOT decide whether the parent *is* a station — callers that may pass a
+    warehouse (which legitimately holds many) must role-filter first. One
+    ``get_entity_history`` per open child to read its subtype.
+    """
+    open_by_subtype: Dict[str, List[int]] = {}
+    for conn in station_history.get("children_connections") or []:
+        if conn.get("time_to") is not None:
+            continue
+        cid_raw = conn.get("id_entity_child")
+        if cid_raw is None:
+            continue
+        child = client.get_entity_history(int(cid_raw)) or {}
+        subtype = child.get("code_entity_subtype")
+        if subtype in SINGULAR_STATION_SUBTYPES:
+            open_by_subtype.setdefault(subtype, []).append(int(cid_raw))
+    return [
+        (subtype, sorted(ids))
+        for subtype, ids in sorted(open_by_subtype.items())
+        if len(ids) > 1
+    ]
