@@ -1,0 +1,17 @@
+# === OLKE — retire bogus duplicate Trimble (device 4979) — 2026-06-20 ===
+#
+# Follow-up to olke_receiver_history_reconstruction_20260620.txt. That file's
+# `delete-join 6120` did NOT take (admin DELETE failed; the sibling B9
+# delete-joins 28988/28989 and everything else applied fine), leaving 4979's
+# join to OLKE open from 2000-10-17 — a 2nd simultaneous open receiver.
+#
+# 4979 is the phantom from the 2000-10-17 firmware change (1.12->1.30) that TOS
+# wrongly recorded as a new device; the real Trimble is 4798 (1999->2013-02-28).
+# `decommission` CLOSES the open join (PATCH time_to=2000-10-17 → zero-duration,
+# nullifying the phantom's span) and transitions status -> óvirkt. There is no
+# entity-delete verb in the ACTION grammar; this is the clean equivalent.
+#
+#   tos audit apply <this_file>          # dry-run
+#   tos audit apply <this_file> --apply  # commit
+#
+ACTION 4979 decommission 2000-10-17

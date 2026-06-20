@@ -1,0 +1,36 @@
+# === OLKE receiver-history reconstruction — manual, 2026-06-20 ===
+#
+# Station Ölkelduháls (OLKE) id_entity=4370.
+# Rebuilds the receiver timeline TOS was missing. Provenance: GAMIT
+# station.info (okada) cross-checked against the cold RINEX archive
+# (header reads) and the live TOS state. See the session note
+# [[1781948015-receivers-session]] / todo #38/#39 for the full audit.
+#
+# Resolved transitions (archive-authoritative where it has data; GAMIT
+# where the archive has a gap):
+#   TRIMBLE 4700  (sn 20147817)   1999-05-24 .. 2013-02-28   fw 1.12 -> 1.30 @ 2000-10-17
+#   TRIMBLE NETR9 (sn 5218K84655) 2013-02-28 .. 2017-06-26   fw 4.62
+#   SEPT POLARX5  (sn 3016143)    2017-06-26 .. open         fw 5.6.0 (history 5.1.2->5.6.0 = #39)
+#
+# NetR9 date: archive shows continuous TRIMBLE 4700 through 2013-02 (452 days,
+#   every header), so GAMIT's "2011 175" is a station.info transcription error.
+# PolaRX5 date: GAMIT 2017-06-26 (archive has a gap 06-26..07-08); GAMIT wins.
+#
+# Phase 1 (already committed 2026-06-20): warehoused the two retired units via
+#   `tos device add` -> NetR9 id_entity=21579, PolaRX5 id_entity=21580 (at B9).
+#
+# Run:
+#   tos audit apply <this_file>          # dry-run (safe default)
+#   tos audit apply <this_file> --apply  # commit
+# PLUS the firmware Pattern-2 (no ACTION verb for an attribute transition):
+#   python3 olke_firmware_transition.py commit   # run BEFORE --apply deletes 4979
+#
+# (a) merge bogus 2000 split: extend real Trimble 4798 to true end, drop synthetic 4979
+ACTION 4798 patch-join-date 5821 time_to 2013-02-28
+ACTION 4979 delete-join 6120
+# (b) drop the B9 warehouse-intake joins (device-add fiction; these units went straight to OLKE)
+ACTION 21579 delete-join 28988
+ACTION 21580 delete-join 28989
+# (c) real OLKE joins: NetR9 closed 2013-02-28..2017-06-26, PolaRX5 open from 2017-06-26
+ACTION 21579 create-join 4370 2013-02-28 2017-06-26
+ACTION 21580 create-join 4370 2017-06-26
