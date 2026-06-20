@@ -2595,6 +2595,7 @@ def _station_verify_main(args) -> int:
             "status": status,
             "exit_code": exit_code,
             "audits": audits_payload,
+            "device_conflicts": list(report.device_conflicts),
             "notes": list(report.notes),
         }
         print(_json.dumps(payload, ensure_ascii=False, indent=2))
@@ -2622,6 +2623,9 @@ def _station_verify_main(args) -> int:
             )
         else:
             summary_bits.append("verify-from-rinex: (failed)")
+    summary_bits.append(
+        f"device-conflicts: {len(report.device_conflicts)} duplicate open singular"
+    )
 
     print(
         f"VERIFY {report.station} (id_entity={report.station_id}): "
@@ -2629,6 +2633,12 @@ def _station_verify_main(args) -> int:
     )
     for bit in summary_bits:
         print(f"  {bit}")
+
+    if report.device_conflicts:
+        print()
+        print("Device-graph conflicts (invalid TOS state):")
+        for c in report.device_conflicts:
+            print(f"  ✗ {c}")
 
     if report.notes:
         print()
@@ -9359,12 +9369,106 @@ def _print_apply_preflight_table(actions, meta, *, mode_tag: str) -> None:
     print()
 
 
-# Subtypes a station may hold only ONE open instance of at a time. A 2nd open
-# join of one of these means a swap didn't close the old device — the failure
-# mode that left OLKE with two open gnss_receivers when a `delete-join` silently
-# failed at runtime. Deliberately small: solar_panel / battery / windmill /
-# sim_card / modem legitimately repeat on one station, so they're NOT listed.
-_SINGULAR_STATION_SUBTYPES = ("gnss_receiver", "antenna", "radome", "monument")
+def _fmt_open_singular_conflict(label, subtype: str, ids: "List[int]") -> str:
+    """One human-readable line for a station with >1 open join of a subtype."""
+    return (
+        f"{label}: {len(ids)} open {subtype} joins (devices "
+        f"{', '.join(map(str, ids))}) — a station may have only one; the prior "
+        f"device's join was not closed during the swap."
+    )
+
+
+def _preflight_open_singular_conflicts(client, actions):
+    """Dry-run pre-flight: would this action SET leave a station with >1 open
+    join of a singular subtype?
+
+    The complement to :func:`_verify_no_duplicate_open_singular`: that one
+    re-reads the post-apply state (catches a close that failed at runtime); this
+    one simulates the set's net effect against the *current* state, so a dry-run
+    can warn before any write that the operator opened a second receiver without
+    closing the first. Conservative — it subtracts the set's own closes
+    (``delete-join`` / ``decommission`` / ``patch-join-date … time_to`` /
+    ``move`` away) so a correct swap does NOT false-positive.
+
+    Final open set per opened-into station P =
+        (current open singular children at P, minus those the set closes at P)
+        ∪ (children the set opens at P via create-join / move).
+    """
+    from .devices import SINGULAR_STATION_SUBTYPES
+    from .history import ParentEntity
+
+    def _int(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+
+    opens_by_parent: Dict[int, set] = {}
+    move_dest: Dict[int, int] = {}
+    decommissioned: set = set()
+    conn_closes: set = set()
+    for a in actions:
+        if a.verb == "create-join" and len(a.args) == 2:
+            p = _int(a.args[0])
+            if p is not None:
+                opens_by_parent.setdefault(p, set()).add(a.id_entity)
+        elif a.verb == "move" and a.args:
+            dest = _int(a.args[0])
+            if dest is not None:
+                opens_by_parent.setdefault(dest, set()).add(a.id_entity)
+                move_dest[a.id_entity] = dest
+        elif a.verb == "decommission":
+            decommissioned.add(a.id_entity)
+        elif a.verb == "delete-join" and a.args:
+            cc = _int(a.args[0])
+            if cc is not None:
+                conn_closes.add(cc)
+        elif (
+            a.verb == "patch-join-date" and len(a.args) >= 3 and a.args[1] == "time_to"
+        ):
+            cc = _int(a.args[0])
+            if cc is not None:
+                conn_closes.add(cc)
+
+    def _subtype(cid: int) -> Optional[str]:
+        return (client.get_entity_history(cid) or {}).get("code_entity_subtype")
+
+    warnings: List[str] = []
+    for pid, opened in sorted(opens_by_parent.items()):
+        h = client.get_entity_history(pid)
+        if not h or ParentEntity.from_history(pid, h).role != "station":
+            continue
+        final: Dict[str, set] = {}
+        for conn in h.get("children_connections") or []:
+            if conn.get("time_to") is not None:
+                continue
+            cid = _int(conn.get("id_entity_child"))
+            if cid is None:
+                continue
+            connid = _int(conn.get("id_entity_connection"))
+            if cid in decommissioned:
+                continue
+            if connid is not None and connid in conn_closes:
+                continue
+            if cid in move_dest and move_dest[cid] != pid:
+                continue  # moved away from P by this set
+            st = _subtype(cid)
+            if st is not None and st in SINGULAR_STATION_SUBTYPES:
+                final.setdefault(st, set()).add(cid)
+        for cid in opened:
+            st = _subtype(cid)
+            if st is not None and st in SINGULAR_STATION_SUBTYPES:
+                final.setdefault(st, set()).add(cid)
+        name = ParentEntity.from_history(pid, h).name or f"id={pid}"
+        for st, ids in sorted(final.items()):
+            if len(ids) > 1:
+                warnings.append(
+                    f"{name}: this set would leave {len(ids)} open {st} joins "
+                    f"(devices {', '.join(map(str, sorted(ids)))}) — add a close "
+                    f"for the prior device (delete-join / decommission / move) "
+                    f"or apply will be blocked by the post-apply guard."
+                )
+    return warnings
 
 
 def _verify_no_duplicate_open_singular(client, actions):
@@ -9379,11 +9483,11 @@ def _verify_no_duplicate_open_singular(client, actions):
     Follows each receiver-opening action's child (`create-join` / `move` /
     `fill-gap`) to its current open parent via parent_history (the fast,
     no-fleet-index path), then re-reads each such parent that is a STATION
-    (warehouses / graveyard legitimately hold multiples) and counts open
-    children per singular subtype. A closed join — e.g. OLKE's zero-duration
-    phantom stub — has ``time_to != None`` and is not counted. Returns a list
-    of human-readable violation strings; empty means clean.
+    (warehouses / graveyard legitimately hold multiples) and applies the shared
+    :func:`devices.open_singular_conflicts` check. Returns human-readable
+    violation strings; empty means clean.
     """
+    from .devices import open_singular_conflicts
     from .history import ParentEntity, device_timeline_via_parent_history
 
     opening_verbs = {"create-join", "move", "fill-gap"}
@@ -9401,25 +9505,10 @@ def _verify_no_duplicate_open_singular(client, actions):
         parent = ParentEntity.from_history(pid, h)
         if parent.role != "station":
             continue  # warehouses / graveyard hold multiples by design
-        open_by_subtype: Dict[str, List[int]] = {}
-        for conn in h.get("children_connections") or []:
-            if conn.get("time_to") is not None:
-                continue  # closed join (e.g. the zero-duration phantom stub)
-            cid_raw = conn.get("id_entity_child")
-            if cid_raw is None:
-                continue
-            child = client.get_entity_history(int(cid_raw)) or {}
-            st = child.get("code_entity_subtype")
-            if st in _SINGULAR_STATION_SUBTYPES:
-                open_by_subtype.setdefault(st, []).append(int(cid_raw))
-        for st, devs in sorted(open_by_subtype.items()):
-            if len(devs) > 1:
-                violations.append(
-                    f"{parent.name or f'id={pid}'}: {len(devs)} open {st} joins "
-                    f"(devices {', '.join(map(str, sorted(devs)))}) — a station "
-                    f"may have only one; the prior device's join was not closed "
-                    f"during the swap."
-                )
+        for subtype, ids in open_singular_conflicts(client, h):
+            violations.append(
+                _fmt_open_singular_conflict(parent.name or f"id={pid}", subtype, ids)
+            )
     return violations
 
 
@@ -9501,12 +9590,14 @@ def _apply_main(args) -> int:
             )
         )
 
-    # Post-apply guard: re-read affected stations and refuse to call the run
-    # clean if a swap left two open joins of a singular subtype (e.g. a
-    # delete-join that silently failed). Apply-mode only — dry-run sent no
-    # writes, so there is no post-state to verify.
+    # Singular-subtype duplicate guard, split by mode:
+    #  * dry-run → pre-flight SIMULATION of the action set (no post-state exists);
+    #  * apply  → post-apply RE-READ (catches a close that failed at runtime).
     post_violations: List[str] = []
-    if not dry_run:
+    preflight_warnings: List[str] = []
+    if dry_run:
+        preflight_warnings = _preflight_open_singular_conflicts(client, actions)
+    else:
         post_violations = _verify_no_duplicate_open_singular(client, actions)
 
     if args.json:
@@ -9529,6 +9620,7 @@ def _apply_main(args) -> int:
                 for r in results
             ],
             "post_apply_violations": post_violations,
+            "preflight_warnings": preflight_warnings,
         }
         print(_json.dumps(payload, ensure_ascii=False, indent=2))
     else:
@@ -9557,6 +9649,14 @@ def _apply_main(args) -> int:
         )
         if dry_run:
             print("(no writes were sent — re-run with --apply to commit)")
+        if preflight_warnings:
+            print(
+                f"\n⚠ PRE-FLIGHT: {len(preflight_warnings)} station(s) would be "
+                f"left with a duplicate open singular device:",
+                file=sys.stderr,
+            )
+            for w in preflight_warnings:
+                print(f"    {w}", file=sys.stderr)
         if post_violations:
             print(
                 f"\n✗ POST-APPLY GUARD: {len(post_violations)} station(s) left "
@@ -9571,7 +9671,11 @@ def _apply_main(args) -> int:
                 file=sys.stderr,
             )
 
-    ok = all(r.status != "failed" for r in results) and not post_violations
+    ok = (
+        all(r.status != "failed" for r in results)
+        and not post_violations
+        and not preflight_warnings
+    )
     return 0 if ok else 1
 
 

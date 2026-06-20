@@ -90,37 +90,117 @@ prompt). Pinned by `tests/test_power.py` (8) + `tests/test_location_add.py`
 site-power cases. `SENSOR_TIED_POWER_SUBTYPES` (`anemometer_power_pack`) is
 flagged in each row so the W2 audit can exclude instrument-private power.
 
-### W2 — Audit invariant: colocated stations must share power (Q2b)
+### W2 — Audit `tos audit shared-power` (Q2b) — SCOPED 2026-06-09
 
-`tos audit shared-power <STN>` (and a fleet sweep) flags a site where
-colocated stations have:
-  * **separate/duplicate** power systems (each station its own battery+solar —
-    the duplication the requirement forbids), or
-  * **missing** power (the HEDI "neither models any power" case), or
-  * power that should be site-level still sitting on a station (drift signal
-    feeding the W3 migration).
+> **W2 and W3 are one piece.** The audit's `--triage` output *is* the migration
+> tool — it emits the `move <power_id> <site_id> <date>` ACTIONs that reparent
+> power station→site. There is no separate "W3 migration" step; running the
+> triage performs it. The old W3 section below is folded in here.
 
-Off-by-default / `--with-power` opt-in at first (mirrors `--with-coverage`),
-because until the W3 migration runs every site will look "wrong." SUPPRESS
-file `data/audit_suppressions/shared_power.txt`. `--triage` emits the
-reparent ACTIONs (see W3).
+#### Discriminating findings (read-only fleet probe, 2026-06-09)
 
-### W3 — Site-power model + migration (Q1a) — fleet-wide, heavy
+These numbers reshaped the invariant — the naive checks the original stub
+proposed are mostly false positives.
 
-Make `land` the parent of shared power:
-  * **Write path:** attach a power device to the `land` site via the existing
-    `create_entity_connection(parent=land, child=power_device)` — no new writer
-    primitive needed. New `move`-style ACTION reparents an existing
-    station-parented power device to the site (`move_device(power_id,
-    to_id_entity=land_id, …)` — already exists).
-  * **Migration:** reparent the ~35+ deployed power devices station → site.
-    Phased, per-site, through committed triage files (the canonical
-    retrospective-write trail). Per-site: confirm which station(s) the power
-    actually served, move to the `land` parent, leave a vitjun if a physical
-    visit was involved.
-  * **Decision point:** does *every* power device move to the site, or only the
-    genuinely-shared ones (a station-private UPS in a hut might legitimately
-    stay per-station)? Resolve in the W3 design, not here.
+- **110 distinct `land` sites already carry ≥1 power device.** Power is
+  *broadly* modelled per-station. The total land-site count is **not
+  established** (both enumeration probes returned 0 — no working
+  list-all-land endpoint found yet), and weather/hydro sites are in the
+  universe, so MISSING **prevalence is unknown** — could be a minority gap or
+  common. The audit itself will reveal it; do not pre-judge. Either way MISSING
+  at a *true colocation* (below) is a meaningful finding.
+- **Of 11 sites with power on ≥2 colocated stations, only 1 is a repeater.**
+  The rest exposed that **a `land` site is overloaded**: sometimes a true
+  single-point colocation (HEDI, Mjóaskarð GPS+SIL), sometimes a **regional
+  administrative grouping** spanning kilometres — `Reykjanes` (site 5495)
+  groups **7** stations (Herdísarvík … Litla-Skógfell, tens of km apart);
+  `Askja`, `Geldingadalir`, `Gígjukvísl` likewise. At a grouping site,
+  "colocated stations share power" is simply **false**.
+
+**Consequence:** the core invariant cannot key on "stations share a `land`
+site." It needs a **coordinate-proximity gate** — only stations physically
+close (all within a small radius of each other / the site coordinate) are a
+genuine colocation that should share power. This gate is the linchpin of the
+whole audit; without it ~90 % of "duplication" findings are wrong.
+
+#### The proximity gate — VERIFIED + calibrated (2026-06-09)
+
+Every station carries `lat`/`lon`; the `land` site carries one `lat`/`lon`.
+Classify each multi-station site by the **max pairwise distance** among its
+colocated stations:
+  * **colocation** — all stations within `--proximity-m` of each other. Power
+    *is* expected to be shared here.
+  * **grouping** — stations spread beyond the threshold. Skip entirely (not a
+    shared-power site; it's an admin grouping). Surface in a separate
+    "skipped — regional grouping" list so the operator sees what was excluded
+    (no silent truncation).
+
+**The gate was the design's linchpin, so it was verified against the 11
+multi-station sites before this scope shipped** — and the worry that station
+coords might just be copied from the site (HEDI showed station==site coord)
+was *refuted*: coords are independently measured and spread cleanly.
+
+| Site | kind | max pairwise child distance |
+|------|------|------------------------------|
+| Eldey | true colocation | **2 m** |
+| Mjóaskarð | colocation + repeater | GPS+SIL **7 m**; repeater **1,106 m** offset |
+| Hekla | grouping | 6.7 km |
+| Askja | grouping | 21 km |
+| Reykjanes | grouping (7+ stns) | **52 km** |
+
+The separation is huge — true colocations are **≤7 m**, the next thing up is
+**>1 km** — so any threshold in ~100 m–1 km works; **default 150 m** is safe.
+Two consequences this resolved: (a) HEDI's station==site coordinate was a
+genuine colocation, not coordinate-copying — the gate is real; (b) the
+**repeater is auto-separated by proximity** (1.1 km > threshold), so the
+repeater/aux false-positive needs **no name-regex** — proximity handles it.
+
+Distance via a haversine over the `lat`/`lon` decimal degrees (reuse `geofunc`
+if a primitive exists; otherwise a small local haversine — same coord shape as
+`location.validate_*`).
+
+#### Findings the audit emits (per colocation site only)
+
+  * **A — MISSING power.** A colocation with ≥1 station and **zero** power
+    devices anywhere (HEDI). Split by likely supply:
+      - *off-grid-suspected* → triage hint to add the real battery/solar via
+        existing `tos device add` (operator knows what's installed).
+      - *mains-suspected* → there may be **no device to add** (grid power). The
+        fix is the `power_source` attribute (see §6.1) →
+        `#ACTION <site> add-attribute power_source mains <date>`.
+    The audit can't tell off-grid from mains automatically — emit both hints
+    commented, operator picks. (HEDI = mains/farm, the flagship case.)
+  * **B — UNCONSOLIDATED power** (the migration worklist). Power sits on a
+    station at a genuine colocation. Emit a reparent ACTION per device:
+    `#ACTION <power_id> move <site_id> <date>` (the existing `move` verb —
+    `_dispatch_move` / `move_device`). **Excludes** `SENSOR_TIED_POWER_SUBTYPES`
+    (`anemometer_power_pack`) — those stay on their instrument. Running the
+    triage *is* the W3 migration.
+  * **(dropped) naive duplication.** "≥2 stations each with power" is **not**
+    emitted as a standalone violation — it collapses into B (consolidate to the
+    site) once proximity-gated, and the repeater/aux case is operator-judgement
+    (a repeater on its own panel may legitimately stay — flag, don't prescribe).
+
+#### Shape + integration
+
+Module `audit_shared_power.py`, mirroring `audit_visit_coverage.py`:
+frozen `SharedPowerViolation` / `SharedPowerReport` dataclasses, a
+`load_shared_power_suppressions()` reader for
+`data/audit_suppressions/shared_power.txt` (key `SUPPRESS <site_id>
+<device_id>`), `audit_station_shared_power(client, station, *, proximity_m=…,
+…)`, and `format_triage_file(report)`. Reuses `power.summarize_site_power`
+(already aggregates power across colocated stations + the site-direct W3 target
+state) and `power.SENSOR_TIED_POWER_SUBTYPES`.
+
+**Standalone first — no verify-oracle / fleet plumbing yet.** Unlike
+`--with-coverage` (where each finding can be suppressed *to reach* clean), the
+UNCONSOLIDATED worklist is dirty fleet-wide *by definition* until the migration
+runs — an oracle check that can never pass pre-migration isn't an invariant,
+it's a worklist. Ship `tos audit shared-power <STN>` + `--triage` standalone;
+add `--with-power` to the verify oracle / `tos fleet status` **only after** the
+migration establishes a baseline (then MISSING-at-a-colocation becomes a real
+recurring invariant). `--proximity-m`, `--no-suppressions`, `--triage PATH`
+are the v1 flags.
 
 ## 5. Boundary with `tos station add`
 
@@ -133,17 +213,36 @@ responsibility.
 
 ## 6. Open questions
 
-1. **Power-source representation.** "Powered from the farm" (mains) vs off-grid
-   (solar+battery) is a real distinction. Options: a `land` attribute
-   (`power_source: mains|solar_battery|generator|…`), a dedicated power-source
-   entity the site references, or purely implicit in the attached power
-   devices. The farm itself may warrant being an entity (external mains
-   supplier). Decide before W3.
-2. **Migration completeness — all vs shared-only** (see W3 decision point).
-3. **Meteorological / hydrological colocation.** The requirement was framed for
-   GPS+SIL, but sites host weather/hydro stations too (and they carry the bulk
-   of power devices). Does site-level power span *all* domains at a site, or
-   just the geophysical ones? Almost certainly all — confirm.
-4. **`anemometer_power_pack` and sensor-specific power.** Some power devices are
-   tied to one instrument (an anemometer's own pack). Those are genuinely
-   per-device, not site-shared — the audit/migration must not flag them.
+1. **Power-source representation — minimal answer adopted.** "Powered from the
+   farm" (mains) vs off-grid (solar+battery) is real and W2's MISSING finding
+   can't prescribe a fix without it. **Decision: a `power_source` attribute on
+   the `land` site** (`mains | solar_battery | generator | …`) — the lightest
+   representation that turns a mains-MISSING site (HEDI) from an un-actionable
+   flag into `add-attribute <site> power_source mains`. A dedicated
+   power-source *entity* (the farm as an external supplier) is heavier and
+   deferred — revisit only if mains suppliers need their own metadata. The
+   `power_source` code must be added to `attribute_codes.yaml` (`locations`
+   scope) as part of W2.
+2. **The `land` overloading (NEW, from the 2026-06-09 probe).** A `land` site
+   is sometimes a true colocation, sometimes a regional admin grouping
+   (`Reykjanes` = 7 stations over tens of km). The proximity gate handles it
+   *for this audit*, but it's a latent data-modelling smell: arguably the
+   groupings should be a different entity layer than single-point sites.
+   Out of scope here; flag for a future TOS-model review.
+3. ~~**Proximity threshold value.**~~ **RESOLVED 2026-06-09** — calibrated
+   against the 11 multi-station sites: true colocations ≤7 m, next-up >1 km, so
+   **default 150 m** (kept tunable via `--proximity-m`). See the gate table.
+4. ~~**Repeater / aux exclusion.**~~ **RESOLVED 2026-06-09** — the proximity
+   gate handles it: Mjóaskarð's repeater is 1.1 km offset, so it falls outside
+   the colocation radius automatically. No name-regex needed. Genuine
+   on-radius consolidation stays operator judgement (commented ACTIONs).
+5. **Migration completeness — all vs shared-only** (a station-private UPS in a
+   hut may stay per-station). Operator decides per reparent ACTION (they're
+   commented by default).
+6. **Meteorological / hydrological colocation.** Sites host weather/hydro
+   stations too (they carry the bulk of power devices). Site-level power almost
+   certainly spans *all* domains at a true colocation — `summarize_site_power`
+   already aggregates across domains; confirm the audit shouldn't GPS-restrict.
+7. **`anemometer_power_pack` and sensor-specific power.** Tied to one
+   instrument, not site-shared — already flagged via
+   `SENSOR_TIED_POWER_SUBTYPES`; the reparent worklist excludes it.

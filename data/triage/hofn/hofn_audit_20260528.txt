@@ -1,0 +1,343 @@
+# === HOFN station triage — auto-generated 2026-05-28T06:34:15Z ===
+#
+# Station id_entity=4328  (54 total finding(s))
+# Audit summary:
+#   missing-attributes:  36 violation(s)
+#   attribute-dates:     16 violation(s)
+#   verify-from-rinex:   2 finding(s) (0 transitions, 2 gaps, 0 suggested ACTIONs)
+#
+# Run:
+#   tos audit apply <this_file>          # dry-run (safe default)
+#   tos audit apply <this_file> --apply  # commit
+#
+# Convention: ACTION lines below are SUGGESTED, COMMENTED OUT by
+# default. To accept, remove the leading '#'. To customize, edit
+# values + uncomment. To skip, leave commented or delete the line.
+# Replace any <FILL_VALUE> placeholders before --apply.
+#
+# Date tokens: `start` (entity's earliest_known) and `now` (today
+# UTC) are resolved at apply-time by `tos audit apply` — operators
+# don't need to look up concrete dates for the common case.
+
+# ──────────────────────────────────────────────────────────────────
+# Section: suspicious attribute dates
+# CONFIDENCE: HIGH — date_from=2014-10-17 is the fleet-wide bulk-load
+# pattern (see memory project_2014_10_17_metadata_cleanup_artifacts).
+# Backdating to actual install date typically uncontroversial.
+# ──────────────────────────────────────────────────────────────────
+# === tos audit attribute-dates — triage action file ===
+# Generated:  2026-05-28T06:34:15Z
+# Station:    'Höfn' (id_entity=4328)
+# Audit cmd:  tos audit attribute-dates HOFN
+# Violations: 16
+#
+# Format: one ACTION per line, '#' for comments.
+#
+#   ACTION <id_entity> patch-attribute-date \
+#          <code> <old_date_from> <new_date_from>
+#
+# Workflow:
+#   1. Review each block below — verify the suggested
+#      new_date_from is correct. Edit if needed.
+#   2. Uncomment the ACTION line(s) you want to fire.
+#   3. tos audit apply <file>          # dry-run preview
+#   4. tos audit apply <file> --apply  # commit writes
+#
+# Alternative for known-good entries: copy the SUPPRESS hint into
+# data/audit_suppressions/attribute_dates.txt instead.
+
+# --- antenna id_entity=4449 SN '0220008914' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=1997-05-27, anchor=attribute)  value='0220008914'
+#ACTION 4449 patch-attribute-date serial_number 2014-10-17 1997-05-27
+# (or suppress: SUPPRESS 4449 serial_number 2014-10-17)
+
+# --- antenna id_entity=4459 SN '0220181800' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=2001-09-21, anchor=attribute)  value='0220181800'
+#ACTION 4459 patch-attribute-date serial_number 2014-10-17 2001-09-21
+# (or suppress: SUPPRESS 4459 serial_number 2014-10-17)
+
+# --- antenna id_entity=4522 SN '217-0218' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=2007-09-23, anchor=attribute)  value='217-0218'
+#ACTION 4522 patch-attribute-date serial_number 2014-10-17 2007-09-23
+# (or suppress: SUPPRESS 4522 serial_number 2014-10-17)
+
+# --- antenna id_entity=4621 SN '7252843' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=2013-05-05, anchor=attribute)  value='7252843'
+#ACTION 4621 patch-attribute-date serial_number 2014-10-17 2013-05-05
+# (or suppress: SUPPRESS 4621 serial_number 2014-10-17)
+
+# --- gnss_receiver id_entity=4737 SN '00024908' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=2007-02-13, anchor=attribute)  value='00024908'
+#ACTION 4737 patch-attribute-date serial_number 2014-10-17 2007-02-13
+# (or suppress: SUPPRESS 4737 serial_number 2014-10-17)
+
+# --- gnss_receiver id_entity=4791 SN '1830199' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=2013-05-05, anchor=attribute)  value='1830199'
+#ACTION 4791 patch-attribute-date serial_number 2014-10-17 2013-05-05
+# (or suppress: SUPPRESS 4791 serial_number 2014-10-17)
+
+# --- gnss_receiver id_entity=4846 SN '3503A09374' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=1997-05-27, anchor=attribute)  value='3503A09374'
+#ACTION 4846 patch-attribute-date serial_number 2014-10-17 1997-05-27
+# (or suppress: SUPPRESS 4846 serial_number 2014-10-17)
+
+# --- gnss_receiver id_entity=4951 SN 'AGL2LHV3XMO' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=2007-09-23, anchor=attribute)  value='AGL2LHV3XMO'
+#ACTION 4951 patch-attribute-date serial_number 2014-10-17 2007-09-23
+# (or suppress: SUPPRESS 4951 serial_number 2014-10-17)
+
+# --- monument id_entity=5114 SN 'monument-HOFN-19970527' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=1997-05-27, anchor=attribute)  value='monument-HOFN-19970527'
+#ACTION 5114 patch-attribute-date serial_number 2014-10-17 1997-05-27
+# (or suppress: SUPPRESS 5114 serial_number 2014-10-17)
+
+# --- monument id_entity=5115 SN 'monument-HOFN-20010921' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=2001-09-21, anchor=attribute)  value='monument-HOFN-20010921'
+#ACTION 5115 patch-attribute-date serial_number 2014-10-17 2001-09-21
+# (or suppress: SUPPRESS 5115 serial_number 2014-10-17)
+
+# --- monument id_entity=5116 SN 'monument-HOFN-20070923' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=2007-09-23, anchor=attribute)  value='monument-HOFN-20070923'
+#ACTION 5116 patch-attribute-date serial_number 2014-10-17 2007-09-23
+# (or suppress: SUPPRESS 5116 serial_number 2014-10-17)
+
+# --- monument id_entity=5117 SN 'monument-HOFN-20100326' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=2010-03-26, anchor=attribute)  value='monument-HOFN-20100326'
+#ACTION 5117 patch-attribute-date serial_number 2014-10-17 2010-03-26
+# (or suppress: SUPPRESS 5117 serial_number 2014-10-17)
+
+# --- monument id_entity=5118 SN 'monument-HOFN-20130505' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=2013-05-05, anchor=attribute)  value='monument-HOFN-20130505'
+#ACTION 5118 patch-attribute-date serial_number 2014-10-17 2013-05-05
+# (or suppress: SUPPRESS 5118 serial_number 2014-10-17)
+
+# --- radome id_entity=5303 SN 'radome-HOFN-19970527' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=1997-05-27, anchor=attribute)  value='radome-HOFN-19970527'
+#ACTION 5303 patch-attribute-date serial_number 2014-10-17 1997-05-27
+# (or suppress: SUPPRESS 5303 serial_number 2014-10-17)
+
+# --- radome id_entity=5304 SN 'radome-HOFN-20070923' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=2007-09-23, anchor=attribute)  value='radome-HOFN-20070923'
+#ACTION 5304 patch-attribute-date serial_number 2014-10-17 2007-09-23
+# (or suppress: SUPPRESS 5304 serial_number 2014-10-17)
+
+# --- radome id_entity=5305 SN 'radome-HOFN-20130505' ---
+# violation: serial_number date_from=2014-10-17  (earliest_known=2013-05-05, anchor=attribute)  value='radome-HOFN-20130505'
+#ACTION 5305 patch-attribute-date serial_number 2014-10-17 2013-05-05
+# (or suppress: SUPPRESS 5305 serial_number 2014-10-17)
+
+# ──────────────────────────────────────────────────────────────────
+# Section: missing required attributes
+# CONFIDENCE: MEDIUM/LOW — lines with concrete suggested values are
+# MEDIUM (catalog default; verify against site). Lines with <FILL_VALUE>
+# are LOW — operator MUST replace before --apply.
+#
+# Date tokens (resolved at apply-time by `tos audit apply`):
+#   `start` = entity's earliest_known date (audit anchor)
+#   `now`   = today UTC
+# `<FILL_DATE>` placeholders below have been pre-substituted with
+# `start` — operator can edit if a different date is correct.
+# ──────────────────────────────────────────────────────────────────
+# === tos audit missing-attributes — triage action file ===
+# Generated:  2026-05-28T06:34:15Z
+# Station:    'Höfn' (id_entity=4328)
+# Audit cmd:  tos audit missing-attributes HOFN
+# Violations: 36
+#
+# Format: one ACTION per line, '#' for comments.
+#
+#   ACTION <id_entity> add-attribute \
+#          <code> <value> <date_from>
+#
+# Workflow:
+#   1. Review each block below. Replace any
+#      <FILL_VALUE> / start placeholders with the value/date you
+#      know is correct for the entity.
+#   2. Uncomment the ACTION line(s) you want to fire.
+#   3. tos audit apply <file>          # dry-run preview
+#   4. tos audit apply <file> --apply  # commit writes
+#
+# Alternative for known-good gaps: copy the SUPPRESS hint into
+# data/audit_suppressions/missing_attributes.txt instead.
+
+# --- geophysical id_entity=4328 'Höfn' ---
+# missing: visit_class  (default: 'B')
+#ACTION 4328 add-attribute visit_class B start
+# (or suppress: SUPPRESS 4328 visit_class)
+
+# missing: date_start
+#ACTION 4328 add-attribute date_start <FILL_VALUE> start
+# (or suppress: SUPPRESS 4328 date_start)
+
+# missing: description
+#ACTION 4328 add-attribute description <FILL_VALUE> start
+# (or suppress: SUPPRESS 4328 description)
+
+# missing: close_date
+#ACTION 4328 add-attribute close_date <FILL_VALUE> start
+# (or suppress: SUPPRESS 4328 close_date)
+
+# missing: geological_characteristic  (default: 'bedrock')
+#ACTION 4328 add-attribute geological_characteristic bedrock start
+# (or suppress: SUPPRESS 4328 geological_characteristic)
+
+# missing: is_near_fault_zones  (default: 'yes')
+#ACTION 4328 add-attribute is_near_fault_zones yes start
+# (or suppress: SUPPRESS 4328 is_near_fault_zones)
+
+# missing: bedrock_condition  (default: 'weathered')
+#ACTION 4328 add-attribute bedrock_condition weathered start
+# (or suppress: SUPPRESS 4328 bedrock_condition)
+
+# missing: bedrock_type  (default: 'igneous')
+#ACTION 4328 add-attribute bedrock_type igneous start
+# (or suppress: SUPPRESS 4328 bedrock_type)
+
+# missing: in_network_epos  (default: 'nei')
+#ACTION 4328 add-attribute in_network_epos nei start
+# (or suppress: SUPPRESS 4328 in_network_epos)
+
+# missing: continuity
+#ACTION 4328 add-attribute continuity <FILL_VALUE> start
+# (or suppress: SUPPRESS 4328 continuity)
+
+# --- antenna id_entity=4621 '7252843' ---
+# missing: status  (default: 'virk')
+#ACTION 4621 add-attribute status virk 2013-05-05
+# (or suppress: SUPPRESS 4621 status)
+
+# missing: antenna_height  (date hint: 2013-05-05)
+#ACTION 4621 add-attribute antenna_height <FILL_VALUE> 2013-05-05
+# (or suppress: SUPPRESS 4621 antenna_height)
+
+# missing: antenna_offset_north  (default: '0.0')
+#ACTION 4621 add-attribute antenna_offset_north 0.0 2013-05-05
+# (or suppress: SUPPRESS 4621 antenna_offset_north)
+
+# missing: antenna_offset_east  (default: '0.0')
+#ACTION 4621 add-attribute antenna_offset_east 0.0 2013-05-05
+# (or suppress: SUPPRESS 4621 antenna_offset_east)
+
+# missing: azimuth  (default: '0.0')
+#ACTION 4621 add-attribute azimuth 0.0 2013-05-05
+# (or suppress: SUPPRESS 4621 azimuth)
+
+# missing: manufacturer  (date hint: 2013-05-05)
+#ACTION 4621 add-attribute manufacturer <FILL_VALUE> 2013-05-05
+# (or suppress: SUPPRESS 4621 manufacturer)
+
+# --- gnss_receiver id_entity=4791 '1830199' ---
+# missing: status  (default: 'virk')
+#ACTION 4791 add-attribute status virk 2013-05-05
+# (or suppress: SUPPRESS 4791 status)
+
+# missing: GPS  (default: 'true')
+#ACTION 4791 add-attribute GPS true 2013-05-05
+# (or suppress: SUPPRESS 4791 GPS)
+
+# missing: GLO  (default: 'true')
+#ACTION 4791 add-attribute GLO true 2013-05-05
+# (or suppress: SUPPRESS 4791 GLO)
+
+# missing: GAL  (date hint: 2013-05-05)
+#ACTION 4791 add-attribute GAL <FILL_VALUE> 2013-05-05
+# (or suppress: SUPPRESS 4791 GAL)
+
+# missing: BDS  (date hint: 2013-05-05)
+#ACTION 4791 add-attribute BDS <FILL_VALUE> 2013-05-05
+# (or suppress: SUPPRESS 4791 BDS)
+
+# missing: QZSS  (date hint: 2013-05-05)
+#ACTION 4791 add-attribute QZSS <FILL_VALUE> 2013-05-05
+# (or suppress: SUPPRESS 4791 QZSS)
+
+# missing: SBAS  (date hint: 2013-05-05)
+#ACTION 4791 add-attribute SBAS <FILL_VALUE> 2013-05-05
+# (or suppress: SUPPRESS 4791 SBAS)
+
+# missing: IRN  (date hint: 2013-05-05)
+#ACTION 4791 add-attribute IRN <FILL_VALUE> 2013-05-05
+# (or suppress: SUPPRESS 4791 IRN)
+
+# missing: http_port  (default: '80')
+#ACTION 4791 add-attribute http_port 80 2013-05-05
+# (or suppress: SUPPRESS 4791 http_port)
+
+# missing: manufacturer  (date hint: 2013-05-05)
+#ACTION 4791 add-attribute manufacturer <FILL_VALUE> 2013-05-05
+# (or suppress: SUPPRESS 4791 manufacturer)
+
+# missing: ip_address  (default: '192.168.100.60')
+#ACTION 4791 add-attribute ip_address 192.168.100.60 2013-05-05
+# (or suppress: SUPPRESS 4791 ip_address)
+
+# --- monument id_entity=5118 'monument-HOFN-20130505' ---
+# missing: model  (date hint: 2013-05-05)
+#ACTION 5118 add-attribute model <FILL_VALUE> 2013-05-05
+# (or suppress: SUPPRESS 5118 model)
+
+# missing: status  (default: 'virk')
+#ACTION 5118 add-attribute status virk 2013-05-05
+# (or suppress: SUPPRESS 5118 status)
+
+# missing: antenna_offset_north  (default: '0.0')
+#ACTION 5118 add-attribute antenna_offset_north 0.0 2013-05-05
+# (or suppress: SUPPRESS 5118 antenna_offset_north)
+
+# missing: antenna_offset_east  (default: '0.0')
+#ACTION 5118 add-attribute antenna_offset_east 0.0 2013-05-05
+# (or suppress: SUPPRESS 5118 antenna_offset_east)
+
+# missing: monument_height  (default: '0.0')
+#ACTION 5118 add-attribute monument_height 0.0 2013-05-05
+# (or suppress: SUPPRESS 5118 monument_height)
+
+# missing: foundation_depth  (date hint: 2013-05-05)
+#ACTION 5118 add-attribute foundation_depth <FILL_VALUE> 2013-05-05
+# (or suppress: SUPPRESS 5118 foundation_depth)
+
+# missing: infrastructure_subtype  (default: 'GPS undirstaða')
+#ACTION 5118 add-attribute infrastructure_subtype 'GPS undirstaða' 2013-05-05
+# (or suppress: SUPPRESS 5118 infrastructure_subtype)
+
+# missing: infrastructure_type  (default: 'GPS stál-fjórfótur')
+#ACTION 5118 add-attribute infrastructure_type 'GPS stál-fjórfótur' 2013-05-05
+# (or suppress: SUPPRESS 5118 infrastructure_type)
+
+# --- radome id_entity=5305 'radome-HOFN-20130505' ---
+# missing: status  (default: 'virk')
+#ACTION 5305 add-attribute status virk 2013-05-05
+# (or suppress: SUPPRESS 5305 status)
+
+# ──────────────────────────────────────────────────────────────────
+# Section: archive verification (verify-from-rinex)
+# CONFIDENCE: MEDIUM — file-extension signal is authoritative for
+# what was archived, but actionability depends on operator context
+# (was the gap planned downtime? was the transition logged elsewhere?).
+# Brand transitions + data gaps are informational; only ACTION lines
+# carry pre-built suggestions.
+# ──────────────────────────────────────────────────────────────────
+# Section: archive verification — HOFN
+# Audit command: tos audit verify-from-rinex --station HOFN
+# Generated: 2026-05-28T06:34:15Z
+# Archive root: /mnt_data/rawgpsdata
+# Timeline: 5852 archived day(s) (1997-09-29 → 2025-04-02)
+#
+# Data gaps (2 ≥30d — dormant periods):
+#   2006-12-10 → 2007-02-13  (64d)
+#   2014-02-19 → 2025-01-01  (3968d)
+#
+# RINEX-only spans (1 — raw missing):
+#   1997-09-29 → 2025-04-02  (10048d)
+#
+# No actionable TOS-vs-archive discrepancies found (all receiver joins clean or informational).
+
+# ──────────────────────────────────────────────────────────────────
+# Verify (run after --apply lands)
+# ──────────────────────────────────────────────────────────────────
+#
+#   tos audit missing-attributes HOFN
+#   tos audit attribute-dates HOFN
+#   tos audit verify-from-rinex --station HOFN
+#   tos device list --station HOFN --all
+#   tosGPS PrintTOS HOFN

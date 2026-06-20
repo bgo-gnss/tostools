@@ -16,7 +16,7 @@ station_triage is tested only at the wiring layer.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from tostools.audit_attribute_dates import StationAttributeDateReport
 from tostools.audit_missing_attributes import StationMissingAttributesReport
@@ -33,6 +33,14 @@ from tostools.station_triage import (
 )
 
 FROZEN_TS = "2026-05-26T00:00:00Z"
+
+
+def _stub_client():
+    """A client whose only real use here is the device-conflicts read; an empty
+    station history yields no conflicts (the audits themselves are patched)."""
+    c = MagicMock()
+    c.get_entity_history.return_value = {"children_connections": []}
+    return c
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +92,7 @@ def test_generate_aggregates_both_audits_when_both_succeed(tmp_path):
         ),
     ):
         report = generate_station_triage(
-            "SAVI", client=object(), generated_at=FROZEN_TS
+            "SAVI", client=_stub_client(), generated_at=FROZEN_TS
         )
 
     assert report.station == "SAVI"
@@ -111,7 +119,7 @@ def test_generate_records_failure_and_keeps_other_audit(tmp_path):
         ),
     ):
         report = generate_station_triage(
-            "HEDI", client=object(), generated_at=FROZEN_TS
+            "HEDI", client=_stub_client(), generated_at=FROZEN_TS
         )
 
     assert report.missing is None
@@ -138,7 +146,7 @@ def test_generate_returns_station_id_from_first_successful_audit():
         ),
     ):
         report = generate_station_triage(
-            "SAVI", client=object(), generated_at=FROZEN_TS
+            "SAVI", client=_stub_client(), generated_at=FROZEN_TS
         )
 
     assert report.station_id == 4440
@@ -548,3 +556,42 @@ def test_now_iso_utc_renders_with_z_suffix_no_microseconds():
     assert "." not in s  # no microsecond fraction
     # Format: YYYY-MM-DDTHH:MM:SSZ — 20 chars
     assert len(s) == 20
+
+
+# ---------------------------------------------------------------------------
+# device_conflicts — duplicate-open-singular detection wiring
+# ---------------------------------------------------------------------------
+
+
+def test_device_conflicts_count_toward_total_findings():
+    """A structural device-graph conflict is a finding (escalates verify)."""
+    rpt = StationTriageReport(
+        station="OLKE",
+        station_id=4370,
+        generated_at=FROZEN_TS,
+        device_conflicts=[
+            "OLKE: 2 open gnss_receiver joins (devices 4979, 21580) — a station "
+            "may have only one; a prior device's join was never closed."
+        ],
+    )
+    assert rpt.total_findings == 1
+
+
+def test_format_renders_device_conflicts_section():
+    rpt = StationTriageReport(
+        station="OLKE",
+        station_id=4370,
+        generated_at=FROZEN_TS,
+        device_conflicts=["OLKE: 2 open gnss_receiver joins (devices 4979, 21580)"],
+    )
+    out = format_station_triage(rpt)
+    assert "Device-graph conflicts" in out
+    assert "2 open gnss_receiver joins" in out
+    assert "device-conflicts:    1" in out  # header summary line
+
+
+def test_format_omits_device_conflicts_section_when_clean():
+    rpt = StationTriageReport(station="OLKE", station_id=4370, generated_at=FROZEN_TS)
+    out = format_station_triage(rpt)
+    assert "Device-graph conflicts" not in out
+    assert "device-conflicts:    0" in out  # still summarised in the header
