@@ -9359,6 +9359,70 @@ def _print_apply_preflight_table(actions, meta, *, mode_tag: str) -> None:
     print()
 
 
+# Subtypes a station may hold only ONE open instance of at a time. A 2nd open
+# join of one of these means a swap didn't close the old device — the failure
+# mode that left OLKE with two open gnss_receivers when a `delete-join` silently
+# failed at runtime. Deliberately small: solar_panel / battery / windmill /
+# sim_card / modem legitimately repeat on one station, so they're NOT listed.
+_SINGULAR_STATION_SUBTYPES = ("gnss_receiver", "antenna", "radome", "monument")
+
+
+def _verify_no_duplicate_open_singular(client, actions):
+    """Post-apply guard: no station left with >1 open join of a singular subtype.
+
+    Catches the runtime partial-failure case — an action set whose *intent* is a
+    clean swap (close old + open new) but where the close didn't land, so the
+    station ends with two open same-subtype devices and apply still prints a
+    success-ish summary. A pre-flight set-simulation can't see this (the intent
+    was correct); only re-reading the post-apply state can.
+
+    Follows each receiver-opening action's child (`create-join` / `move` /
+    `fill-gap`) to its current open parent via parent_history (the fast,
+    no-fleet-index path), then re-reads each such parent that is a STATION
+    (warehouses / graveyard legitimately hold multiples) and counts open
+    children per singular subtype. A closed join — e.g. OLKE's zero-duration
+    phantom stub — has ``time_to != None`` and is not counted. Returns a list
+    of human-readable violation strings; empty means clean.
+    """
+    from .history import ParentEntity, device_timeline_via_parent_history
+
+    opening_verbs = {"create-join", "move", "fill-gap"}
+    children = {a.id_entity for a in actions if a.verb in opening_verbs}
+    station_ids: set = set()
+    for cid in children:
+        for j in device_timeline_via_parent_history(client, cid).open_joins:
+            station_ids.add(j.id_entity_parent)
+
+    violations: List[str] = []
+    for pid in sorted(station_ids):
+        h = client.get_entity_history(pid)
+        if not h:
+            continue
+        parent = ParentEntity.from_history(pid, h)
+        if parent.role != "station":
+            continue  # warehouses / graveyard hold multiples by design
+        open_by_subtype: Dict[str, List[int]] = {}
+        for conn in h.get("children_connections") or []:
+            if conn.get("time_to") is not None:
+                continue  # closed join (e.g. the zero-duration phantom stub)
+            cid_raw = conn.get("id_entity_child")
+            if cid_raw is None:
+                continue
+            child = client.get_entity_history(int(cid_raw)) or {}
+            st = child.get("code_entity_subtype")
+            if st in _SINGULAR_STATION_SUBTYPES:
+                open_by_subtype.setdefault(st, []).append(int(cid_raw))
+        for st, devs in sorted(open_by_subtype.items()):
+            if len(devs) > 1:
+                violations.append(
+                    f"{parent.name or f'id={pid}'}: {len(devs)} open {st} joins "
+                    f"(devices {', '.join(map(str, sorted(devs)))}) — a station "
+                    f"may have only one; the prior device's join was not closed "
+                    f"during the swap."
+                )
+    return violations
+
+
 def _apply_main(args) -> int:
     """Handle ``tos audit apply <file>``.
 
@@ -9437,6 +9501,14 @@ def _apply_main(args) -> int:
             )
         )
 
+    # Post-apply guard: re-read affected stations and refuse to call the run
+    # clean if a swap left two open joins of a singular subtype (e.g. a
+    # delete-join that silently failed). Apply-mode only — dry-run sent no
+    # writes, so there is no post-state to verify.
+    post_violations: List[str] = []
+    if not dry_run:
+        post_violations = _verify_no_duplicate_open_singular(client, actions)
+
     if args.json:
         payload = {
             "file": str(path),
@@ -9456,6 +9528,7 @@ def _apply_main(args) -> int:
                 }
                 for r in results
             ],
+            "post_apply_violations": post_violations,
         }
         print(_json.dumps(payload, ensure_ascii=False, indent=2))
     else:
@@ -9484,8 +9557,22 @@ def _apply_main(args) -> int:
         )
         if dry_run:
             print("(no writes were sent — re-run with --apply to commit)")
+        if post_violations:
+            print(
+                f"\n✗ POST-APPLY GUARD: {len(post_violations)} station(s) left "
+                f"with a duplicate open singular device:",
+                file=sys.stderr,
+            )
+            for v in post_violations:
+                print(f"    {v}", file=sys.stderr)
+            print(
+                "  Close the stale join (e.g. `cfg move-device --serial <OLD> "
+                "--to <warehouse>` or a `decommission` action) and re-verify.",
+                file=sys.stderr,
+            )
 
-    return 0 if all(r.status != "failed" for r in results) else 1
+    ok = all(r.status != "failed" for r in results) and not post_violations
+    return 0 if ok else 1
 
 
 def _stderr_progress(unit: str):
