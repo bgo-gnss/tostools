@@ -9213,21 +9213,40 @@ def _dispatch_action(
     )
 
 
+# Above this many decommission targets, one global join index (~200 parent
+# fetches) is cheaper than per-device parent_history calls; at or below it the
+# per-device path wins big (1 fetch each vs the whole-fleet ~110s build). The
+# real break-even is ~200 (the parent count); 50 is a safe, conservative floor.
+_OPEN_JOINS_FASTPATH_MAX = 50
+
+
 def _build_open_joins_lookup(client, *, target_ids):
-    """Build ``{device_id: open_join_or_None}`` via the global join index.
+    """Build ``{device_id: open_join_or_None}`` for the decommission apply path.
 
-    The ~110s cost is the marker-resolution + parent walk inside
-    :func:`tostools.history.build_join_index`. For the apply workflow
-    this is the price of a decommission action — we need to know *which
-    join* to close (it's keyed by ``id_entity_connection``, which only
-    the parent's ``children_connections`` carries).
+    We need each target's currently-open join to close it (keyed by
+    ``id_entity_connection``). Two ways to get there:
 
-    Only includes devices in ``target_ids``; the rest of the index
-    contents are discarded. The returned dict has one entry per target
-    id; the value is the device's currently-open :class:`Join` or
-    ``None`` if the device has no open join (already orphan).
+    * **Fast path (small target set):** ``GET /entity/parent_history/{id}`` per
+      device — O(targets) calls, no fleet walk. Used when ``len(target_ids) <=``
+      :data:`_OPEN_JOINS_FASTPATH_MAX`. A single-device decommission drops from
+      ~110s to sub-second, and parent_history is strictly more complete than the
+      index (it never omits joins to un-enumerated parents).
+    * **Global index (large target set):** :func:`history.build_join_index`
+      walks every known parent once (~110s) so a big batch amortises the cost.
+
+    The returned dict has one entry per target id; the value is the device's
+    currently-open :class:`Join` or ``None`` if it has no open join.
     """
-    from .history import build_join_index
+    from .history import build_join_index, device_timeline_via_parent_history
+
+    targets = [int(t) for t in target_ids]
+
+    if len(targets) <= _OPEN_JOINS_FASTPATH_MAX:
+        out: Dict[int, Any] = {}
+        for did in targets:
+            open_joins = device_timeline_via_parent_history(client, did).open_joins
+            out[did] = open_joins[0] if open_joins else None
+        return out
 
     progress_to_stderr = sys.stderr.isatty()
     if progress_to_stderr:
@@ -9237,11 +9256,10 @@ def _build_open_joins_lookup(client, *, target_ids):
         )
         sys.stderr.flush()
     index = build_join_index(client)
-    out: Dict[int, Any] = {}
-    for did in target_ids:
-        timeline = index.timeline(int(did))
-        open_joins = timeline.open_joins
-        out[int(did)] = open_joins[0] if open_joins else None
+    out = {}
+    for did in targets:
+        open_joins = index.timeline(did).open_joins
+        out[did] = open_joins[0] if open_joins else None
     return out
 
 

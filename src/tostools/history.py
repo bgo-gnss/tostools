@@ -678,6 +678,52 @@ def build_join_index(
     return index
 
 
+def device_timeline_via_parent_history(client, id_entity: int) -> DeviceTimeline:
+    """One device's :class:`DeviceTimeline`, built straight from its
+    ``parent_history`` — O(1) TOS calls, **no** global :func:`build_join_index`.
+
+    The global index walks every known parent's ``children_connections``
+    (``enumerate_known_parents`` + ~200 fetches, ~110 s on the live IMO fleet)
+    so that *any* device's timeline becomes a dict lookup. When you only need
+    ONE — or a handful of — device(s) (the decommission apply path, a
+    single-device ``device show``), that whole-fleet cost is wasted:
+    ``GET /entity/parent_history/{id}`` returns the same joins from the child's
+    side in a single call. It is also strictly *more* complete than the index,
+    which silently omits joins to parents outside ``enumerate_known_parents``.
+
+    The connection id is the row's ``id`` here (``children_connections`` names
+    it ``id_entity_connection``); we accept either. ``time_to`` is ``None`` for
+    an open join. Rows with no usable connection id are skipped.
+    """
+    joins: List[Join] = []
+    for row in client.get_parent_history(int(id_entity)) or []:
+        conn_raw = row.get("id_entity_connection")
+        if conn_raw is None:
+            conn_raw = row.get("id")
+        if conn_raw is None:
+            continue
+        try:
+            conn_id = int(conn_raw)
+            parent_id = int(row.get("id_entity_parent") or 0)
+        except (TypeError, ValueError):
+            continue
+        time_to = row.get("time_to")
+        # The endpoint returns JSON null → None for open joins, but be
+        # defensive about a stringified "None"/"" leaking through.
+        if time_to is not None and str(time_to).strip() in ("", "None"):
+            time_to = None
+        joins.append(
+            Join(
+                id_entity_connection=conn_id,
+                id_entity_parent=parent_id,
+                id_entity_child=int(id_entity),
+                time_from=str(row.get("time_from") or ""),
+                time_to=time_to,
+            )
+        )
+    return DeviceTimeline(int(id_entity), joins)
+
+
 # ---------------------------------------------------------------------------
 # Fleet-wide gap report (synthesis plan §5 step 4)
 # ---------------------------------------------------------------------------
