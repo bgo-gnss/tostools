@@ -15,7 +15,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: POST
-    uri: https://vi-api.vedur.is/tos/v1/entity/search/station/geophysical/
+    uri: https://vi-api.vedur.is/tos/internal/entity/search/station/geophysical
   response:
     body:
       string: "[\n  {\n    \"attributes\": [\n      {\n        \"attribute_datatype_code\":
@@ -183,7 +183,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: POST
-    uri: https://vi-api.vedur.is/tos/v1/entity/search/station/geophysical/
+    uri: https://vi-api.vedur.is/tos/internal/entity/search/station/geophysical
   response:
     body:
       string: '[]
@@ -217,7 +217,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4235/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4235
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"boolean\",\n
@@ -527,7 +527,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/6296/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/6296
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -601,7 +601,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4515/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4515
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -703,7 +703,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4524/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4524
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"numeric\",\n
@@ -789,7 +789,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4515/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4515
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -891,7 +891,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4507/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4507
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"numeric\",\n
@@ -991,7 +991,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4515/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4515
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -1093,7 +1093,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4633/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4633
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -1183,7 +1183,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4815/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4815
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -1292,7 +1292,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4751/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4751
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -1373,7 +1373,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4632/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4632
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -1454,7 +1454,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4824/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4824
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -1572,7 +1572,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4821/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4821
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"timestamp\",\n
@@ -1654,7 +1654,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4825/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4825
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -1757,7 +1757,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4777/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4777
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -1904,7 +1904,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4761/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4761
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -1992,7 +1992,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4823/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4823
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -2145,7 +2145,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/5003/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/5003
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"numeric\",\n
@@ -2250,7 +2250,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4880/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4880
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"timestamp\",\n
@@ -2346,7 +2346,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/5004/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/5004
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -2445,7 +2445,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/5002/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/5002
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"timestamp\",\n
@@ -2543,7 +2543,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/19098/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/19098
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -2632,7 +2632,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/19880/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/19880
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -2721,7 +2721,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/19714/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/19714
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -2788,7 +2788,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4619/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4619
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -2882,7 +2882,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/5000/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/5000
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"numeric\",\n
@@ -2987,7 +2987,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/5009/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/5009
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -3092,7 +3092,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/5006/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/5006
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -3182,7 +3182,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4821/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4821
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"timestamp\",\n
@@ -3264,7 +3264,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4511/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4511
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -3373,7 +3373,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4631/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4631
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"timestamp\",\n
@@ -3469,7 +3469,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/5001/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/5001
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"numeric\",\n
@@ -3574,7 +3574,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4821/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4821
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"timestamp\",\n
@@ -3656,7 +3656,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4777/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4777
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -3803,7 +3803,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4510/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4510
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"numeric\",\n
@@ -3918,7 +3918,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4510/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4510
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"numeric\",\n
@@ -4033,7 +4033,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/5007/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/5007
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -4123,7 +4123,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4510/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4510
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"numeric\",\n
@@ -4238,7 +4238,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/19720/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/19720
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -4313,7 +4313,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4749/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4749
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -4401,7 +4401,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4612/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4612
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -4509,7 +4509,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/19726/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/19726
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -4584,7 +4584,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4612/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4612
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -4692,7 +4692,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4964/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4964
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -4781,7 +4781,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/19725/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/19725
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -4856,7 +4856,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4752/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4752
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -4967,7 +4967,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/19727/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/19727
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -5042,7 +5042,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/19728/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/19728
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -5117,7 +5117,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4523/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4523
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -5189,7 +5189,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/19729/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/19729
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"timestamp\",\n
@@ -5264,7 +5264,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4525/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4525
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -5337,7 +5337,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/19730/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/19730
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -5412,7 +5412,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/19733/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/19733
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -5501,7 +5501,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/19731/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/19731
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -5591,7 +5591,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4936/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4936
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -5671,7 +5671,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/18845/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/18845
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -5776,7 +5776,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/5807/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/5807
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -5839,7 +5839,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/19645/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/19645
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"timestamp\",\n
@@ -5920,7 +5920,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/19712/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/19712
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -6019,7 +6019,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4783/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4783
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n
@@ -6099,7 +6099,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/5005/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/5005
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"numeric\",\n
@@ -6197,7 +6197,7 @@ interactions:
       User-Agent:
       - python-requests/2.32.5
     method: GET
-    uri: https://vi-api.vedur.is/tos/v1/history/entity/4520/
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/4520
   response:
     body:
       string: "{\n  \"attributes\": [\n    {\n      \"attribute_datatype_code\": \"text\",\n

@@ -19,6 +19,7 @@ from pyproj import CRS, Transformer
 from . import gps_metadata_functions as gpsf
 
 # Import new modular components
+from .api._http import canonical_tos_url
 from .api.tos_client import TOSClient
 from .io.file_utils import read_gzip_file as new_read_gzip_file
 from .io.file_utils import read_text_file as new_read_text_file
@@ -45,7 +46,7 @@ from .utils.logging import get_logger
 #     + DZEND
 # )
 # HACK: This should be handled in a config with a config file
-URL_REST_TOS = "https://vi-api.vedur.is/tos/v1"
+URL_REST_TOS = "https://vi-api.vedur.is/tos/internal"
 REMOTE_FILE_PATH = "/mnt_data/rawgpsdata"
 LOCAL_FILE_PATH = "/tmp/gpsdata"
 REQUEST_TIMEOUT = 10
@@ -121,7 +122,9 @@ def search_station(
 
             # Query TOS api
             try:
-                url = url_rest + "/entity/search/" + entity_type + "/" + domain + "/"
+                url = canonical_tos_url(
+                    url_rest, "/entity/search/" + entity_type + "/" + domain + "/"
+                )
                 module_logger.info("sending the post request: %s", url)
                 response = requests.post(
                     url,
@@ -442,7 +445,7 @@ def get_contacts(id_entity_parent, url_rest, loglevel=logging.WARNING):
     owner_addition = {}
 
     owner_response = requests.get(
-        url_rest + "/entity_contacts/" + str(id_entity_parent) + "/",
+        canonical_tos_url(url_rest, "/entity_contacts/" + str(id_entity_parent) + "/"),
         timeout=REQUEST_TIMEOUT,
     )
     owners = owner_response.json()
@@ -697,7 +700,8 @@ def get_station_metadata(station_identifier, url_rest, loglevel=logging.WARNING)
     )
 
     response = requests.get(
-        url_rest + "/history/entity/" + str(id_entity) + "/", timeout=REQUEST_TIMEOUT
+        canonical_tos_url(url_rest, "/history/entity/" + str(id_entity) + "/"),
+        timeout=REQUEST_TIMEOUT,
     )
     devices_history = response.json()
     module_logger.debug(
@@ -837,7 +841,9 @@ def get_device_sessions(devices_history, url_rest, loglevel=logging.WARNING):
 
         # NOTE: sending a request for device history
         id_entity_child = connection["id_entity_child"]
-        request_url = f"{url_rest}/history/entity/{str(id_entity_child)}/"
+        request_url = canonical_tos_url(
+            url_rest, f"/history/entity/{str(id_entity_child)}/"
+        )
         try:
             devices_response = requests.get(request_url, timeout=REQUEST_TIMEOUT)
             device = devices_response.json()

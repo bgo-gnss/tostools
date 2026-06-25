@@ -110,7 +110,7 @@ def build_tos_url(server: str, port: int) -> str:
         Complete TOS API URL
     """
     protocol = "https" if port == 443 else "http"
-    return f"{protocol}://{server}:{port}/tos/v1"
+    return f"{protocol}://{server}:{port}/tos/internal"
 
 
 def process_stations(
