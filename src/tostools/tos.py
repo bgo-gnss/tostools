@@ -64,7 +64,7 @@ def _owners_main(argv):
 
     if args.refresh:
         scheme = "https" if args.port == 443 else "http"
-        base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+        base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
         client = TOSClient(base_url=base_url)
         result = cache.refresh(client)
         owners = result.in_use
@@ -553,7 +553,7 @@ def _device_list_main(args) -> int:
     from .devices import open_attribute
 
     scheme = "https" if args.port == 443 else "http"
-    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
     client = TOSClient(base_url=base_url)
 
     parent_id = _resolve_parent_id(
@@ -1188,7 +1188,7 @@ def _device_show_main(args) -> int:
         return 2
 
     scheme = "https" if args.port == 443 else "http"
-    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
     client = TOSClient(base_url=base_url)
 
     try:
@@ -1612,7 +1612,7 @@ def _device_main(argv):
 
     # ---- Writer setup ----------------------------------------------------
     scheme = "https" if args.port == 443 else "http"
-    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
     dry_run = not args.no_dry_run
     writer = TOSWriter(base_url=base_url, dry_run=dry_run)
 
@@ -2760,7 +2760,7 @@ def _station_show_main(args) -> int:
         return _device_list_main(delegated)
 
     scheme = "https" if args.port == 443 else "http"
-    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
     client = TOSClient(base_url=base_url)
 
     station_id = _resolve_parent_id(client, station_marker=args.station)
@@ -3515,7 +3515,7 @@ def _station_add_main(args) -> int:
 
     # ---- Writer setup ----------------------------------------------------
     scheme = "https" if args.port == 443 else "http"
-    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
     dry_run = not args.no_dry_run
     writer = TOSWriter(base_url=base_url, dry_run=dry_run)
 
@@ -3801,7 +3801,7 @@ def _location_add_main(args) -> int:
 
     # ---- Writer setup ----------------------------------------------------
     scheme = "https" if args.port == 443 else "http"
-    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
     dry_run = not args.no_dry_run
     writer = TOSWriter(base_url=base_url, dry_run=dry_run)
 
@@ -4294,7 +4294,7 @@ def _contact_main(argv):
     args = p.parse_args(argv)
 
     scheme = "https" if args.port == 443 else "http"
-    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
     client = TOSClient(base_url=base_url)
 
     if args.verb == "show":
@@ -4997,7 +4997,7 @@ def _visit_main(argv):
     args = p.parse_args(argv)
 
     scheme = "https" if args.port == 443 else "http"
-    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
     client = TOSClient(base_url=base_url)
 
     if args.verb == "list":
@@ -6997,7 +6997,7 @@ def _audit_main(argv):
     args = p.parse_args(argv)
 
     scheme = "https" if args.port == 443 else "http"
-    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
     client = TOSClient(base_url=base_url)
 
     if args.kind == "device":
@@ -9548,7 +9548,7 @@ def _apply_main(args) -> int:
         return 2
 
     scheme = "https" if args.port == 443 else "http"
-    base_url = f"{scheme}://{args.server}:{args.port}/tos/v1"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
     dry_run = not args.apply
 
     # Pre-flight metadata lookup. Read-only client (no auth needed) — separate

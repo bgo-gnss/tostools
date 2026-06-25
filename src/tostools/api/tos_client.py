@@ -11,9 +11,10 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from ..utils.logging import get_logger
+from ._http import canonical_tos_url
 
 # TOS API Configuration
-DEFAULT_TOS_URL = "https://vi-api.vedur.is/tos/v1"
+DEFAULT_TOS_URL = "https://vi-api.vedur.is/tos/internal"
 DEFAULT_TIMEOUT = 10
 
 
@@ -57,7 +58,7 @@ class TOSClient:
         Returns:
             Response data as dictionary, or None if error
         """
-        url = f"{self.base_url}/{endpoint.lstrip('/')}"
+        url = canonical_tos_url(self.base_url, endpoint)
         self.logger.info(f'Sending request "{url}"')
 
         try:

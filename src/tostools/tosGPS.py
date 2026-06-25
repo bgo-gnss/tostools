@@ -437,7 +437,7 @@ Contact: Benni (bgo@vedur.is) or Hildur (hildur@vedur.is)
     )
     server_options.add_argument("-p", "--port", type=int, default=443, help="Port:")
     server_options.add_argument(
-        "-r", "--rest", type=str, default="/tos/v1", help="Top levels REST path"
+        "-r", "--rest", type=str, default="/tos/internal", help="Top levels REST path"
     )
     server_options.add_argument(
         "-t", "--timeout", type=int, default=4, help="Connection timeout:"
