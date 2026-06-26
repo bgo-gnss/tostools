@@ -1817,6 +1817,35 @@ class TOSWriter:
             return None
         return max(open_joins, key=lambda j: j.get("time_from") or "")
 
+    def get_open_parent_joins(self, id_child: int) -> List[Dict[str, Any]]:
+        """Return ALL currently-open parent connections of an entity.
+
+        Like :meth:`get_open_parent_join` but returns every open join
+        rather than collapsing to the most-recent one. A device normally
+        has at most one open parent (the single-location invariant), but a
+        *shared* device at a joint location — one physical box serving two
+        co-located stations (e.g. a router feeding both a GPS and a seismic
+        station) — deliberately carries two open joins. Callers that must
+        reason about all of them (idempotency checks, "shared with"
+        reporting, refusing to close a co-located station's join) use this;
+        callers that just want "where is it now" use the singular form.
+
+        See ``receivers.cfg.operations.share_device``, which is the one
+        path that intentionally creates the multi-open-parent state.
+
+        Args:
+            id_child: Child entity id (e.g. a modem_gsm's id_entity).
+
+        Returns:
+            List of open join dicts (``time_to is None``), newest
+            ``time_from`` first. Empty list if none are open.
+        """
+        history = self._request("GET", f"/entity/parent_history/{id_child}")
+        if not isinstance(history, list):
+            return []
+        open_joins = [j for j in history if j.get("time_to") is None]
+        return sorted(open_joins, key=lambda j: j.get("time_from") or "", reverse=True)
+
     def move_device(
         self,
         id_device: int,
