@@ -2083,7 +2083,7 @@ def _station_main(argv):
             "joined devices (--all adds history)\n\n"
             "Example workflow:\n"
             "  tos station triage HEDI                # generates "
-            "data/triage/hedi/hedi_audit_<DATE>.txt\n"
+            "hedi/hedi_audit_<DATE>.txt\n"
             "  $EDITOR <file>                         # uncomment / fill "
             "<FILL> placeholders\n"
             "  tos audit apply <file>                 # dry-run\n"
@@ -2109,7 +2109,7 @@ def _station_main(argv):
         default=None,
         help=(
             "Output path for the triage file. Default: "
-            "data/triage/<station>/<station>_audit_<YYYYMMDD>.txt "
+            "<station>/<station>_audit_<YYYYMMDD>.txt "
             "(per-station subdirectory under the repo's `data/` "
             "convention)."
         ),
@@ -5391,7 +5391,7 @@ def _fleet_main(argv):
       ``triage``  Generate per-station triage files across the fleet.
                   Clean stations are skipped by default (no findings,
                   no file). Files land under
-                  ``data/triage/<station>/<station>_audit_<DATE>.txt``.
+                  ``<station>/<station>_audit_<DATE>.txt``.
 
       ``status``  Run the verify oracle in bulk and emit a fleet
                   summary table. No disk writes. Exit code mirrors
@@ -5439,7 +5439,7 @@ def _fleet_main(argv):
             "           CI can tell 'fleet needs work' from\n"
             "           'oracle broken'.\n\n"
             "  triage   Generate per-station ACTION-style triage files\n"
-            "           under `data/triage/<STN>/<STN>_audit_<DATE>.txt`.\n"
+            "           under `<STN>/<STN>_audit_<DATE>.txt`.\n"
             "           Clean stations are skipped by default — the\n"
             "           operator only sees files for stations needing\n"
             "           attention. The generated file is the input to\n"
@@ -5449,12 +5449,12 @@ def _fleet_main(argv):
             "  2. `tos fleet triage --include X`   # produce triage files\n"
             "                                      # for stations of\n"
             "                                      # interest\n"
-            "  3. `$EDITOR data/triage/x/*.txt`    # review + uncomment\n"
+            "  3. `$EDITOR x/*.txt`    # review + uncomment\n"
             "                                      # ACTION lines\n"
             "  4. `tos audit apply <file>`         # dry-run\n"
             "  5. `tos audit apply <file> --apply` # commit\n"
             "  6. `tos fleet status --include X`   # confirm clean\n"
-            "  7. `git commit data/triage/x/*.txt` # provenance\n\n"
+            "  7. `git commit x/*.txt` # provenance\n\n"
             "PERFORMANCE\n"
             "  Sequential by design. A narrow run (`--include HEDI SAVI`)\n"
             "  takes a few seconds. A full fleet sweep is 5-15 min on a\n"
@@ -5618,7 +5618,7 @@ def _fleet_main(argv):
             "regardless (full inventory; useful for git-tracked "
             "snapshot work).\n\n"
             "OUTPUT LAYOUT\n"
-            "  data/triage/<stn>/<stn>_audit_<YYYYMMDD>.txt\n"
+            "  <stn>/<stn>_audit_<YYYYMMDD>.txt\n"
             "    one subdirectory per station, one dated file per\n"
             "    run-day. Same-day re-runs overwrite that day's file;\n"
             "    tomorrow produces a new dated file alongside (the\n"
@@ -5628,12 +5628,12 @@ def _fleet_main(argv):
             "  root you pick.\n\n"
             "TYPICAL WORKFLOW\n"
             "  tos fleet triage --include HEDI SAVI\n"
-            "  $EDITOR data/triage/hedi/hedi_audit_20260528.txt\n"
-            "  tos audit apply data/triage/hedi/hedi_audit_20260528.txt\n"
-            "  tos audit apply data/triage/hedi/hedi_audit_20260528.txt \\\n"
+            "  $EDITOR hedi/hedi_audit_20260528.txt\n"
+            "  tos audit apply hedi/hedi_audit_20260528.txt\n"
+            "  tos audit apply hedi/hedi_audit_20260528.txt \\\n"
             "      --apply                       # commit to TOS\n"
             "  tos station verify HEDI           # confirm clean\n"
-            "  git add data/triage/hedi/         # provenance trail\n\n"
+            "  git add hedi/         # provenance trail\n\n"
             "PROVENANCE NOTE\n"
             "  TOS attribute_value rows have date_from/date_to but no\n"
             "  created_at. Back-fills written today and dated to 2007\n"
@@ -5650,9 +5650,10 @@ def _fleet_main(argv):
         default=None,
         metavar="DIR",
         help=(
-            "Override the triage output root directory. Defaults to "
-            "./data/triage/ (relative to CWD). Per-station "
-            "subdirectories `<STN>/` are created under whatever root "
+            "Override the triage output root directory. Defaults to the "
+            "gps-tos-corrections repo (receivers.cfg [paths] "
+            "tos_corrections_repo / $TOS_TRIAGE_DIR / ~/git/gps-tos-corrections). "
+            "Per-station subdirectories `<STN>/` are created under whatever root "
             "is chosen. Useful for sending a sweep to /tmp/ when "
             "iterating, or to a snapshot dir when reviewing."
         ),
@@ -5768,7 +5769,7 @@ def _fleet_main(argv):
         epilog=(
             "Examples:\n"
             "  tos fleet contact-dates\n"
-            "  tos fleet contact-dates --triage data/triage/contact_dates_fleet.txt\n"
+            "  tos fleet contact-dates --triage contact_dates_fleet.txt\n"
             "  tos fleet contact-dates --json | jq '.totals'\n"
         ),
         formatter_class=_argparse.RawDescriptionHelpFormatter,

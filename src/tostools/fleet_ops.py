@@ -435,7 +435,11 @@ def run_fleet_triage(
     """
     generated_at = generated_at or now_iso_utc()
     if out_dir is None:
-        out_dir = Path.cwd() / "data" / "triage"
+        # Default to the gps-tos-corrections repo (not cwd-relative) so triage
+        # files land in their canonical, versioned home.
+        from .archive import tos_corrections_dir
+
+        out_dir = tos_corrections_dir()
 
     if stations is None:
         stations = enumerate_fleet_stations(
