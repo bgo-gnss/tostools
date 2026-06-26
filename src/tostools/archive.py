@@ -105,6 +105,72 @@ def _find_receivers_cfg() -> Optional[Path]:
     return None
 
 
+_DEFAULT_TOS_CORRECTIONS = Path.home() / "git" / "gps-tos-corrections"
+
+
+def tos_corrections_dir(override: Optional[Union[str, Path]] = None) -> Path:
+    """Resolve the local ``gps-tos-corrections`` repo — the triage-file home.
+
+    Resolution order (first hit wins):
+      1. Explicit ``override``.
+      2. Env var ``TOS_TRIAGE_DIR``.
+      3. ``[paths] tos_corrections_repo`` in the shared ``receivers.cfg``.
+      4. Default ``~/git/gps-tos-corrections``.
+
+    The path is returned whether or not it exists — callers that read/write
+    a specific file surface the "no such file" themselves.
+    """
+    if override is not None:
+        return Path(override).expanduser()
+
+    env = os.environ.get("TOS_TRIAGE_DIR")
+    if env:
+        return Path(env).expanduser()
+
+    cfg_path = _find_receivers_cfg()
+    if cfg_path is not None:
+        parser = configparser.ConfigParser()
+        try:
+            parser.read(cfg_path)
+            if parser.has_option("paths", "tos_corrections_repo"):
+                value = parser.get("paths", "tos_corrections_repo").strip()
+                if value:
+                    return Path(value).expanduser()
+        except (configparser.Error, OSError):
+            pass
+
+    return _DEFAULT_TOS_CORRECTIONS
+
+
+def resolve_triage_path(
+    triage_arg: Union[str, Path],
+    *,
+    corrections_dir: Optional[Union[str, Path]] = None,
+) -> Path:
+    """Resolve a ``--triage`` argument to a concrete path.
+
+    Backward-compatible and cwd-safe:
+      * an **absolute** path is used as-is;
+      * a **relative** path that exists from the current directory is used
+        as-is (legacy behaviour);
+      * otherwise the relative path is resolved under the
+        :func:`tos_corrections_dir` repo — so ``--triage kriv/kriv_x.txt``
+        works from any working directory.
+
+    This removes the long-standing footgun where ``--triage data/triage/…``
+    was silently cwd-relative and failed when run outside the tostools dir.
+    """
+    p = Path(triage_arg).expanduser()
+    if p.is_absolute():
+        return p
+    if p.exists():
+        return p.resolve()
+    base = (
+        Path(corrections_dir).expanduser() if corrections_dir else tos_corrections_dir()
+    )
+    return base / p
+
+
 _PROBE_PATHS = ("/mnt/rawgpsdata", "/mnt_data/rawgpsdata")
 
 

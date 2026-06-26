@@ -21,6 +21,8 @@ from tostools.archive import (
     detect_brand_transitions,
     detect_data_gaps,
     detect_rinex_only_spans,
+    resolve_triage_path,
+    tos_corrections_dir,
     walk_station_timeline,
 )
 
@@ -554,7 +556,9 @@ def test_detect_rinex_only_spans_only_rinex_returns_one_span():
 
 
 def test_infer_expected_family_recognised_models():
-    from tostools.audit_verify_from_rinex import infer_expected_family as _infer_expected_family
+    from tostools.audit_verify_from_rinex import (
+        infer_expected_family as _infer_expected_family,
+    )
 
     assert _infer_expected_family("TRIMBLE NETR9") == "trimble_netr9"
     assert _infer_expected_family("TRIMBLE NETRS") == "trimble_netrs"
@@ -568,7 +572,9 @@ def test_infer_expected_family_unrecognised_returns_none():
     """Unmapped models → None, so verdict treats them as 'unmapped_model'
     (informational), not 'wrong_brand' (actionable). Important: ASHTECH
     UZ-12 has no .sbf-style mapping today; don't falsely flag it."""
-    from tostools.audit_verify_from_rinex import infer_expected_family as _infer_expected_family
+    from tostools.audit_verify_from_rinex import (
+        infer_expected_family as _infer_expected_family,
+    )
 
     assert _infer_expected_family("ASHTECH UZ-12") is None
     assert _infer_expected_family("LEICA GR10") is None
@@ -578,7 +584,9 @@ def test_infer_expected_family_unrecognised_returns_none():
 
 def test_classify_no_archive_coverage():
     """TOS window with no archived days → no_archive_coverage."""
-    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import (
+        classify_tos_join_against_archive as _classify_tos_join_against_archive,
+    )
 
     timeline = [_day("2010-01-01", "septentrio")]
     verdict = _classify_tos_join_against_archive(
@@ -593,7 +601,9 @@ def test_classify_no_archive_coverage():
 def test_classify_unmapped_model_surfaces_informational():
     """When the TOS model has no family mapping (ASHTECH), verdict is
     informational — neither green nor red. The operator can decide."""
-    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import (
+        classify_tos_join_against_archive as _classify_tos_join_against_archive,
+    )
 
     timeline = [_day("2007-09-01", "septentrio")]
     verdict = _classify_tos_join_against_archive(
@@ -609,7 +619,9 @@ def test_classify_unmapped_model_surfaces_informational():
 def test_classify_rinex_only_when_only_format_neutral_days():
     """Window contains only RINEX (format-neutral) days — brand can't
     be confirmed from filenames alone. Don't flag as wrong/right."""
-    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import (
+        classify_tos_join_against_archive as _classify_tos_join_against_archive,
+    )
 
     timeline = [_day("2010-01-01", "rinex"), _day("2010-06-01", "rinex")]
     verdict = _classify_tos_join_against_archive(
@@ -623,7 +635,9 @@ def test_classify_rinex_only_when_only_format_neutral_days():
 
 def test_classify_ok_when_expected_family_throughout():
     """Window contains only the expected family → ok."""
-    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import (
+        classify_tos_join_against_archive as _classify_tos_join_against_archive,
+    )
 
     timeline = [
         _day("2020-01-01", "trimble_netr9"),
@@ -643,7 +657,9 @@ def test_classify_late_start_suggests_narrowing_time_from():
     """SAVI 4830 case: TOS says NETR9 2007-09-07 → 2026-05-22, but
     archive shows septentrio before 2016-07-02. Suggest patching
     time_from to 2016-07-02."""
-    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import (
+        classify_tos_join_against_archive as _classify_tos_join_against_archive,
+    )
 
     timeline = [
         _day("2008-01-01", "septentrio"),
@@ -668,7 +684,9 @@ def test_classify_late_start_suggests_narrowing_time_from():
 def test_classify_early_end_suggests_narrowing_time_to():
     """Mirror case: TOS window extends past when the expected brand
     actually ended. Suggest patching time_to backward."""
-    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import (
+        classify_tos_join_against_archive as _classify_tos_join_against_archive,
+    )
 
     timeline = [
         _day("2008-01-01", "septentrio"),
@@ -688,7 +706,9 @@ def test_classify_early_end_suggests_narrowing_time_to():
 
 def test_classify_wrong_brand_when_only_other_family_present():
     """Window has raw days but none match the expected family."""
-    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import (
+        classify_tos_join_against_archive as _classify_tos_join_against_archive,
+    )
 
     timeline = [
         _day("2020-01-01", "trimble_netr9"),
@@ -708,7 +728,9 @@ def test_classify_join_too_wide_interleaved():
     """Interleaved expected + other (rare; typically detection-then-coalesce
     catches it as late_start/early_end). Surface as join_too_wide with
     suggestion to narrow to first expected day."""
-    from tostools.audit_verify_from_rinex import classify_tos_join_against_archive as _classify_tos_join_against_archive
+    from tostools.audit_verify_from_rinex import (
+        classify_tos_join_against_archive as _classify_tos_join_against_archive,
+    )
 
     timeline = [
         _day("2020-01-01", "trimble_netr9"),
@@ -723,3 +745,51 @@ def test_classify_join_too_wide_interleaved():
     )
     assert verdict["status"] == "join_too_wide"
     assert verdict["suggested_action_args"] == ("time_from", "2020-01-01")
+
+
+# ---------------------------------------------------------------------------
+# tos_corrections_dir / resolve_triage_path
+# ---------------------------------------------------------------------------
+
+
+def test_tos_corrections_dir_override_wins(tmp_path):
+    assert tos_corrections_dir(tmp_path) == tmp_path
+
+
+def test_tos_corrections_dir_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("TOS_TRIAGE_DIR", str(tmp_path))
+    assert tos_corrections_dir() == tmp_path
+
+
+def test_tos_corrections_dir_from_cfg(monkeypatch, tmp_path):
+    monkeypatch.delenv("TOS_TRIAGE_DIR", raising=False)
+    cfg = tmp_path / "receivers.cfg"
+    repo = tmp_path / "corr"
+    cfg.write_text(f"[paths]\ntos_corrections_repo = {repo}\n")
+    monkeypatch.setattr("tostools.archive._find_receivers_cfg", lambda: cfg)
+    assert tos_corrections_dir() == repo
+
+
+def test_tos_corrections_dir_default(monkeypatch):
+    monkeypatch.delenv("TOS_TRIAGE_DIR", raising=False)
+    monkeypatch.setattr("tostools.archive._find_receivers_cfg", lambda: None)
+    assert tos_corrections_dir() == Path.home() / "git" / "gps-tos-corrections"
+
+
+def test_resolve_triage_path_absolute_used_as_is(tmp_path):
+    p = tmp_path / "x.txt"
+    assert resolve_triage_path(p) == p
+
+
+def test_resolve_triage_path_existing_relative_used_as_is(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "here.txt").write_text("x")
+    assert resolve_triage_path("here.txt") == (tmp_path / "here.txt").resolve()
+
+
+def test_resolve_triage_path_relative_resolves_under_corrections(monkeypatch, tmp_path):
+    # cwd has no such file → resolve under the corrections repo
+    monkeypatch.chdir(tmp_path)
+    repo = tmp_path / "corr"
+    monkeypatch.setenv("TOS_TRIAGE_DIR", str(repo))
+    assert resolve_triage_path("kriv/kriv_x.txt") == repo / "kriv" / "kriv_x.txt"
