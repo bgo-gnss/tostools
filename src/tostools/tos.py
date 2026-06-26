@@ -1297,7 +1297,16 @@ def _substitute_id_in_triage(
 
     Raises:
         OSError on read/write failure — caller surfaces to stderr.
+
+    The ``path`` is resolved cwd-safely via
+    :func:`tostools.archive.resolve_triage_path`: absolute or
+    existing-relative paths are used as-is, otherwise it resolves under the
+    ``gps-tos-corrections`` repo — so ``--triage kriv/kriv_x.txt`` works no
+    matter which directory ``tos device add`` is run from.
     """
+    from .archive import resolve_triage_path
+
+    path = resolve_triage_path(path)
     token = f"<{placeholder}>"
     content = path.read_text(encoding="utf-8")
     count = content.count(token)
@@ -9522,12 +9531,15 @@ def _apply_main(args) -> int:
     the rest.
     """
     import json as _json
-    from pathlib import Path
 
     from .api.tos_client import TOSClient
     from .api.tos_writer import TOSWriter
+    from .archive import resolve_triage_path
 
-    path = Path(args.action_file)
+    # cwd-safe: an absolute path or an existing relative path is used as-is;
+    # otherwise resolve under the gps-tos-corrections repo (so
+    # `tos audit apply vogs/vogs_x.txt` works from any directory).
+    path = resolve_triage_path(args.action_file)
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
