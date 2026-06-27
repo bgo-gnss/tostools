@@ -225,6 +225,12 @@ class TOSWriter:
         timeout: HTTP request timeout in seconds.
     """
 
+    # 401 ride-through: the TOS backend intermittently rejects mutating requests
+    # with a valid token; re-login + retry with this backoff (seconds) clears it.
+    # Overridable via env TOS_401_MAX_RETRIES (see __init__).
+    MAX_401_RETRIES: int = 5
+    RETRY_BACKOFF: tuple = (1, 2, 4, 8, 15)
+
     def __init__(
         self,
         base_url: str = DEFAULT_TOS_URL,
@@ -246,6 +252,14 @@ class TOSWriter:
 
         self._token: Optional[str] = None
         self._token_exp: float = 0.0
+
+        # Per-instance override of the 401 ride-through retry count.
+        _env_retries = os.environ.get("TOS_401_MAX_RETRIES")
+        if _env_retries:
+            try:
+                self.MAX_401_RETRIES = max(1, int(_env_retries))
+            except ValueError:
+                pass
 
         # Lazily-populated ``(code, id_entity_type) → id_attribute`` map
         # from ``GET /admin_attribute_rows``. Keyed by ``(code, et)`` not
@@ -438,13 +452,40 @@ class TOSWriter:
         )
 
         if resp.status_code == 401 and _retry:
-            self._logger.debug("Got 401 — refreshing token and retrying")
-            self._token = None
-            self._token_exp = 0.0
-            self._ensure_authenticated()
-            return self._request(
-                method, endpoint, data=data, params=params, _retry=False
-            )
+            # The TOS backend intermittently 401s mutating requests
+            # (PATCH/DELETE/POST) even with a freshly-issued, valid Admin token —
+            # a later attempt with a new token succeeds ("clears on re-run"). A
+            # single immediate re-login+retry isn't enough: the transient window
+            # can outlast it. Re-login and retry with backoff so a bulk apply
+            # rides through instead of failing mid-run. See the tos_writer token
+            # bug + backend 401 notes in the receivers vault todos.
+            for attempt in range(self.MAX_401_RETRIES):
+                wait = self.RETRY_BACKOFF[min(attempt, len(self.RETRY_BACKOFF) - 1)]
+                self._logger.warning(
+                    "401 on %s %s — re-login + retry %d/%d (wait %ss)",
+                    method.upper(),
+                    endpoint,
+                    attempt + 1,
+                    self.MAX_401_RETRIES,
+                    wait,
+                )
+                self._token = None
+                self._token_exp = 0.0
+                self._ensure_authenticated()
+                time.sleep(wait)
+                resp = requests.request(
+                    method.upper(),
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self._token}",
+                        "Content-Type": "application/json",
+                    },
+                    data=json.dumps(data) if data is not None else None,
+                    params=params,
+                    timeout=self.timeout,
+                )
+                if resp.status_code != 401:
+                    break
 
         if not resp.ok:
             body = ""

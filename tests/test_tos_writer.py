@@ -2252,3 +2252,59 @@ def test_delete_maintenance_respects_dry_run():
     assert isinstance(result, DryRunResult)
     assert result.method == "DELETE"
     assert result.endpoint == "/admin_maintenance_row/5147"
+
+
+# ---------------------------------------------------------------------------
+# TOSWriter — 401 ride-through (re-login + backoff loop)
+# ---------------------------------------------------------------------------
+
+
+def _resp(status, content=b'{"ok": true}'):
+    r = MagicMock()
+    r.status_code = status
+    r.ok = status < 400
+    r.content = content
+    r.json.return_value = {"ok": True}
+    r.raise_for_status = MagicMock(
+        side_effect=(None if status < 400 else Exception(f"{status}"))
+    )
+    return r
+
+
+def test_request_401_backoff_succeeds_after_several_retries():
+    """Transient 401s clear after a few re-login+retry cycles."""
+    w = _logged_in_writer(dry_run=False)
+    login_resp = MagicMock()
+    login_resp.json.return_value = _login_response(time.time() + 3600)
+    login_resp.raise_for_status = MagicMock()
+
+    seq = [_resp(401), _resp(401), _resp(200)]
+    with (
+        patch("time.sleep") as mock_sleep,
+        patch("requests.post", return_value=login_resp),
+        patch("requests.request", side_effect=seq) as mock_req,
+    ):
+        result = w._request("PATCH", "/join/123", data={"time_to": "2020-01-01"})
+
+    assert mock_req.call_count == 3  # initial + 2 retries
+    assert mock_sleep.call_count == 2  # backoff slept before each retry
+    assert result == {"ok": True}
+
+
+def test_request_401_gives_up_after_max_retries():
+    """Persistent 401 raises after MAX_401_RETRIES retries (1 initial + N)."""
+    w = _logged_in_writer(dry_run=False)
+    login_resp = MagicMock()
+    login_resp.json.return_value = _login_response(time.time() + 3600)
+    login_resp.raise_for_status = MagicMock()
+
+    seq = [_resp(401) for _ in range(1 + w.MAX_401_RETRIES)]
+    with (
+        patch("time.sleep"),
+        patch("requests.post", return_value=login_resp),
+        patch("requests.request", side_effect=seq) as mock_req,
+    ):
+        with pytest.raises(Exception):
+            w._request("DELETE", "/admin_entity_connection_row/9")
+
+    assert mock_req.call_count == 1 + w.MAX_401_RETRIES
