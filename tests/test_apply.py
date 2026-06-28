@@ -16,9 +16,10 @@ import pytest
 from tostools.tos import (
     ParsedAction,
     ParseError,
+    _default_apply_commit_message,
     _dispatch_action,
     _fetch_action_meta,
-    _git_commit_triage_file,
+    _git_commit_file,
     _parse_action_file,
     _resolve_date_token,
 )
@@ -2747,7 +2748,7 @@ def test_commit_triage_commits_new_file(tmp_path, capsys):
     f = station / "gran_fix.txt"
     f.write_text("ACTION 4909 create-join 4306 2015-05-01 2025-01-14\n")
 
-    _git_commit_triage_file(f, message=None, n_ok=2)
+    _git_commit_file(f, message=_default_apply_commit_message(f, 2))
 
     err = capsys.readouterr().err
     assert "committed gran/gran_fix.txt" in err
@@ -2767,7 +2768,7 @@ def test_commit_triage_custom_message(tmp_path, capsys):
     f = repo / "x.txt"
     f.write_text("ACTION 1 defer\n")
 
-    _git_commit_triage_file(f, message="custom subject line", n_ok=1)
+    _git_commit_file(f, message="custom subject line")
 
     log = subprocess.run(
         ["git", "-C", str(repo), "log", "-1", "--pretty=%s"],
@@ -2782,12 +2783,12 @@ def test_commit_triage_noop_when_already_committed(tmp_path, capsys):
     repo = _init_repo(tmp_path)
     f = repo / "y.txt"
     f.write_text("ACTION 1 defer\n")
-    _git_commit_triage_file(f, message=None, n_ok=1)
+    _git_commit_file(f, message=_default_apply_commit_message(f, 1))
     capsys.readouterr()
     assert _head_count(repo) == 1
 
     # Second call with no change to the file must not create a new commit.
-    _git_commit_triage_file(f, message=None, n_ok=1)
+    _git_commit_file(f, message=_default_apply_commit_message(f, 1))
     err = capsys.readouterr().err
     assert "already committed" in err
     assert _head_count(repo) == 1
@@ -2797,6 +2798,13 @@ def test_commit_triage_outside_repo_warns_no_crash(tmp_path, capsys):
     # A bare directory (no `git init`) must not raise — just warn.
     f = tmp_path / "loose.txt"
     f.write_text("ACTION 1 defer\n")
-    _git_commit_triage_file(f, message=None, n_ok=1)
+    _git_commit_file(f, message=_default_apply_commit_message(f, 1))
     err = capsys.readouterr().err
     assert "not inside a git repository" in err
+
+
+def test_default_apply_commit_message_uses_station_dir_and_count():
+    from pathlib import Path
+
+    msg = _default_apply_commit_message(Path("gran/gran_fix.txt"), 2)
+    assert msg == "gran: apply gran_fix.txt (2 action(s))"

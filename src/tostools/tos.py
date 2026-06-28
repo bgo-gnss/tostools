@@ -1316,6 +1316,264 @@ def _substitute_id_in_triage(
     return {"token": token, "count": count, "written": True}
 
 
+_DEVICE_SUBTYPES = frozenset(
+    {
+        "gnss_receiver",
+        "antenna",
+        "radome",
+        "monument",
+        "modem_gsm",
+        "sim_card",
+        "router",
+    }
+)
+
+
+def _append_device_deletion_record(repo_dir: Path, record: Dict[str, Any]) -> Path:
+    """Append one JSON record to ``<repo>/deletions/device_deletions.jsonl``.
+
+    The append-only ledger is the audit trail for destructive
+    ``tos device delete`` runs (the corrections repo otherwise has no artifact
+    for a deletion, unlike an applied triage file). Creates the ``deletions/``
+    directory and the file on first use. Returns the log path.
+    """
+    import json as _json
+
+    log_dir = repo_dir / "deletions"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "device_deletions.jsonl"
+    with log_path.open("a", encoding="utf-8") as fh:
+        fh.write(_json.dumps(record, ensure_ascii=False) + "\n")
+    return log_path
+
+
+def _audit_log_device_deletion(
+    id_entity: int,
+    *,
+    subtype: Optional[str],
+    serial: Optional[str],
+    model: Optional[str],
+    deleted_attribute_values: List[int],
+    note: Optional[str],
+) -> Dict[str, Any]:
+    """Append + commit an audit record for a confirmed device deletion.
+
+    Best-effort and **non-fatal**: the entity is already gone, so a logging or
+    git failure warns on stderr and returns an ``error`` field rather than
+    raising. Resolves the corrections repo via :func:`archive.tos_corrections_dir`.
+    """
+    from datetime import datetime
+
+    from .archive import tos_corrections_dir
+
+    record = {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "action": "device_delete",
+        "id_entity": id_entity,
+        "subtype": subtype,
+        "serial": serial,
+        "model": model,
+        "deleted_attribute_values": deleted_attribute_values,
+        "note": note,
+    }
+    try:
+        repo = tos_corrections_dir()
+        log_path = _append_device_deletion_record(repo, record)
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠ --commit: could not write deletion record: {exc}", file=sys.stderr)
+        return {"logged": False, "error": str(exc)}
+
+    committed = _git_commit_file(
+        log_path, message=f"deletions: delete dev {id_entity} ({serial})"
+    )
+    return {"logged": True, "log": str(log_path), "committed": committed}
+
+
+def _device_delete_main(args) -> int:
+    """Handle ``tos device delete --id <n>`` — delete a jointless device entity.
+
+    Strict guards: the entity must exist, be a device subtype (unless
+    ``--force``), and have **no** joins (open or closed). Deletes its
+    attribute_value rows, then the entity row (the TOS admin API has no
+    cascade). Dry-run by default; ``--apply`` commits and **re-reads** to
+    confirm the row is gone (the admin DELETE family can silently no-op).
+
+    Exit codes: 0 deleted / clean dry-run; 1 refused or DELETE no-op;
+    2 entity not found.
+    """
+    import json as _json
+
+    from .api.tos_client import TOSClient
+    from .api.tos_writer import TOSWriter
+
+    def _open(attrs, code):
+        return next(
+            (
+                a.get("value")
+                for a in (attrs or [])
+                if a.get("code") == code and a.get("date_to") is None
+            ),
+            None,
+        )
+
+    scheme = "https" if args.port == 443 else "http"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
+    dry_run = not args.apply
+    dev = args.id_entity
+
+    client = TOSClient(base_url=base_url)
+    history = client.get_entity_history(dev)
+    if not history:
+        if args.json:
+            print(_json.dumps({"id_entity": dev, "status": "not_found"}))
+        else:
+            print(f"device {dev}: not found", file=sys.stderr)
+        return 2
+
+    subtype = history.get("code_entity_subtype")
+    attrs = history.get("attributes") or []
+    serial = _open(attrs, "serial_number")
+    model = _open(attrs, "model")
+    attr_ids = [
+        a.get("id_attribute_value") for a in attrs if a.get("id_attribute_value")
+    ]
+    joins = client.get_parent_history(dev)
+    children = history.get("children_connections") or []
+
+    # ---- guards (the no-joins guard is never bypassable) -----------------
+    refusals = []
+    if subtype not in _DEVICE_SUBTYPES and not args.force:
+        refusals.append(
+            f"subtype '{subtype}' is not a device subtype; pass --force to override"
+        )
+    if joins:
+        refusals.append(
+            f"{len(joins)} parent join(s) still reference it — remove them first "
+            "(not an orphan husk)"
+        )
+    if children:
+        refusals.append(f"{len(children)} child join(s) still attached")
+    if refusals:
+        if args.json:
+            print(
+                _json.dumps(
+                    {"id_entity": dev, "status": "refused", "reasons": refusals},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            print(
+                f"REFUSING to delete device {dev} ({subtype}/{serial}):",
+                file=sys.stderr,
+            )
+            for r in refusals:
+                print(f"    - {r}", file=sys.stderr)
+        return 1
+
+    # ---- dry-run: show the plan, touch nothing ---------------------------
+    if dry_run:
+        if args.json:
+            print(
+                _json.dumps(
+                    {
+                        "id_entity": dev,
+                        "subtype": subtype,
+                        "serial": serial,
+                        "dry_run": True,
+                        "attr_rows_to_delete": len(attr_ids),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            print(f"device {dev}: {subtype} / {serial} ({model}) — DRY-RUN")
+            print(
+                f"  jointless ✓ — would delete {len(attr_ids)} attribute_value "
+                "row(s), then the entity row"
+            )
+            print("(dry-run — nothing deleted; re-run with --apply)")
+        return 0
+
+    # ---- apply: strip attrs, delete entity, RE-READ to confirm -----------
+    writer = TOSWriter(base_url=base_url, dry_run=False)
+    if not args.json:
+        print(f"device {dev}: {subtype} / {serial} ({model}) — DELETE")
+
+    attr_results = []
+    for av in attr_ids:
+        try:
+            writer.delete_attribute_value(av)
+            attr_results.append({"id": av, "status": "ok"})
+        except Exception as exc:  # noqa: BLE001
+            attr_results.append({"id": av, "status": f"failed: {exc}"})
+            if not args.json:
+                print(f"  ⚠ attribute_value {av}: {exc}", file=sys.stderr)
+
+    entity_err = None
+    try:
+        writer.delete_entity(dev)
+    except Exception as exc:  # noqa: BLE001
+        entity_err = str(exc)
+        if not args.json:
+            print(f"  ⚠ entity DELETE raised: {exc}", file=sys.stderr)
+
+    # Definitive verdict: re-read. get_entity_history returns None on 404.
+    gone = client.get_entity_history(dev) is None
+
+    # --commit: audit-log a CONFIRMED deletion to the gps-tos-corrections repo.
+    commit_info: Optional[Dict[str, Any]] = None
+    if getattr(args, "commit", False):
+        if gone:
+            commit_info = _audit_log_device_deletion(
+                dev,
+                subtype=subtype,
+                serial=serial,
+                model=model,
+                deleted_attribute_values=attr_ids,
+                note=getattr(args, "note", None),
+            )
+        elif not args.json:
+            print(
+                "⚠ --commit: deletion not confirmed — no audit record written.",
+                file=sys.stderr,
+            )
+
+    if args.json:
+        print(
+            _json.dumps(
+                {
+                    "id_entity": dev,
+                    "subtype": subtype,
+                    "serial": serial,
+                    "dry_run": False,
+                    "deleted": gone,
+                    "entity_delete_error": entity_err,
+                    "attr_results": attr_results,
+                    "commit": commit_info,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    elif gone:
+        print(f"  ✓ device {dev} deleted (re-read confirms it is gone).")
+    else:
+        print(
+            f"  ✗ device {dev} STILL EXISTS after DELETE — the admin DELETE "
+            "no-op'd.",
+            file=sys.stderr,
+        )
+        print(
+            "    Entity-delete is not effective on this backend; delete via the "
+            "TOS web UI. See docs/architecture/dup-device-merge-scoping.md "
+            "(Plan B).",
+            file=sys.stderr,
+        )
+    return 0 if gone else 1
+
+
 def _device_main(argv):
     """Handle ``tos device ...`` subcommands.
 
@@ -1569,7 +1827,80 @@ def _device_main(argv):
         help="Emit the device rows as JSON instead of a rendered table.",
     )
 
+    p_del = sub.add_parser(
+        "delete",
+        help="Permanently delete a JOINLESS device entity (e.g. a dup husk).",
+        description=(
+            "Delete a device entity row from TOS. Destructive and "
+            "IRREVERSIBLE. Refuses unless the entity exists, is a device "
+            "subtype, and has NO joins (open or closed) — a device that is "
+            "still joined to any station/warehouse must have its joins "
+            "removed first (it is not an orphan husk).\n\n"
+            "Mechanism (the TOS admin API has no cascade): deletes the "
+            "entity's attribute_value rows, then the entity row. After "
+            "--apply it RE-READS the entity and fails loudly if it still "
+            "exists (the admin DELETE family has a silent-no-op history).\n\n"
+            "Dry-run by default; pass --apply to commit. Canonical use: "
+            "reclaim a duplicate-device husk surfaced by "
+            "`tos audit duplicate-serials`, after its real history has been "
+            "consolidated onto the canonical entity."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos device delete --id 21602            # dry-run (default)\n"
+            "  tos device delete --id 21602 --apply    # commit the deletion\n"
+            "  tos device delete --id 21602 --apply --commit \\\n"
+            "      --note 'dup husk of 5046K71747'     # + audit-log to corrections repo\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_del.add_argument(
+        "--id",
+        dest="id_entity",
+        type=int,
+        required=True,
+        help="The id_entity to delete (explicit id only — never resolved by "
+        "serial, since serial search is unreliable).",
+    )
+    p_del.add_argument(
+        "--apply",
+        action="store_true",
+        help="Commit the deletion. Without this flag, the plan is shown but "
+        "nothing is deleted (safe default).",
+    )
+    p_del.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass the device-subtype guard (allow deleting a non-device "
+        "subtype). The no-joins guard is NOT bypassable.",
+    )
+    p_del.add_argument(
+        "--commit",
+        action="store_true",
+        help="After a confirmed deletion (--apply), append an audit record to "
+        "the gps-tos-corrections repo (deletions/device_deletions.jsonl) and "
+        "git-commit it, so destructive deletes leave a trail. Best-effort / "
+        "non-fatal; never pushes.",
+    )
+    p_del.add_argument(
+        "--note",
+        default=None,
+        help="Free-text reason stored in the --commit audit record (e.g. "
+        "'dup husk of 5046K71747, consolidated onto dev 4909').",
+    )
+    p_del.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_del.add_argument("--port", type=int, default=443)
+    p_del.add_argument(
+        "--json", action="store_true", help="Emit a structured JSON summary."
+    )
+
     args = p.parse_args(argv)
+    if args.action == "delete":
+        return _device_delete_main(args)
     if args.action == "show":
         # Merge --id (id_flag) into id_entity so the downstream lookup
         # logic stays single-source. --id wins when both forms appear,
@@ -10015,23 +10346,30 @@ def _apply_main(args) -> int:
             )
         else:
             n_ok = sum(1 for r in results if r.status == "ok")
-            _git_commit_triage_file(path, message=args.commit_message, n_ok=n_ok)
+            msg = args.commit_message or _default_apply_commit_message(path, n_ok)
+            _git_commit_file(path, message=msg)
 
     return 0 if ok else 1
 
 
-def _git_commit_triage_file(
-    path: Path,
-    *,
-    message: Optional[str],
-    n_ok: int,
-) -> None:
-    """Commit ``path`` in its own git repository after a successful apply.
+def _default_apply_commit_message(path: Path, n_ok: int) -> str:
+    """Auto commit subject for ``tos audit apply --commit``.
 
-    Best-effort and **non-fatal**: the TOS writes have already landed, so any
-    git problem (file not in a repo, nothing staged, git missing) is reported
-    as a warning on stderr and never changes the command's exit code. Never
-    pushes. All output goes to stderr to keep ``--json`` stdout clean.
+    ``<station-dir>: apply <file> (<n> action(s))`` — matches the
+    gps-tos-corrections per-station commit convention (triage files live one
+    level deep, ``<station>/<file>.txt``).
+    """
+    return f"{path.parent.name}: apply {path.name} ({n_ok} action(s))"
+
+
+def _git_commit_file(path: Path, *, message: str) -> bool:
+    """Stage and commit ``path`` in its own git repository.
+
+    Best-effort and **non-fatal**: the caller's TOS writes have already
+    landed, so any git problem (file not in a repo, nothing staged, git
+    missing) is reported as a warning on stderr and returns ``False`` rather
+    than raising. Never pushes. All output goes to stderr to keep ``--json``
+    stdout clean. Returns ``True`` only when a commit was actually made.
     """
     import subprocess
 
@@ -10054,7 +10392,7 @@ def _git_commit_triage_file(
             f"⚠ --commit: {path} is not inside a git repository — not committed.",
             file=sys.stderr,
         )
-        return
+        return False
     repo_root = Path(top.stdout.strip())
     try:
         rel = path.resolve().relative_to(repo_root.resolve())
@@ -10068,30 +10406,25 @@ def _git_commit_triage_file(
             "— not committed.",
             file=sys.stderr,
         )
-        return
+        return False
 
-    # Re-applying an already-committed file stages nothing → nothing to commit.
+    # An unchanged file stages nothing → nothing to commit.
     if _git("diff", "--cached", "--quiet", "--", str(path)).returncode == 0:
         print(f"  --commit: {rel} already committed (no changes).", file=sys.stderr)
-        return
+        return False
 
-    if message:
-        msg = message
-    else:
-        top_dir = rel.parts[0] if len(rel.parts) > 1 else rel.stem
-        msg = f"{top_dir}: apply {rel.name} ({n_ok} action(s))"
-
-    commit = _git("commit", "-m", msg)
+    commit = _git("commit", "-m", message)
     if commit.returncode != 0:
         detail = commit.stderr.strip() or commit.stdout.strip()
         print(
-            f"⚠ --commit: `git commit` failed: {detail} — action file left " "staged.",
+            f"⚠ --commit: `git commit` failed: {detail} — file left staged.",
             file=sys.stderr,
         )
-        return
+        return False
     head = _git("rev-parse", "--short", "HEAD")
     short = head.stdout.strip() if head.returncode == 0 else "?"
     print(f"  --commit: committed {rel} as {short} (not pushed).", file=sys.stderr)
+    return True
 
 
 def _stderr_progress(unit: str):

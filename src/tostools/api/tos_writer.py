@@ -1304,6 +1304,36 @@ class TOSWriter:
             "DELETE", f"/admin_attribute_value_row/{id_attribute_value}"
         )
 
+    def delete_entity(self, id_entity: int) -> Any:
+        """Permanently remove an entity ROW from TOS.
+
+        .. warning::
+
+           Destructive and **irreversible**. Uses the admin endpoint
+           ``DELETE /admin_entity_row/{id}`` (the public ``/entity/<id>``
+           is read-only — ``Allow: HEAD, GET, OPTIONS``). The TOS admin
+           API has **no cascade**: the entity must first be stripped of
+           its joins (:meth:`delete_entity_connection`) and
+           attribute_values (:meth:`delete_attribute_value`) or the
+           DELETE will be rejected by a foreign-key constraint. Callers
+           must **re-read** afterwards to confirm the row is gone — the
+           admin DELETE family has a documented silent-no-op history
+           (see ``docs/architecture/dup-device-merge-scoping.md``).
+
+           The canonical use case is reclaiming a duplicate-device husk
+           (a second entity created for a serial that already exists)
+           after its joins have been consolidated onto the canonical
+           entity — see ``tos device delete``.
+
+        Args:
+            id_entity: The entity primary key to remove.
+
+        Returns:
+            API response (typically empty 204), or
+            :class:`DryRunResult` in dry-run mode.
+        """
+        return self._request("DELETE", f"/admin_entity_row/{id_entity}")
+
     # ------------------------------------------------------------------
     # Contact↔entity relationships
     # ------------------------------------------------------------------

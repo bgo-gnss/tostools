@@ -26,7 +26,16 @@ flag), so this is a **latent inventory-quality defect**, not an operational brea
 This is **not** caught by `tos audit fleet-sweep` (which only inspects the *open* receiver).
 It needs its own detector.
 
-## Feasibility — entity deletion UNCONFIRMED (validate before building)
+## Feasibility — entity deletion CONFIRMED WORKING (gate passed 2026-06-28)
+
+> **VERDICT (2026-06-28):** the throwaway gate ran live — `tos device delete --id 21602 --apply`
+> on the GRAN husk. `DELETE /admin_attribute_value_row` (×6) then `DELETE /admin_entity_row/21602`
+> succeeded (through a transient 401 the backoff rode out), and the re-read returned **404 "Entity
+> not found"** — genuinely gone, not a no-op. The canonical entity (dev 4909) was untouched. So
+> **entity-delete works on this backend and Plan A (true delete) is viable.** The cautious analysis
+> below is kept for the record.
+
+## Feasibility — entity deletion (originally UNCONFIRMED; now confirmed — see verdict above)
 
 Earlier belief ("the ACTION grammar has no delete-entity") was a **tooling** gap. Whether the
 *API* supports entity deletion is **not yet established**. Probe (2026-06-28):
@@ -62,6 +71,16 @@ Before any merge tool is built, run this on a junk entity (not real data):
 
 If step 4 fails (entity survives), true-merge is **off the table** — fall back to Plan B below.
 This gate, not the OPTIONS header, is what green-lights `tos device merge`.
+
+**BUILT 2026-06-28** — `tos device delete --id <n>` (`_device_delete_main` + new
+`TOSWriter.delete_entity`) runs exactly this sequence as a first-class verb: strict guards
+(entity must exist, be a device subtype unless `--force`, and have **no** joins — the no-joins
+guard is never bypassable), deletes attribute-values then the entity row, and **re-reads** after
+`--apply` to report `deleted` vs silent-no-op. Dry-run default. It is both the disposal primitive
+for dup husks *and* the gate test itself — running `tos device delete --id 21602 --apply` on the
+GRAN husk answers the Plan A vs Plan B question for the whole effort. **DONE 2026-06-28: ran live
+on 21602 → confirmed deleted (re-read 404); the gate passed (see Feasibility verdict above).** The
+verb now also `--commit`s a JSON audit record to `gps-tos-corrections/deletions/device_deletions.jsonl`.
 
 ## The merge operation
 
