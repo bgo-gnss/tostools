@@ -212,6 +212,19 @@ consolidate the GRAN leg onto dev 4909, orphan dev 21602 — the first real Plan
    if step 2 passed. Pilot on `5048K71916` (HOTJ+BRTT, both in-scope/reconstructed). Defer
    `4100591` until URHC's state is confirmed (out of scope).
 
+   **BUILT 2026-06-28** — `tos device merge --from <L> --into <S> --at <date> [--apply] [--commit
+   --note]` (`_device_merge_main`). Since the step-2 gate passed (entity-delete works), it uses
+   **Plan A** (true delete) directly. Grafts the loser's station joins onto the survivor (clamped at
+   `--at`), back-dates the survivor's identity attrs if a leg predates them, then purges the loser
+   (joins→attrs→entity) — **last and conditional**: survivor-side writes happen first and the
+   survivor timeline is re-read/verified; a survivor-side failure ABORTS without touching the loser
+   (no data lost, re-runnable). Guards: same serial+subtype, refuse-on-residual-overlap after the
+   cutover. Warehouse (id 4) + zero-duration loser joins are dropped (logged in the plan). `--commit`
+   logs a `device_merge` record to `deletions/device_deletions.jsonl`. 13 tests (in-memory TOS
+   simulator). Dry-run validated live on the pilot: drops B9 intake 14617, grafts BRTT
+   2019-08-09→2024-10-16, deletes 16358 — reproduces the manual GRAN merge. Live `--apply` is the
+   operator's (more destructive than `delete`).
+
 Net: worth doing for inventory integrity. Plan B (consolidate + husk) is safe and sufficient for
 the operational symptoms today. Plan A (true delete) is the **highest-risk** write in the toolkit
 (irreversible, on a flaky admin-DELETE family whose support is unconfirmed) — pursue it only if the

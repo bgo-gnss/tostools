@@ -1574,6 +1574,403 @@ def _device_delete_main(args) -> int:
     return 0 if gone else 1
 
 
+# Warehouse parents whose joins are dropped (not grafted) on a merge. id 4 =
+# "B9 - Kjallari - Jörð", the GPS warehouse. Other warehouses exist for other
+# teams (Verkstæði-Veður, Vagnhöfði id 10, …); a loser join to one of those is
+# surfaced in the plan rather than silently grafted or dropped.
+_GPS_WAREHOUSE_PARENTS = frozenset({4})
+
+
+def _merge_date(value: Any) -> Optional[str]:
+    """Date-only (``YYYY-MM-DD``) prefix of a TOS timestamp, for comparisons."""
+    return str(value)[:10] if value else None
+
+
+def _intervals_overlap(
+    a_from: Optional[str],
+    a_to: Optional[str],
+    b_from: Optional[str],
+    b_to: Optional[str],
+) -> bool:
+    """True if half-open [from, to) intervals intersect (None = open-ended)."""
+    lo_a, hi_a = a_from or "0000-00-00", a_to or "9999-99-99"
+    lo_b, hi_b = b_from or "0000-00-00", b_to or "9999-99-99"
+    return lo_a < hi_b and lo_b < hi_a
+
+
+def _purge_device_entity(
+    writer,
+    client,
+    id_entity: int,
+    *,
+    join_ids: List[int],
+    attr_ids: List[int],
+) -> bool:
+    """Delete a device's joins, attribute-values, then the entity row.
+
+    The TOS admin API has no cascade, so dependent rows go first. Returns
+    whether a re-read confirms the entity is gone (404). Used to purge a merge
+    loser after its history has been grafted onto the survivor.
+    """
+    for jid in join_ids:
+        try:
+            writer.delete_entity_connection(jid)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  ⚠ delete join {jid}: {exc}", file=sys.stderr)
+    for av in attr_ids:
+        try:
+            writer.delete_attribute_value(av)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  ⚠ delete attribute_value {av}: {exc}", file=sys.stderr)
+    try:
+        writer.delete_entity(id_entity)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ⚠ entity DELETE raised: {exc}", file=sys.stderr)
+    return client.get_entity_history(id_entity) is None
+
+
+def _audit_log_device_merge(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Append + commit an audit record for a confirmed device merge.
+
+    Best-effort / non-fatal (the writes have already landed). Mirrors
+    :func:`_audit_log_device_deletion`.
+    """
+    from datetime import datetime
+
+    from .archive import tos_corrections_dir
+
+    record = {"ts": datetime.now().isoformat(timespec="seconds"), **record}
+    try:
+        repo = tos_corrections_dir()
+        log_path = _append_device_deletion_record(repo, record)
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠ --commit: could not write merge record: {exc}", file=sys.stderr)
+        return {"logged": False, "error": str(exc)}
+    committed = _git_commit_file(
+        log_path,
+        message=(
+            f"deletions: merge dev {record.get('from_id')} into "
+            f"{record.get('into_id')} ({record.get('serial')})"
+        ),
+    )
+    return {"logged": True, "log": str(log_path), "committed": committed}
+
+
+def _device_merge_main(args) -> int:
+    """Handle ``tos device merge --from <L> --into <S> --at <date>``.
+
+    Consolidate a duplicate-device pair (two entities, one serial) into the
+    survivor ``S``: graft the loser ``L``'s station joins onto ``S`` (resolving
+    the junction overlap at ``--at``), back-date ``S``'s identity attributes if
+    needed, then delete ``L``. Dry-run by default.
+
+    Safety: the merge is NOT atomic, so the loser deletion is **last and
+    conditional** — survivor-side writes happen first, the survivor timeline is
+    re-read and verified, and only then is ``L`` purged. A survivor-side failure
+    aborts without touching ``L`` (no data lost; re-runnable). Refuses unless
+    ``L``/``S`` share serial + subtype, and refuses if the projected survivor
+    timeline still overlaps after the ``--at`` cutover.
+
+    Exit codes: 0 merged / clean dry-run; 1 refused or survivor-verify abort or
+    loser-delete no-op; 2 not found / bad args.
+    """
+    import json as _json
+
+    from .api.tos_client import TOSClient
+    from .api.tos_writer import TOSWriter
+
+    def _open(attrs, code):
+        return next(
+            (
+                a
+                for a in (attrs or [])
+                if a.get("code") == code and a.get("date_to") is None
+            ),
+            None,
+        )
+
+    scheme = "https" if args.port == 443 else "http"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
+    dry_run = not args.apply
+    L, S, at = args.from_id, args.into_id, args.at
+
+    client = TOSClient(base_url=base_url)
+
+    def _fail(msg, code=2):
+        if args.json:
+            print(_json.dumps({"status": "error", "detail": msg}))
+        else:
+            print(msg, file=sys.stderr)
+        return code
+
+    if L == S:
+        return _fail("--from and --into must be different entities")
+    Lh = client.get_entity_history(L)
+    if not Lh:
+        return _fail(f"loser device {L}: not found")
+    Sh = client.get_entity_history(S)
+    if not Sh:
+        return _fail(f"survivor device {S}: not found")
+
+    Lattrs, Sattrs = Lh.get("attributes") or [], Sh.get("attributes") or []
+    Lser = (_open(Lattrs, "serial_number") or {}).get("value")
+    Sser = (_open(Sattrs, "serial_number") or {}).get("value")
+    Lsub, Ssub = Lh.get("code_entity_subtype"), Sh.get("code_entity_subtype")
+
+    # ---- guards (the same-serial guard is the whole point) ---------------
+    refusals = []
+    if Lsub != Ssub:
+        refusals.append(f"subtype mismatch: L={Lsub} S={Ssub}")
+    if not Lser or Lser != Sser:
+        refusals.append(f"serial mismatch: L={Lser!r} S={Sser!r} (must be identical)")
+    if Lsub not in _DEVICE_SUBTYPES and not args.force:
+        refusals.append(f"subtype '{Lsub}' is not a device subtype; pass --force")
+    if refusals:
+        if args.json:
+            print(_json.dumps({"status": "refused", "reasons": refusals}, indent=2))
+        else:
+            print(f"REFUSING to merge {L} → {S}:", file=sys.stderr)
+            for r in refusals:
+                print(f"    - {r}", file=sys.stderr)
+        return 1
+
+    Ljoins = client.get_parent_history(L)
+    Sjoins = client.get_parent_history(S)
+    L_join_ids = [j["id"] for j in Ljoins if j.get("id") is not None]
+    L_attr_ids = [
+        a.get("id_attribute_value") for a in Lattrs if a.get("id_attribute_value")
+    ]
+
+    # ---- partition L's joins: graft (real station legs) vs dropped -------
+    graft, dropped = [], []
+    for j in Ljoins:
+        p = j.get("id_entity_parent")
+        f, t = _merge_date(j.get("time_from")), _merge_date(j.get("time_to"))
+        if p in _GPS_WAREHOUSE_PARENTS:
+            dropped.append((j, "B9 warehouse"))
+        elif f == t:
+            dropped.append((j, "zero-duration"))
+        else:
+            graft.append(j)
+
+    if graft and not at:
+        return _fail(
+            "--at <YYYY-MM-DD> is required: the loser has station joins to graft "
+            "(the junction cutover date)."
+        )
+
+    # ---- project the survivor timeline after the cutover -----------------
+    proj = []  # (from10, to10, label)
+    s_closes = []  # (join_id, new_to)
+    for j in Sjoins:
+        f, t = _merge_date(j.get("time_from")), _merge_date(j.get("time_to"))
+        if at and f < at and (t is None or t > at):  # straddles the cutover
+            proj.append((f, at, f"S join {j.get('id')} → close at {at}"))
+            s_closes.append((j.get("id"), at))
+        else:
+            proj.append((f, t, f"S join {j.get('id')} (kept)"))
+    new_joins = []  # (parent, from, to)
+    for j in graft:
+        f, t = _merge_date(j.get("time_from")), _merge_date(j.get("time_to"))
+        if f is None:  # a join always has time_from; skip if malformed
+            dropped.append((j, "missing time_from"))
+            continue
+        p = j.get("id_entity_parent")
+        nf = max(f, at) if at else f
+        if t is not None and nf >= t:
+            dropped.append((j, f"degenerate after cutover {at}"))
+            continue
+        proj.append((nf, t, f"graft parent {p} (from L join {j.get('id')})"))
+        new_joins.append((p, nf, t))
+
+    # overlap guard — the cutover must leave a clean timeline
+    overlaps = []
+    for i in range(len(proj)):
+        for k in range(i + 1, len(proj)):
+            if _intervals_overlap(proj[i][0], proj[i][1], proj[k][0], proj[k][1]):
+                overlaps.append((proj[i], proj[k]))
+    if overlaps:
+        print(
+            f"REFUSING merge {L} → {S}: projected survivor timeline still "
+            f"overlaps after --at={at}:",
+            file=sys.stderr,
+        )
+        for a, b in overlaps:
+            print(
+                f"    {a[2]} [{a[0]}..{a[1]}]  ⨯  {b[2]} [{b[0]}..{b[1]}]",
+                file=sys.stderr,
+            )
+        print(
+            "    Pick a different --at (the true station-to-station hand-off).",
+            file=sys.stderr,
+        )
+        return 1
+
+    # back-date S's identity attrs if a grafted leg predates them
+    backdates = []  # (id_av, code, old_from, new_from)
+    if new_joins:
+        earliest = min(nf for (_p, nf, _t) in new_joins)
+        for code in ("serial_number", "model"):
+            av = _open(Sattrs, code)
+            if av and _merge_date(av.get("date_from")) > earliest:
+                backdates.append(
+                    (
+                        av.get("id_attribute_value"),
+                        code,
+                        _merge_date(av.get("date_from")),
+                        earliest,
+                    )
+                )
+
+    # ---- plan output (dry-run + apply both show it) ----------------------
+    mode = "DRY-RUN" if dry_run else "MERGE"
+    if not args.json:
+        print(f"merge dev {L} → dev {S}  serial {Sser} ({Ssub})  --at {at} — {mode}")
+        for j, why in dropped:
+            print(
+                f"  drop L join {j.get('id')} parent {j.get('id_entity_parent')} ({why})"
+            )
+        for jid, newto in s_closes:
+            print(f"  close S join {jid} → time_to {newto}")
+        for p, f, t in new_joins:
+            print(f"  graft → S: join parent {p}  {f} → {t or 'open'}")
+        for av, code, oldf, newf in backdates:
+            print(f"  back-date S {code} (av {av}) {oldf} → {newf}")
+        print(
+            f"  THEN delete loser {L}: {len(L_join_ids)} join(s), "
+            f"{len(L_attr_ids)} attr(s), entity"
+        )
+
+    if dry_run:
+        if args.json:
+            print(
+                _json.dumps(
+                    {
+                        "status": "dry_run",
+                        "from": L,
+                        "into": S,
+                        "at": at,
+                        "serial": Sser,
+                        "dropped": [(j.get("id"), why) for j, why in dropped],
+                        "s_closes": s_closes,
+                        "graft": new_joins,
+                        "backdates": backdates,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            print("(dry-run — nothing written; re-run with --apply)")
+        return 0
+
+    # ---- APPLY: survivor-side first, VERIFY, then delete loser LAST -------
+    writer = TOSWriter(base_url=base_url, dry_run=False)
+    survivor_ok = True
+    for jid, newto in s_closes:
+        try:
+            writer.patch_entity_connection(jid, time_to=newto)
+        except Exception as exc:  # noqa: BLE001
+            survivor_ok = False
+            print(f"  ⚠ close S join {jid}: {exc}", file=sys.stderr)
+    for p, f, t in new_joins:
+        try:
+            writer.create_entity_connection(p, S, f, t)
+        except Exception as exc:  # noqa: BLE001
+            survivor_ok = False
+            print(f"  ⚠ create S join (parent {p}): {exc}", file=sys.stderr)
+    for av, code, _oldf, newf in backdates:
+        try:
+            writer.patch_attribute_value(av, date_from=newf)
+        except Exception as exc:  # noqa: BLE001
+            survivor_ok = False
+            print(f"  ⚠ back-date S {code} (av {av}): {exc}", file=sys.stderr)
+
+    # verify the survivor before touching the loser
+    after = client.get_parent_history(S)
+    want = {(p, f, t or None) for (p, f, t) in new_joins}
+    have = {
+        (
+            j.get("id_entity_parent"),
+            _merge_date(j.get("time_from")),
+            _merge_date(j.get("time_to")),
+        )
+        for j in after
+    }
+    grafts_present = want.issubset(have)
+    after_norm = [
+        (_merge_date(j.get("time_from")), _merge_date(j.get("time_to"))) for j in after
+    ]
+    after_overlap = any(
+        _intervals_overlap(
+            after_norm[i][0], after_norm[i][1], after_norm[k][0], after_norm[k][1]
+        )
+        for i in range(len(after_norm))
+        for k in range(i + 1, len(after_norm))
+    )
+    if not (survivor_ok and grafts_present and not after_overlap):
+        print(
+            f"✗ ABORT: survivor {S} did not verify "
+            f"(writes_ok={survivor_ok} grafts_present={grafts_present} "
+            f"overlap={after_overlap}) — loser {L} left UNTOUCHED. "
+            "Inspect with `tos device show --id`; safe to re-run.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # survivor verified → purge the loser (last, conditional)
+    gone = _purge_device_entity(
+        writer, client, L, join_ids=L_join_ids, attr_ids=L_attr_ids
+    )
+
+    commit_info = None
+    if getattr(args, "commit", False) and gone:
+        commit_info = _audit_log_device_merge(
+            {
+                "action": "device_merge",
+                "from_id": L,
+                "into_id": S,
+                "at": at,
+                "serial": Sser,
+                "subtype": Ssub,
+                "grafted_joins": [
+                    {"parent": p, "from": f, "to": t} for p, f, t in new_joins
+                ],
+                "dropped_joins": [
+                    {"join": j.get("id"), "reason": w} for j, w in dropped
+                ],
+                "s_closed_joins": [{"join": jid, "new_to": nt} for jid, nt in s_closes],
+                "deleted_loser_joins": L_join_ids,
+                "deleted_loser_attrs": L_attr_ids,
+                "note": getattr(args, "note", None),
+            }
+        )
+
+    if args.json:
+        print(
+            _json.dumps(
+                {
+                    "status": "merged" if gone else "loser_not_deleted",
+                    "from": L,
+                    "into": S,
+                    "loser_deleted": gone,
+                    "commit": commit_info,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    elif gone:
+        print(f"  ✓ merged dev {L} into dev {S}; loser deleted (confirmed gone).")
+    else:
+        print(
+            f"  ⚠ survivor updated, but loser {L} STILL EXISTS after delete "
+            "(admin DELETE no-op'd) — finish by deleting it in the TOS web UI.",
+            file=sys.stderr,
+        )
+    return 0 if gone else 1
+
+
 def _device_main(argv):
     """Handle ``tos device ...`` subcommands.
 
@@ -1898,7 +2295,89 @@ def _device_main(argv):
         "--json", action="store_true", help="Emit a structured JSON summary."
     )
 
+    p_merge = sub.add_parser(
+        "merge",
+        help="Merge a duplicate-device pair (two entities, one serial) into one.",
+        description=(
+            "Consolidate a duplicate-device pair surfaced by "
+            "`tos audit duplicate-serials` — two TOS entities that share one "
+            "serial because a station→station move created a new entity "
+            "instead of moving the existing one. Grafts the loser (--from)'s "
+            "station joins onto the survivor (--into), resolving the junction "
+            "overlap at --at, back-dates the survivor's identity attributes if "
+            "a grafted leg predates them, then DELETES the loser.\n\n"
+            "Destructive and IRREVERSIBLE (deletes the loser entity). Refuses "
+            "unless both exist and share serial + subtype. The merge is not "
+            "atomic, so the loser deletion is LAST and conditional: survivor-"
+            "side writes happen first and are re-read/verified, and the loser "
+            "is purged only if that verifies — a survivor-side failure aborts "
+            "without touching the loser (no data lost, re-runnable). Refuses if "
+            "the projected survivor timeline still overlaps after --at.\n\n"
+            "Dry-run by default; --apply commits. Warehouse (B9) and zero-"
+            "duration loser joins are dropped (logged in the plan). Explicit "
+            "ids only — never resolves by serial."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos device merge --from 16358 --into 4910 --at 2019-08-09\n"
+            "  tos device merge --from 16358 --into 4910 --at 2019-08-09 --apply --commit \\\n"
+            "      --note '5048K71916 HOTJ+BRTT dup'\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_merge.add_argument(
+        "--from",
+        dest="from_id",
+        type=int,
+        required=True,
+        help="The loser id_entity (its station history is grafted onto --into, "
+        "then it is deleted).",
+    )
+    p_merge.add_argument(
+        "--into",
+        dest="into_id",
+        type=int,
+        required=True,
+        help="The survivor id_entity (kept; gains the loser's station legs).",
+    )
+    p_merge.add_argument(
+        "--at",
+        default=None,
+        help="Cutover date YYYY-MM-DD — the station-to-station hand-off that "
+        "resolves the junction overlap. Required when the loser has station "
+        "joins.",
+    )
+    p_merge.add_argument(
+        "--apply", action="store_true", help="Commit the merge (default dry-run)."
+    )
+    p_merge.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass the device-subtype guard. Serial/overlap guards are NOT "
+        "bypassable.",
+    )
+    p_merge.add_argument(
+        "--commit",
+        action="store_true",
+        help="After a confirmed merge, append an audit record to the "
+        "gps-tos-corrections repo and git-commit it. Best-effort; never pushes.",
+    )
+    p_merge.add_argument(
+        "--note", default=None, help="Free-text reason stored in the --commit record."
+    )
+    p_merge.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_merge.add_argument("--port", type=int, default=443)
+    p_merge.add_argument(
+        "--json", action="store_true", help="Emit a structured JSON summary."
+    )
+
     args = p.parse_args(argv)
+    if args.action == "merge":
+        return _device_merge_main(args)
     if args.action == "delete":
         return _device_delete_main(args)
     if args.action == "show":
