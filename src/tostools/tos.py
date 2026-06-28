@@ -8,7 +8,7 @@ import argparse
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 KNOWN_SUBCOMMANDS = {
     "owners",
@@ -6367,6 +6367,80 @@ def _audit_main(argv):
         "surfaced device in a single invocation.",
     )
 
+    p_dupser = sub.add_parser(
+        "duplicate-serials",
+        help="Report entities that share a real serial (duplicate devices).",
+        description=(
+            "Detect duplicate-device defects: two or more TOS entity rows "
+            "that share the same real serial number. These arise when a "
+            "physical receiver moved station-to-station was entered as a NEW "
+            "device entity at the destination instead of `move_device` — one "
+            "physical unit ends up modeled as two entity rows. After the swap "
+            "the redundant leg is closed, so `fleet-sweep` (which only "
+            "inspects the open receiver) never catches it; this is a latent "
+            "inventory-quality defect.\n\n"
+            "Mechanism: walk the global join index (every parent's "
+            "children_connections, the fleet-gaps pattern), then fetch each "
+            "candidate entity's open serial_number + subtype once and group "
+            "by (subtype, serial). Any (subtype, serial) with >=2 distinct "
+            "entity ids is reported. The per-device serial fetch makes this a "
+            "MULTI-MINUTE fleet walk (one join walk ~110s + one "
+            "get_entity_history per candidate).\n\n"
+            "Placeholder serials (receiver-*, 0000000000, all-same-digit like "
+            "99999999, non-numeric) are excluded by default — many devices "
+            "legitimately share an 'unknown' marker. Pass --include-synthetic "
+            "to include them.\n\n"
+            "Read-only; no credentials needed. This is a *report*, exit 0 "
+            "always unless --strict (exit 1 when any duplicate is found). "
+            "Design: docs/architecture/dup-device-merge-scoping.md."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos audit duplicate-serials --subtype gnss_receiver\n"
+            "  tos audit duplicate-serials --subtype receiver --json\n"
+            "  tos audit duplicate-serials --include-synthetic --strict\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_dupser.add_argument(
+        "--subtype",
+        choices=sorted(set(audit_mod.SUBTYPE_ALIASES)),
+        help="Filter to one device subtype (short or canonical). Default: "
+        "all subtypes (grouping is always keyed by (subtype, serial)).",
+    )
+    p_dupser.add_argument(
+        "--include-synthetic",
+        action="store_true",
+        help="Include placeholder serials (receiver-*, 0000000000, "
+        "all-same-digit, non-numeric). Off by default.",
+    )
+    p_dupser.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of plain text."
+    )
+    p_dupser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 1 when any duplicate group is found (default: exit 0 "
+        "always — this is a report, not a gate).",
+    )
+    p_dupser.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_dupser.add_argument("--port", type=int, default=443)
+    p_dupser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Append a plain-English explanation of what a duplicate group "
+        "means and how to resolve it.",
+    )
+    p_dupser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Suppress the per-device progress line on stderr.",
+    )
+
     p_sweep = sub.add_parser(
         "fleet-sweep",
         help="CHEAP cfg-vs-TOS sweep for KRIV-class metadata defects.",
@@ -7197,6 +7271,61 @@ def _audit_main(argv):
             )
         else:
             _print_fleet_gap_report(report, top=args.top, verbose=args.verbose)
+        return 0
+
+    if args.kind == "duplicate-serials":
+        import json as _json
+
+        from . import audit_duplicate_serials as dupser_mod
+
+        canonical_subtype = (
+            audit_mod.canonical_subtype(args.subtype) if args.subtype else None
+        )
+
+        dup_progress: Optional[Callable[..., None]] = None
+        if not (args.no_progress or args.json or not sys.stderr.isatty()):
+            sys.stderr.write(
+                "Resolving station markers + walking joins (~110s for the IMO "
+                "fleet), then one serial fetch per device...\n"
+            )
+            sys.stderr.flush()
+
+            def _emit_dup_progress(idx: int, total: int, n_dups: int) -> None:
+                end = "\n" if idx == total else ""
+                sys.stderr.write(f"\r  devices: {idx}/{total}{end}")
+                sys.stderr.flush()
+
+            dup_progress = _emit_dup_progress
+
+        coverage: Dict[str, int] = {}
+        groups = dupser_mod.find_duplicate_serials(
+            client,
+            subtype=canonical_subtype,
+            include_synthetic=args.include_synthetic,
+            progress=dup_progress,
+            coverage=coverage,
+        )
+        if args.json:
+            print(
+                _json.dumps(
+                    {"coverage": coverage, "groups": groups},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            print(dupser_mod.format_report(groups, verbose=args.verbose))
+            walked = coverage.get("parents_walked", 0)
+            failed = coverage.get("parents_failed", 0)
+            footer = f"\ncoverage: {walked} parents walked, {failed} failed"
+            if failed:
+                footer += (
+                    " — count is a FLOOR, not a census (dups under the "
+                    "dropped parents are invisible)"
+                )
+            print(footer)
+        if args.strict and groups:
+            return 1
         return 0
 
     if args.kind == "fleet-sweep":
