@@ -6640,6 +6640,7 @@ def _audit_main(argv):
             "Examples:\n"
             "  tos audit apply triage.txt              # dry-run (default)\n"
             "  tos audit apply triage.txt --apply      # commit writes\n"
+            "  tos audit apply gran/x.txt --apply --commit   # write + git-commit the file\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -6661,6 +6662,21 @@ def _audit_main(argv):
     p_apply.add_argument("--port", type=int, default=443)
     p_apply.add_argument(
         "--json", action="store_true", help="Emit a structured JSON summary."
+    )
+    p_apply.add_argument(
+        "--commit",
+        action="store_true",
+        help="After a fully-successful --apply, git-commit the action file in "
+        "its own repository (e.g. gps-tos-corrections), so applied triage files "
+        "don't sit uncommitted. Best-effort and non-fatal: a no-op on dry-run, "
+        "when any action failed, or when the file isn't in a git repo. Never "
+        "pushes.",
+    )
+    p_apply.add_argument(
+        "--commit-message",
+        "-m",
+        default=None,
+        help="Override the auto-generated message used by --commit.",
     )
 
     p_show = sub.add_parser(
@@ -9978,7 +9994,104 @@ def _apply_main(args) -> int:
         and not post_violations
         and not preflight_warnings
     )
+
+    if getattr(args, "commit", False):
+        if dry_run:
+            print(
+                "  --commit: ignored on dry-run (re-run with --apply to commit).",
+                file=sys.stderr,
+            )
+        elif not ok:
+            n_failed = sum(1 for r in results if r.status == "failed")
+            reason = (
+                f"{n_failed} action(s) failed"
+                if n_failed
+                else "a post-apply guard violation"
+            )
+            print(
+                f"⚠ --commit: NOT committing {path} — apply did not fully "
+                f"succeed ({reason}).",
+                file=sys.stderr,
+            )
+        else:
+            n_ok = sum(1 for r in results if r.status == "ok")
+            _git_commit_triage_file(path, message=args.commit_message, n_ok=n_ok)
+
     return 0 if ok else 1
+
+
+def _git_commit_triage_file(
+    path: Path,
+    *,
+    message: Optional[str],
+    n_ok: int,
+) -> None:
+    """Commit ``path`` in its own git repository after a successful apply.
+
+    Best-effort and **non-fatal**: the TOS writes have already landed, so any
+    git problem (file not in a repo, nothing staged, git missing) is reported
+    as a warning on stderr and never changes the command's exit code. Never
+    pushes. All output goes to stderr to keep ``--json`` stdout clean.
+    """
+    import subprocess
+
+    parent = str(path.parent)
+
+    def _git(*argv: str) -> "subprocess.CompletedProcess[str]":
+        try:
+            return subprocess.run(
+                ["git", "-C", parent, *argv],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:  # git not installed
+            return subprocess.CompletedProcess(argv, 127, "", "git not found")
+
+    top = _git("rev-parse", "--show-toplevel")
+    if top.returncode != 0:
+        print(
+            f"⚠ --commit: {path} is not inside a git repository — not committed.",
+            file=sys.stderr,
+        )
+        return
+    repo_root = Path(top.stdout.strip())
+    try:
+        rel = path.resolve().relative_to(repo_root.resolve())
+    except ValueError:
+        rel = path
+
+    add = _git("add", "--", str(path))
+    if add.returncode != 0:
+        print(
+            f"⚠ --commit: `git add {rel}` failed: {add.stderr.strip()} "
+            "— not committed.",
+            file=sys.stderr,
+        )
+        return
+
+    # Re-applying an already-committed file stages nothing → nothing to commit.
+    if _git("diff", "--cached", "--quiet", "--", str(path)).returncode == 0:
+        print(f"  --commit: {rel} already committed (no changes).", file=sys.stderr)
+        return
+
+    if message:
+        msg = message
+    else:
+        top_dir = rel.parts[0] if len(rel.parts) > 1 else rel.stem
+        msg = f"{top_dir}: apply {rel.name} ({n_ok} action(s))"
+
+    commit = _git("commit", "-m", msg)
+    if commit.returncode != 0:
+        detail = commit.stderr.strip() or commit.stdout.strip()
+        print(
+            f"⚠ --commit: `git commit` failed: {detail} — action file left " "staged.",
+            file=sys.stderr,
+        )
+        return
+    head = _git("rev-parse", "--short", "HEAD")
+    short = head.stdout.strip() if head.returncode == 0 else "?"
+    print(f"  --commit: committed {rel} as {short} (not pushed).", file=sys.stderr)
 
 
 def _stderr_progress(unit: str):

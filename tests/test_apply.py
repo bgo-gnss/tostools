@@ -7,13 +7,18 @@ Covers the parser (`_parse_action_file`), the dispatcher
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from tostools.tos import (
     ParsedAction,
     ParseError,
     _dispatch_action,
     _fetch_action_meta,
+    _git_commit_triage_file,
     _parse_action_file,
     _resolve_date_token,
 )
@@ -2703,3 +2708,95 @@ def test_preflight_warehouse_destination_ignored():
         )
         == []
     )
+
+
+# ---------------------------------------------------------------------------
+# _git_commit_triage_file — the --commit flag's git helper
+# ---------------------------------------------------------------------------
+
+
+def _git(repo, *argv):
+    subprocess.run(
+        ["git", "-C", str(repo), *argv], check=True, capture_output=True, text=True
+    )
+
+
+def _init_repo(tmp_path):
+    repo = tmp_path / "corrections"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@example.com")
+    _git(repo, "config", "user.name", "Test")
+    return repo
+
+
+def _head_count(repo):
+    r = subprocess.run(
+        ["git", "-C", str(repo), "rev-list", "--count", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    return int(r.stdout.strip()) if r.returncode == 0 else 0
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+def test_commit_triage_commits_new_file(tmp_path, capsys):
+    repo = _init_repo(tmp_path)
+    station = repo / "gran"
+    station.mkdir()
+    f = station / "gran_fix.txt"
+    f.write_text("ACTION 4909 create-join 4306 2015-05-01 2025-01-14\n")
+
+    _git_commit_triage_file(f, message=None, n_ok=2)
+
+    err = capsys.readouterr().err
+    assert "committed gran/gran_fix.txt" in err
+    assert _head_count(repo) == 1
+    # The auto message uses the top-level dir + filename + action count.
+    log = subprocess.run(
+        ["git", "-C", str(repo), "log", "-1", "--pretty=%s"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert log == "gran: apply gran_fix.txt (2 action(s))"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+def test_commit_triage_custom_message(tmp_path, capsys):
+    repo = _init_repo(tmp_path)
+    f = repo / "x.txt"
+    f.write_text("ACTION 1 defer\n")
+
+    _git_commit_triage_file(f, message="custom subject line", n_ok=1)
+
+    log = subprocess.run(
+        ["git", "-C", str(repo), "log", "-1", "--pretty=%s"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert log == "custom subject line"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+def test_commit_triage_noop_when_already_committed(tmp_path, capsys):
+    repo = _init_repo(tmp_path)
+    f = repo / "y.txt"
+    f.write_text("ACTION 1 defer\n")
+    _git_commit_triage_file(f, message=None, n_ok=1)
+    capsys.readouterr()
+    assert _head_count(repo) == 1
+
+    # Second call with no change to the file must not create a new commit.
+    _git_commit_triage_file(f, message=None, n_ok=1)
+    err = capsys.readouterr().err
+    assert "already committed" in err
+    assert _head_count(repo) == 1
+
+
+def test_commit_triage_outside_repo_warns_no_crash(tmp_path, capsys):
+    # A bare directory (no `git init`) must not raise — just warn.
+    f = tmp_path / "loose.txt"
+    f.write_text("ACTION 1 defer\n")
+    _git_commit_triage_file(f, message=None, n_ok=1)
+    err = capsys.readouterr().err
+    assert "not inside a git repository" in err
