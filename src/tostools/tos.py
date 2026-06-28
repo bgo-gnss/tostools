@@ -6021,7 +6021,8 @@ def _audit_main(argv):
         description=(
             "Verify TOS device-warehouse invariants and patch corrections. "
             "Most verbs are read-only (device, station, orphans, "
-            "fleet-gaps, timeline, show, attribute-dates) — no credentials "
+            "fleet-gaps, fleet-sweep, timeline, show, attribute-dates) — no "
+            "credentials "
             "needed. `apply` is the exception: it consumes an operator-"
             "edited ACTION file and writes back to TOS, so it requires "
             "credentials via $TOS_USERNAME/$TOS_PASSWORD, the [tos] "
@@ -6079,6 +6080,7 @@ def _audit_main(argv):
             "  tos audit timeline 4773                 # complete join chronology\n"
             "  tos audit timeline 4773 4501 4547       # multiple devices, one index build\n"
             "  tos audit fleet-gaps --min-days 365     # high-confidence gaps tail\n"
+            "  tos audit fleet-sweep --only-diffs      # cheap KRIV-class cfg-vs-TOS sweep\n"
             "\n"
             "  # ---- Attribute-date misdating (rule 3) ------------------\n"
             "  tos audit attribute-dates RHOF                       # default inherent-only\n"
@@ -6364,6 +6366,88 @@ def _audit_main(argv):
         "context — equivalent to running `timeline` for every "
         "surfaced device in a single invocation.",
     )
+
+    p_sweep = sub.add_parser(
+        "fleet-sweep",
+        help="CHEAP cfg-vs-TOS sweep for KRIV-class metadata defects.",
+        description=(
+            "Compare stations.cfg (the live-receiver reference) against TOS "
+            "for every station, flagging KRIV-class metadata defects. This is "
+            "a *cheap* pass — it does NOT walk the archive, just one "
+            "marker→entity lookup plus the station's join history per "
+            "station (~0.5s/station). Per station it flags:\n\n"
+            "  rx_type_mismatch    — cfg receiver_type != TOS open "
+            "gnss_receiver model (stale TOS).\n"
+            "  rx_serial_mismatch  — cfg receiver_serial != TOS open serial "
+            "(when TOS serial isn't synthetic and types agree).\n"
+            "  synthetic_rx_serial — TOS serial is a placeholder "
+            "(receiver-XXXX-YYYYMMDD / 0000000000 / non-numeric).\n"
+            "  antenna_split       — one antenna device with consecutive "
+            "touching joins to the SAME station (artificial split).\n\n"
+            "This is a *report*, not a gate — exit 0 always (unless "
+            "--strict). Archive multi-segment timelines are a per-station "
+            "deep-dive on flagged stations (`tos audit verify-from-rinex`), "
+            "not part of this cheap fleet pass. Read-only."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos audit fleet-sweep                          # sweep ALL stations\n"
+            "  tos audit fleet-sweep KRIV GJAC HESA           # just these markers\n"
+            "  tos audit fleet-sweep --only-diffs             # flagged stations only\n"
+            "  tos audit fleet-sweep --json --out findings.json\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_sweep.add_argument(
+        "markers",
+        nargs="*",
+        help="Station markers to sweep (default: every station in " "stations.cfg).",
+    )
+    p_sweep.add_argument(
+        "--stations",
+        nargs="+",
+        metavar="MARKER",
+        help="Explicit station list (same effect as positional markers).",
+    )
+    p_sweep.add_argument(
+        "--cfg",
+        type=Path,
+        default=None,
+        help="Override the stations.cfg path. Default: "
+        "$GPS_CONFIG_PATH/stations.cfg → ~/.config/gpsconfig/stations.cfg.",
+    )
+    p_sweep.add_argument(
+        "--only-diffs",
+        action="store_true",
+        help="Only show stations with at least one flag.",
+    )
+    p_sweep.add_argument(
+        "--json", action="store_true", help="Emit the findings list as JSON."
+    )
+    p_sweep.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Also write the full findings JSON "
+        "({total, flagged, results}) to this file.",
+    )
+    p_sweep.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 1 when any station is flagged (default: exit 0 — this is "
+        "a report, not a gate).",
+    )
+    p_sweep.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Suppress the per-station progress line on stderr.",
+    )
+    p_sweep.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_sweep.add_argument("--port", type=int, default=443)
 
     p_tl = sub.add_parser(
         "timeline",
@@ -7113,6 +7197,82 @@ def _audit_main(argv):
             )
         else:
             _print_fleet_gap_report(report, top=args.top, verbose=args.verbose)
+        return 0
+
+    if args.kind == "fleet-sweep":
+        import json as _json
+
+        from . import audit_fleet_sweep as sweep_mod
+        from . import history as history_mod
+
+        # Resolve stations.cfg: --cfg override, else the shared search order
+        # ($GPS_CONFIG_PATH/stations.cfg → ~/.config/gpsconfig/stations.cfg).
+        cfg_path = str(args.cfg) if args.cfg else history_mod.default_station_cfg_path()
+        if not cfg_path:
+            print(
+                "Could not locate stations.cfg. Set GPS_CONFIG_PATH or pass "
+                "--cfg PATH.",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            cfg = sweep_mod.parse_stations_cfg(cfg_path)
+        except OSError as e:
+            print(f"Could not read stations.cfg ({cfg_path}): {e}", file=sys.stderr)
+            return 2
+
+        markers = list(args.markers or []) + list(args.stations or [])
+        if not markers:
+            markers = list(cfg)
+        markers = [m.upper() for m in markers]
+
+        # Read-only verb, but find_station_by_marker is a TOSWriter method
+        # (its live /entity/search/ path finds freshly-created stations that
+        # basic_search's fuzzy index lags on — needed for just-reconstructed
+        # stations like KRIV). dry_run=True never writes; no credentials are
+        # needed for these GET reads. Do NOT "fix" this back to TOSClient.
+        from .api.tos_writer import TOSWriter
+
+        writer = TOSWriter(base_url=base_url, dry_run=True)
+
+        progress: Optional[Any] = None
+        if not (args.no_progress or args.json or not sys.stderr.isatty()):
+
+            def _emit_progress(idx, total, marker, result):
+                tag = (
+                    ",".join(result.get("flags", []))
+                    or result.get("note")
+                    or result.get("error")
+                    or "clean"
+                )
+                sys.stderr.write(f"[{idx}/{total}] {marker}: {tag}\n")
+                sys.stderr.flush()
+
+            progress = _emit_progress
+
+        # Sweep ALL requested markers (never filter here): the --out artifact
+        # and the text denominator must reflect the full sweep. --only-diffs
+        # is a display filter applied only to what's shown, not to the data.
+        all_results = sweep_mod.run_fleet_sweep(writer, markers, cfg, progress=progress)
+        flagged = [r for r in all_results if r.get("flags")]
+        shown = flagged if args.only_diffs else all_results
+
+        if args.out:
+            payload = {
+                "total": len(all_results),
+                "flagged": len(flagged),
+                "results": all_results,
+            }
+            with open(args.out, "w", encoding="utf-8") as fh:
+                _json.dump(payload, fh, ensure_ascii=False, indent=2)
+
+        if args.json:
+            print(_json.dumps(shown, ensure_ascii=False, indent=2))
+        else:
+            print(sweep_mod.format_report(shown, total=len(all_results)))
+
+        if args.strict and flagged:
+            return 1
         return 0
 
     if args.kind == "apply":
