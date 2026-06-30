@@ -2808,3 +2808,135 @@ def test_default_apply_commit_message_uses_station_dir_and_count():
 
     msg = _default_apply_commit_message(Path("gran/gran_fix.txt"), 2)
     assert msg == "gran: apply gran_fix.txt (2 action(s))"
+
+
+# ---------------------------------------------------------------------------
+# add-attribute-period — parse + dispatch (multi-period history primitive)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_add_attribute_period_closed_and_open():
+    text = (
+        "ACTION 21600 add-attribute-period firmware_version 5.3.0 "
+        "2019-10-15 2026-05-18\n"
+        "ACTION 21600 add-attribute-period firmware_version 5.6.0 "
+        "2026-05-18 open\n"
+    )
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert [a.verb for a in actions] == ["add-attribute-period", "add-attribute-period"]
+    assert actions[0].args == ["firmware_version", "5.3.0", "2019-10-15", "2026-05-18"]
+    assert actions[1].args[3] == "open"
+
+
+def test_parse_add_attribute_period_rejects_wrong_arg_count():
+    text = "ACTION 21600 add-attribute-period firmware_version 5.6.0 2026-05-18\n"
+    _, errors = _parse_action_file(text)
+    assert len(errors) == 1
+    assert "add-attribute-period requires exactly four arguments" in errors[0].message
+
+
+def test_dispatch_add_attribute_period_closed():
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = []
+    writer.add_attribute_value.return_value = {"ok": True}
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            21600,
+            "add-attribute-period",
+            "firmware_version",
+            "5.3.0",
+            "2019-10-15",
+            "2026-05-18",
+        ),
+    )
+    assert result.status == "ok"
+    writer.add_attribute_value.assert_called_once_with(
+        21600, "firmware_version", "5.3.0", "2019-10-15", "2026-05-18"
+    )
+    assert "date_to=2026-05-18" in result.detail
+
+
+def test_dispatch_add_attribute_period_open():
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = []
+    writer.add_attribute_value.return_value = {"ok": True}
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            21600,
+            "add-attribute-period",
+            "firmware_version",
+            "5.6.0",
+            "2026-05-18",
+            "open",
+        ),
+    )
+    assert result.status == "ok"
+    writer.add_attribute_value.assert_called_once_with(
+        21600, "firmware_version", "5.6.0", "2026-05-18", None
+    )
+    assert "date_to=open" in result.detail
+
+
+def test_dispatch_add_attribute_period_idempotent_noop():
+    writer = MagicMock()
+    writer.get_attribute_values.return_value = [
+        _attr_value(
+            99,
+            "firmware_version",
+            "5.3.0",
+            "2019-10-15 00:00:00",
+            "2026-05-18 00:00:00",
+        ),
+    ]
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            21600,
+            "add-attribute-period",
+            "firmware_version",
+            "5.3.0",
+            "2019-10-15",
+            "2026-05-18",
+        ),
+    )
+    assert result.status == "ok"
+    assert "already present" in result.detail
+    writer.add_attribute_value.assert_not_called()
+
+
+def test_dispatch_add_attribute_period_rejects_inverted_dates():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            21600,
+            "add-attribute-period",
+            "firmware_version",
+            "5.3.0",
+            "2026-05-18",
+            "2019-10-15",
+        ),
+    )
+    assert result.status == "failed"
+    assert "must be after" in result.detail
+    writer.add_attribute_value.assert_not_called()
+
+
+def test_dispatch_add_attribute_period_rejects_placeholder():
+    writer = MagicMock()
+    result = _dispatch_action(
+        writer,
+        _make_action(
+            21600,
+            "add-attribute-period",
+            "firmware_version",
+            "<FILL>",
+            "2019-10-15",
+            "open",
+        ),
+    )
+    assert result.status == "failed"
+    assert "placeholder" in result.detail

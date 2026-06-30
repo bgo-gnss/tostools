@@ -7423,6 +7423,13 @@ def _audit_main(argv):
             "                            `tos audit missing-attributes --triage`. "
             "Quote values\n"
             "                            with spaces, e.g. `'GPS stöð'`.\n"
+            "  add-attribute-period <code> <value> <date_from> <date_to|open>\n"
+            "                            POST /attribute_values for ONE period —\n"
+            "                            closed (date_to=YYYY-MM-DD) or open\n"
+            "                            (date_to=open). The multi-period history\n"
+            "                            primitive: delete the stale single value,\n"
+            "                            then chain these to rebuild a full\n"
+            "                            firmware/attribute timeline. Idempotent.\n"
             "  delete-join <id_connection>\n"
             "                            DELETE /admin_entity_connection_row/<id> "
             "— permanently\n"
@@ -8524,6 +8531,7 @@ class ParseError:
 
 _SUPPORTED_VERBS = (
     "add-attribute",
+    "add-attribute-period",
     "add-visit",
     "assign-contact",
     "change-subtype",
@@ -8705,6 +8713,19 @@ def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]
                         "<code> <value> <date_from> "
                         "(quote the value if it contains spaces, e.g. "
                         "'GPS stöð')"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        if verb == "add-attribute-period" and len(tokens) != 7:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "add-attribute-period requires exactly four arguments: "
+                        "<code> <value> <date_from> <date_to|open> "
+                        "(quote the value if it contains spaces)"
                     ),
                     raw=raw,
                 )
@@ -9469,6 +9490,122 @@ def _dispatch_add_attribute(writer, action: ParsedAction) -> ActionResult:
             f"POST /attribute_values id_entity={action.id_entity} "
             f"code={code!r} value={value!r} date_from={date_from} "
             f"— {response!r}"
+        ),
+    )
+
+
+def _dispatch_add_attribute_period(writer, action: ParsedAction) -> ActionResult:
+    """POST one attribute period — open OR closed — the multi-period history primitive.
+
+    Action shape: ``ACTION <id_entity> add-attribute-period <code> <value>
+    <date_from> <date_to>`` where ``date_to`` is ``open`` (→ None, open period)
+    or a ``YYYY-MM-DD`` date (→ closed period). Unlike ``add-attribute`` this does
+    NOT refuse when an open period already exists: it is the deliberate primitive
+    for rebuilding a full firmware/attribute timeline (delete the stale single
+    value first, then add each mined period — middles closed, the last one open).
+    Idempotent: a period with the same value+date_from+date_to is a no-op.
+    """
+    code = action.args[0]
+    value = action.args[1]
+    date_from_raw = action.args[2]
+    date_to_raw = action.args[3]
+
+    for label, tok in (
+        ("value", value),
+        ("date_from", date_from_raw),
+        ("date_to", date_to_raw),
+    ):
+        if tok.startswith("<") and tok.endswith(">"):
+            return ActionResult(
+                action=action,
+                status="failed",
+                detail=(
+                    f"add-attribute-period: {label} placeholder {tok!r} not "
+                    "replaced — fill it in before applying"
+                ),
+            )
+
+    resolved, err = _resolve_date_token(date_from_raw, action.id_entity, writer)
+    if err is not None:
+        return ActionResult(
+            action=action, status="failed", detail=f"add-attribute-period: {err}"
+        )
+    date_from_raw = resolved or date_from_raw
+    date_from = date_from_raw[:10]
+    if len(date_from) != 10 or date_from[4] != "-" or date_from[7] != "-":
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"add-attribute-period: date_from must be YYYY-MM-DD "
+                f"(got {date_from_raw!r})"
+            ),
+        )
+
+    if date_to_raw.lower() == "open":
+        date_to: Optional[str] = None
+    else:
+        date_to = date_to_raw[:10]
+        if len(date_to) != 10 or date_to[4] != "-" or date_to[7] != "-":
+            return ActionResult(
+                action=action,
+                status="failed",
+                detail=(
+                    f"add-attribute-period: date_to must be YYYY-MM-DD or "
+                    f"'open' (got {date_to_raw!r})"
+                ),
+            )
+        if date_to <= date_from:
+            return ActionResult(
+                action=action,
+                status="failed",
+                detail=(
+                    f"add-attribute-period: date_to {date_to} must be after "
+                    f"date_from {date_from}"
+                ),
+            )
+
+    # Idempotency: an identical (value, date_from, date_to) period is a no-op.
+    try:
+        existing = writer.get_attribute_values(action.id_entity, code)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"get_attribute_values raised: {exc}",
+        )
+    for a in existing:
+        a_from = (a.get("date_from") or "")[:10]
+        raw_to = a.get("date_to")
+        a_to = (raw_to or "")[:10] if raw_to else None
+        if str(a.get("value")) == value and a_from == date_from and a_to == date_to:
+            return ActionResult(
+                action=action,
+                status="ok",
+                detail=(
+                    f"already present: {code!r}={value!r} "
+                    f"[{date_from}..{date_to or 'open'}] (no-op)"
+                ),
+            )
+
+    try:
+        response = writer.add_attribute_value(
+            action.id_entity, code, value, date_from, date_to
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"add_attribute_value raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"POST /attribute_values id_entity={action.id_entity} "
+            f"code={code!r} value={value!r} date_from={date_from} "
+            f"date_to={date_to or 'open'} — {response!r}"
         ),
     )
 
@@ -10304,6 +10441,8 @@ def _dispatch_action(
         return _dispatch_delete_join(writer, action)
     if action.verb == "add-attribute":
         return _dispatch_add_attribute(writer, action)
+    if action.verb == "add-attribute-period":
+        return _dispatch_add_attribute_period(writer, action)
     if action.verb == "add-visit":
         return _dispatch_add_visit(writer, action)
     if action.verb == "patch-contact-relationship":
