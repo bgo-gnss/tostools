@@ -703,3 +703,24 @@ def test_audit_log_device_creation_writes_record(tmp_path):
     assert rec["action"] == "device_create"
     assert rec["id_entity"] == 21606 and rec["serial"] == "4718131963"
     assert rec["source"] == "receivers cfg add-receiver"
+
+
+def test_build_monument_attributes_model_optional():
+    """--model adds a `model` attribute when given, omits it when not (the
+    monument mark-type, e.g. 'GPS stál-fjórfótur')."""
+    from tostools.device import build_monument_attributes
+
+    with_model = build_monument_attributes(
+        "monument-HAFC-20210309",
+        "Jarðeðlismælihópur",
+        "2021-03-09",
+        "0.0",
+        model="GPS stál-fjórfótur",
+    )
+    model_rows = [a for a in with_model if a["code"] == "model"]
+    assert len(model_rows) == 1
+    assert model_rows[0]["value"] == "GPS stál-fjórfótur"
+    assert model_rows[0]["date_from"] == "2021-03-09"
+
+    without = build_monument_attributes("x", "o", "2021-03-09", "0.0")
+    assert not any(a["code"] == "model" for a in without)

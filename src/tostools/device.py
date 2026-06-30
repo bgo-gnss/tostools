@@ -319,12 +319,16 @@ def build_monument_attributes(
     date_start: str,
     monument_height: str,
     comment: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> List[Dict[str, Optional[str]]]:
     """Build the attribute list for a new ``monument`` device.
 
     A monument is the survey mark/pillar the antenna sits on; in TOS it carries
     the ``monument_height`` offset (mark → antenna reference point) and a minimal
-    identity — **no ``model``** (monuments have no vendor/IGS model).
+    identity. The ``model`` is the physical mark *type* — a free-text descriptor
+    (e.g. ``"GPS stál-fjórfótur"`` (steel quadripod), ``"GPS stál-staur"`` (steel
+    post), ``"steyptur stöpull"`` (concrete pillar)) — and is optional: omit it
+    when the mark type is unknown.
 
     The height attribute code is ``monument_height`` — the monument-scoped code
     the metadata readers use (``gps_metadata_qc``: ``device["monument_height"]``
@@ -340,6 +344,7 @@ def build_monument_attributes(
         date_start: Install/epoch date — ``YYYY-MM-DD`` or full ISO datetime.
         monument_height: Mark → ARP height in metres as a string (e.g. ``"0.0"``).
         comment: Free-text note (e.g. the synthetic-serial provenance).
+        model: Physical mark type (free text), or None to omit the attribute.
 
     Returns:
         Attribute-value dicts ready for :meth:`TOSWriter.create_device`.
@@ -365,6 +370,15 @@ def build_monument_attributes(
             "date_to": None,
         },
     ]
+    if model:
+        attrs.append(
+            {
+                "code": "model",
+                "value": model,
+                "date_from": date_start,
+                "date_to": None,
+            }
+        )
     if comment:
         attrs.append(
             {
