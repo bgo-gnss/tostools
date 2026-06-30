@@ -30,6 +30,7 @@ are GET-only).
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 from .audit_fleet_sweep import _synthetic
@@ -91,6 +92,131 @@ def _current_location(joins: List[Any]) -> Dict[str, Any]:
     return {"open_parent_id": None, "n_joins": n_joins, "parked": True}
 
 
+@dataclass
+class DeviceScanRow:
+    """One device's identity + current attachment, from a single fleet walk.
+
+    The atomic output of :func:`scan_fleet_devices` — everything the
+    duplicate-serial detector and the ``tos device find`` dup-guard both
+    need, resolved identically so the two verbs can never disagree about
+    where a device sits.
+    """
+
+    id_entity: int
+    subtype: Optional[str]
+    serial: Optional[str]
+    open_parent_id: Optional[int]
+    open_parent_name: Optional[str]
+    n_joins: int
+    parked: bool
+    """True when the device has no open join (detached — in B9/warehouse or
+    orphaned). False when it is currently attached to ``open_parent_id``."""
+
+
+def scan_fleet_devices(
+    client: TOSClient,
+    *,
+    parents: Optional[Any] = None,
+    index: Optional[Any] = None,
+    parent_names: Optional[Dict[int, Optional[str]]] = None,
+    progress: Optional[ProgressCb] = None,
+    coverage: Optional[Dict[str, int]] = None,
+) -> List[DeviceScanRow]:
+    """Walk the global join index once, returning every device's identity row.
+
+    The shared fleet-walk primitive behind both :func:`find_duplicate_serials`
+    and :func:`tostools.device_find.find_devices_by_serial`. Builds (or accepts
+    a pre-built) join index, then fetches each candidate's subtype + open
+    ``serial_number`` once and resolves its current/last parent.
+
+    Cost: one fleet join walk (~200 parent fetches, ~110s) plus one
+    ``get_entity_history`` per candidate. Batch callers that look up many
+    serials in one session should build ``parents`` + ``index`` once
+    (via :func:`enumerate_known_parents` / :func:`build_join_index`) and pass
+    them in to avoid re-walking the fleet per call.
+
+    Args:
+        client: An unauthenticated :class:`TOSClient`.
+        parents: Pre-enumerated parent list. When ``None`` (and ``index`` is
+            also ``None``), enumerated via :func:`enumerate_known_parents`
+            with :data:`KNOWN_MISSING_FROM_CFG_PARENT_IDS`.
+        index: Pre-built :class:`JoinIndex`. When ``None`` it is built from
+            ``parents``. Supply both to reuse one walk across many lookups.
+        parent_names: ``{id_entity: name}`` for resolving ``open_parent_name``.
+            Derived from ``parents`` when omitted; pass it explicitly when you
+            supply a pre-built ``index`` but no ``parents`` list.
+        progress: Optional ``(current, total, 0)`` callback fired after each
+            per-device fetch (third arg is always 0 — kept for signature
+            symmetry with the duplicate-serial progress line).
+        coverage: Optional mutable dict, populated on return with
+            ``parents_walked`` / ``parents_failed`` / ``total_devices``. When
+            ``parents_failed > 0`` the walk is a **floor, not a census** — a
+            device under a dropped parent is invisible. Callers that gate a
+            create decision on "serial not found" MUST treat that case as
+            inconclusive, not as proof of absence (the GRAN incident).
+
+    Returns:
+        One :class:`DeviceScanRow` per candidate device, in ``index.device_ids``
+        order. Rows with an unreadable history carry ``subtype=None`` and
+        ``serial=None`` but still record join location.
+    """
+    if index is None:
+        if parents is None:
+            parents = enumerate_known_parents(
+                client,
+                extra_parent_ids=KNOWN_MISSING_FROM_CFG_PARENT_IDS,
+            )
+        parents = list(parents)
+        index = build_join_index(client, parents=parents)
+
+    if parent_names is None:
+        parent_names = {p.id_entity: p.name for p in (parents or [])}
+
+    candidates = index.device_ids
+    total = len(candidates)
+
+    if coverage is not None:
+        coverage["parents_walked"] = index.parents_walked
+        coverage["parents_failed"] = index.parents_failed
+        coverage["total_devices"] = total
+
+    rows: List[DeviceScanRow] = []
+    for i, did in enumerate(candidates, 1):
+        try:
+            history = client.get_entity_history(did)
+        except Exception as exc:  # network errors, transient TOS failures
+            logger.warning(
+                "scan_fleet_devices: get_entity_history(%d) raised: %s; " "skipping",
+                did,
+                exc,
+            )
+            history = None
+        if history:
+            dev_subtype = history.get("code_entity_subtype") or None
+            attrs = history.get("attributes") or []
+            serial = _open_attribute_value(attrs, "serial_number")
+        else:
+            dev_subtype = None
+            serial = None
+
+        if progress:
+            progress(i, total, 0)
+
+        loc = _current_location(index.by_child.get(did, []))
+        rows.append(
+            DeviceScanRow(
+                id_entity=did,
+                subtype=dev_subtype,
+                serial=serial,
+                open_parent_id=loc["open_parent_id"],
+                open_parent_name=parent_names.get(loc["open_parent_id"]),
+                n_joins=loc["n_joins"],
+                parked=loc["parked"],
+            )
+        )
+    return rows
+
+
 def find_duplicate_serials(
     client: TOSClient,
     *,
@@ -147,74 +273,46 @@ def find_duplicate_serials(
         Sorted by subtype then serial; entities within a group sorted by
         ``id_entity``. Only groups with ≥2 distinct entity ids are returned.
     """
-    parents = enumerate_known_parents(
-        client,
-        extra_parent_ids=KNOWN_MISSING_FROM_CFG_PARENT_IDS,
-    )
-    parent_list = list(parents)
-    parent_names: Dict[int, Optional[str]] = {p.id_entity: p.name for p in parent_list}
-
-    index = build_join_index(client, parents=parent_list)
-
-    candidates = index.device_ids
-    total = len(candidates)
-
+    local_coverage: Dict[str, int] = {}
+    rows = scan_fleet_devices(client, progress=progress, coverage=local_coverage)
     if coverage is not None:
-        coverage["parents_walked"] = index.parents_walked
-        coverage["parents_failed"] = index.parents_failed
-        coverage["total_devices"] = total
+        coverage.update(local_coverage)
 
-    if index.parents_failed:
+    walked = local_coverage.get("parents_walked", 0)
+    failed = local_coverage.get("parents_failed", 0)
+    if failed:
         logger.warning(
             "find_duplicate_serials: %d/%d parents failed to read — duplicate "
             "count is a FLOOR, not a census (dups under dropped parents are "
             "invisible)",
-            index.parents_failed,
-            index.parents_walked + index.parents_failed,
+            failed,
+            walked + failed,
         )
     else:
         logger.info(
             "find_duplicate_serials: walked %d parents, %d candidate devices",
-            index.parents_walked,
-            total,
+            walked,
+            local_coverage.get("total_devices", 0),
         )
 
     # key (subtype, serial) -> {id_entity -> location dict}
     groups: Dict[tuple[Optional[str], str], Dict[int, Dict[str, Any]]] = {}
 
-    for i, did in enumerate(candidates, 1):
-        try:
-            history = client.get_entity_history(did)
-        except Exception as exc:  # network errors, transient TOS failures
-            logger.warning(
-                "find_duplicate_serials: get_entity_history(%d) raised: %s; "
-                "skipping",
-                did,
-                exc,
-            )
-            history = None
-        if history:
-            dev_subtype = history.get("code_entity_subtype") or None
-            attrs = history.get("attributes") or []
-            serial = _open_attribute_value(attrs, "serial_number")
-        else:
-            dev_subtype = None
-            serial = None
-
-        if progress:
-            progress(i, total, 0)
-
-        if subtype is not None and dev_subtype != subtype:
+    for row in rows:
+        if subtype is not None and row.subtype != subtype:
             continue
-        if not serial:
+        if not row.serial:
             continue
-        if not include_synthetic and _is_placeholder(serial):
+        if not include_synthetic and _is_placeholder(row.serial):
             continue
 
-        loc = _current_location(index.by_child.get(did, []))
-        loc["id_entity"] = did
-        loc["open_parent_name"] = parent_names.get(loc["open_parent_id"])
-        groups.setdefault((dev_subtype, serial), {})[did] = loc
+        groups.setdefault((row.subtype, row.serial), {})[row.id_entity] = {
+            "id_entity": row.id_entity,
+            "open_parent_id": row.open_parent_id,
+            "open_parent_name": row.open_parent_name,
+            "n_joins": row.n_joins,
+            "parked": row.parked,
+        }
 
     out: List[Dict[str, Any]] = []
     for (grp_subtype, serial), by_id in groups.items():

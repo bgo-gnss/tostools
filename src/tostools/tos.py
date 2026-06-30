@@ -1133,6 +1133,63 @@ def _render_show_parent_history(
     console.print(table)
 
 
+def _device_find_main(args) -> int:
+    """Handle ``tos device find`` — serial → entity dup-guard lookup.
+
+    Read-only. Walks the global join index (~110s on the IMO fleet), reports
+    every device entity carrying ``--serial``, and classifies the result into
+    the create / move / reopen / duplicate / inconclusive bucket.
+
+    Exit codes are a **create-gate**: 0 ONLY when the serial is provably absent
+    (CREATE), so ``tos device find … && tos device add …`` is a safe shell
+    gate. Non-zero otherwise — 1 INCONCLUSIVE (walk incomplete), 3 the device
+    already exists (ATTACHED / REOPEN), 4 DUPLICATE, 2 usage error.
+    """
+    import json as _json
+
+    from . import audit as audit_mod
+    from . import device_find as find_mod
+    from .api.tos_client import TOSClient
+
+    canonical_subtype = (
+        audit_mod.canonical_subtype(args.subtype) if args.subtype else None
+    )
+
+    scheme = "https" if args.port == 443 else "http"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
+    client = TOSClient(base_url=base_url)
+
+    progress = None
+    if not (args.no_progress or args.json or not sys.stderr.isatty()):
+        sys.stderr.write(
+            "Resolving station markers + walking joins (~110s for the IMO "
+            "fleet), then one serial fetch per device...\n"
+        )
+        sys.stderr.flush()
+
+        def _emit_progress(idx: int, total: int, _n: int) -> None:
+            end = "\n" if idx == total else ""
+            sys.stderr.write(f"\r  devices: {idx}/{total}{end}")
+            sys.stderr.flush()
+
+        progress = _emit_progress
+
+    lookup = find_mod.find_devices_by_serial(
+        client,
+        args.serial,
+        subtype=canonical_subtype,
+        progress=progress,
+    )
+
+    if args.json:
+        print(_json.dumps(lookup.to_json_dict(), ensure_ascii=False, indent=2))
+    else:
+        print(find_mod.format_report(lookup))
+
+    # 0 only for CREATE — see EXIT_CODES / the docstring's create-gate note.
+    return find_mod.EXIT_CODES.get(lookup.bucket, 1)
+
+
 def _device_show_main(args) -> int:
     """Handle ``tos device show`` — read-only device inspection.
 
@@ -2046,6 +2103,7 @@ def _device_main(argv):
     validation, owner allow-list checking, IGS model normalisation, and a
     duplicate-serial guard (bypassable with ``--force``). Defaults to dry-run.
     """
+    from . import audit as audit_mod
     from . import device as device_helpers
     from .api.tos_writer import TOSWriter
     from .owners import OwnersCache
@@ -2457,7 +2515,59 @@ def _device_main(argv):
         "--json", action="store_true", help="Emit a structured JSON summary."
     )
 
+    p_find = sub.add_parser(
+        "find",
+        help=(
+            "Locate every device entity carrying a serial via the global "
+            "join index (the dup-guard) — reports create/move/reopen bucket."
+        ),
+        description=(
+            "Walk the global join index and report every TOS device entity "
+            "whose open serial matches --serial, its current parent, and "
+            "join count, then classify into the create-vs-move-vs-reopen "
+            "bucket every reconstruction must gate on. Unlike `tos device "
+            "show --serial`, this does NOT use basic_search (which returns "
+            "None for serials that exist → silent duplicate-mint); it reads "
+            "every parent's joins directly. A 'not found' result while any "
+            "parent failed to read is reported INCONCLUSIVE, never 'safe to "
+            "create'."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos device find --serial 3070340 --subtype gnss_receiver\n"
+            "  tos device find --serial 5048K71916 --json\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_find.add_argument("--serial", required=True, help="Device serial to locate.")
+    p_find.add_argument(
+        "--subtype",
+        choices=sorted(set(audit_mod.SUBTYPE_ALIASES)),
+        help=(
+            "Restrict matches to a TOS subtype (short alias or canonical, "
+            "e.g. 'receiver' / 'gnss_receiver'). Omit to match any subtype."
+        ),
+    )
+    p_find.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_find.add_argument("--port", type=int, default=443)
+    p_find.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a structured JSON summary instead of plain text.",
+    )
+    p_find.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Suppress the stderr fleet-walk progress line.",
+    )
+
     args = p.parse_args(argv)
+    if args.action == "find":
+        return _device_find_main(args)
     if args.action == "merge":
         return _device_merge_main(args)
     if args.action == "delete":
