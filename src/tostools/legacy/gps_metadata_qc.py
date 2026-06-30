@@ -369,7 +369,14 @@ def device_attribute_history(device, session_start, session_end, loglevel=loggin
     module_logger.debug("tmp_connections: %s", gpsf.json_print(tmp_connections))
 
     if sub_sessions:
-        for sub_session in sorted(sub_sessions):
+        # None-safe sort: sub_sessions are (date_from, date_to) tuples and an open
+        # period has date_to=None. When two sub-sessions share a date_from (e.g. a
+        # firmware update closes the old period to date X while serial stays open),
+        # plain sorted() compares the second elements -> str < None -> TypeError.
+        # date_from None sorts first; date_to None (open/ongoing) sorts last.
+        for sub_session in sorted(
+            sub_sessions, key=lambda s: (s[0] or "", s[1] or "9999")
+        ):
             session_collection = (
                 connection
                 for connection in tmp_connections
