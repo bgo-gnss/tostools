@@ -111,7 +111,18 @@ def compare_rinex_to_tos(
                 try:
                     # Parse RINEX height (first value in H/E/N)
                     rinex_h = float(rinex_height.split()[0])
-                    tos_h = float(tos_height)
+                    # RINEX "ANTENNA: DELTA H" is the full mark->ARP height, so the
+                    # TOS expectation is the COMPOSITE of the antenna eccentricity
+                    # (monument-top->ARP) and the monument height (mark->monument-top)
+                    # — the same sum the corrector/header path uses. Comparing the
+                    # eccentricity alone falsely flags every station with a non-zero
+                    # monument. monument_height is the canonical code; antenna_height
+                    # on the monument is only a legacy fallback.
+                    monument_info = tos_session.get("monument") or {}
+                    mon_h = monument_info.get("monument_height")
+                    if mon_h is None:
+                        mon_h = monument_info.get("antenna_height")  # legacy fallback
+                    tos_h = float(tos_height) + float(mon_h or 0.0)
 
                     if abs(rinex_h - tos_h) > 0.001:  # 1mm tolerance
                         comparison_result["discrepancies"]["antenna_height"] = {
