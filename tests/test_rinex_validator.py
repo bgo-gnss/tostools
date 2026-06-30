@@ -157,3 +157,35 @@ def test_coord_check_payload_shape():
     }
     assert cc["tolerance_m"] == 10.0
     assert len(cc["diff_xyz"]) == 3
+
+
+# --- antenna height = antenna eccentricity + monument height (composite) -------
+
+
+def _ah_result(rinex_delta_h, antenna_ecc, monument_height):
+    from tostools.rinex.validator import compare_rinex_to_tos
+
+    rinex_info = {"ANTENNA: DELTA H/E/N": f"{rinex_delta_h:.4f} 0.0000 0.0000"}
+    session = {"antenna": {"antenna_height": antenna_ecc}}
+    if monument_height is not None:
+        session["monument"] = {"monument_height": monument_height}
+    return compare_rinex_to_tos(rinex_info, session)
+
+
+def test_antenna_height_composite_matches_rinex_delta_h():
+    # RHOF: ecc -0.007 + monument 1.014 == DELTA H 1.0070 -> match (no discrepancy).
+    r = _ah_result(1.0070, -0.007, 1.014)
+    assert "antenna_height" not in r["discrepancies"]
+    assert r["matches"]["antenna_height"] == 1.0070
+
+
+def test_antenna_height_no_monument_uses_eccentricity_alone():
+    # FIHO: no monument record -> ecc carries the full height (0.192) == DELTA H.
+    r = _ah_result(0.1920, 0.192, None)
+    assert "antenna_height" not in r["discrepancies"]
+
+
+def test_antenna_height_real_mismatch_still_flagged():
+    # Genuine mismatch (composite 1.014 vs DELTA H 1.500) is still a discrepancy.
+    r = _ah_result(1.5000, 0.0, 1.014)
+    assert "antenna_height" in r["discrepancies"]
