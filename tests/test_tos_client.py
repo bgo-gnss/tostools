@@ -1913,3 +1913,16 @@ def test_device_show_json_includes_visits(capsys):
     payload = _json.loads(capsys.readouterr().out)
     assert "visits" in payload
     assert payload["visits"] == visits
+
+
+def test_get_device_sessions_null_children_connections_no_crash():
+    """A station whose ``children_connections`` is present-but-null (no joined
+    devices) must yield an empty session list, not raise 'NoneType not iterable'.
+
+    Regression: HELF returned ``{"children_connections": None}`` and crashed
+    ``get_complete_station_metadata`` (``.get(key, [])`` returns None when the
+    key exists with a null value).
+    """
+    client = TOSClient()
+    assert client.get_device_sessions({"children_connections": None}) == []
+    assert client.get_device_sessions({}) == []

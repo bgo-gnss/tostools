@@ -504,7 +504,10 @@ class TOSClient:
         device_sessions = []
         devices_used = ["gnss_receiver", "antenna", "radome", "monument"]
 
-        for connection in device_history.get("children_connections", []):
+        # ``children_connections`` may be present-but-null (a station with no
+        # joined devices) — ``.get(key, [])`` returns the default only when the
+        # key is MISSING, so coalesce None → [] to avoid "NoneType not iterable".
+        for connection in device_history.get("children_connections") or []:
             # Skip zero-duration sessions
             if connection["time_from"] == connection["time_to"]:
                 self.logger.debug(
