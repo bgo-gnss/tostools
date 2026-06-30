@@ -90,8 +90,14 @@ def _generate_site_identification(
 ) -> str:
     """Generate site identification section (Section 1)."""
 
-    # Get monument information from current session
-    monument_height = "(m)"
+    # Get monument information from current session. Height defaults to the
+    # catalog default for the monument_height attribute (attribute_codes.yaml:
+    # default_value "0.0") rather than the empty "(m)" placeholder — a missing
+    # monument record means a zero mark->monument offset, not "unknown". The
+    # canonical code is monument_height; antenna_height is only a *legacy*
+    # fallback (old records misfiled the height on the monument under the
+    # antenna code — flagged by the missing-attributes audit).
+    monument_height = "0.0 m"
     monument_description = "STEEL MAST"
     foundation = "STEEL RODS"
 
@@ -106,9 +112,10 @@ def _generate_site_identification(
 
     if current_monument:
         device = current_monument.get("monument", {})
-        height_val = device.get("monument_height") or device.get("antenna_height", 0.0)
-        if height_val:
-            monument_height = f"{float(height_val)} m"
+        height_val = device.get("monument_height")
+        if height_val is None:
+            height_val = device.get("antenna_height")  # legacy fallback only
+        monument_height = f"{float(height_val or 0.0)} m"
 
         monument_description = device.get("description", "STEEL MAST")
         foundation = device.get("foundation", "STEEL RODS")
