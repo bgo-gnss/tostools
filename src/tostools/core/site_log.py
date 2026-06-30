@@ -90,8 +90,14 @@ def _generate_site_identification(
 ) -> str:
     """Generate site identification section (Section 1)."""
 
-    # Get monument information from current session
-    monument_height = "(m)"
+    # Get monument information from current session. Height defaults to the
+    # catalog default for the monument_height attribute (attribute_codes.yaml:
+    # default_value "0.0") rather than the empty "(m)" placeholder — a missing
+    # monument record means a zero mark->monument offset, not "unknown". The
+    # canonical code is monument_height; antenna_height is only a *legacy*
+    # fallback (old records misfiled the height on the monument under the
+    # antenna code — flagged by the missing-attributes audit).
+    monument_height = "0.0 m"
     monument_description = "STEEL MAST"
     foundation = "STEEL RODS"
 
@@ -106,9 +112,10 @@ def _generate_site_identification(
 
     if current_monument:
         device = current_monument.get("monument", {})
-        height_val = device.get("monument_height") or device.get("antenna_height", 0.0)
-        if height_val:
-            monument_height = f"{float(height_val)} m"
+        height_val = device.get("monument_height")
+        if height_val is None:
+            height_val = device.get("antenna_height")  # legacy fallback only
+        monument_height = f"{float(height_val or 0.0)} m"
 
         monument_description = device.get("description", "STEEL MAST")
         foundation = device.get("foundation", "STEEL RODS")
@@ -227,6 +234,62 @@ def _generate_receiver_section(device_sessions: List[Dict[str, Any]]) -> str:
     return "\n\n".join(receiver_sections)
 
 
+def _monument_height_for_period(
+    device_sessions: List[Dict[str, Any]],
+    time_from: Any,
+    time_to: Any,
+) -> float:
+    """Monument height (mark -> monument top) in effect during an antenna period.
+
+    Monument and antenna live in *separate* device-history sessions with their own
+    date ranges, so the monument height for an antenna session must be looked up by
+    period overlap. Among the monument sessions overlapping ``[time_from, time_to]``
+    the one active at the antenna's install instant is preferred (else the
+    latest-starting overlap). Returns 0.0 when no monument session applies — the
+    same default the RINEX-header path uses.
+    """
+    monuments = [
+        s
+        for s in device_sessions
+        if "monument" in s
+        and (s.get("monument") or {}).get("monument_height") is not None
+    ]
+    overlapping = []
+    for s in monuments:
+        m_from = s.get("time_from")
+        m_to = s.get("time_to")
+        # No overlap if the antenna period ends before the monument starts ...
+        if time_to is not None and m_from is not None and time_to <= m_from:
+            continue
+        # ... or the monument ends before the antenna period starts.
+        if m_to is not None and time_from is not None and m_to <= time_from:
+            continue
+        overlapping.append(s)
+    if not overlapping:
+        return 0.0
+
+    def _starts(s: Dict[str, Any]) -> datetime:
+        return s.get("time_from") or datetime.min
+
+    # Prefer the monument active at the antenna install instant; else latest start.
+    active_at_start = [
+        s
+        for s in overlapping
+        if (
+            s.get("time_from") is None
+            or time_from is None
+            or s.get("time_from") <= time_from
+        )
+        and (
+            s.get("time_to") is None
+            or time_from is None
+            or s.get("time_to") > time_from
+        )
+    ]
+    chosen = max(active_at_start or overlapping, key=_starts)
+    return float((chosen.get("monument") or {}).get("monument_height") or 0.0)
+
+
 def _generate_antenna_section(device_sessions: List[Dict[str, Any]]) -> str:
     """Generate GNSS antenna section (Section 4)."""
 
@@ -243,7 +306,16 @@ def _generate_antenna_section(device_sessions: List[Dict[str, Any]]) -> str:
 
         antenna_type = antenna.get("model", "")
         serial_num = antenna.get("serial_number", "")
-        antenna_height = antenna.get("antenna_height", 0.0)
+        # IGS "Marker->ARP Up Ecc." is the FULL mark -> ARP height and must equal the
+        # RINEX header's "ANTENNA: DELTA H". TOS stores the antenna eccentricity
+        # (monument-top -> ARP) separately from the monument height (mark ->
+        # monument-top), so the published value is the composite of the two — the
+        # same sum the RINEX-header path uses (gps_rinex: antenna + monument).
+        antenna_ecc = antenna.get("antenna_height", 0.0) or 0.0
+        monument_height = _monument_height_for_period(
+            device_sessions, session.get("time_from"), session.get("time_to")
+        )
+        antenna_height = antenna_ecc + monument_height
 
         # Get radome info if available from same session
         radome_type = "NONE"
