@@ -651,3 +651,55 @@ def test_attributes_from_mapping_drops_falsy() -> None:
     attrs = attributes_from_mapping({"a": "1", "b": None, "c": "", "d": "4"}, "2026")
     assert [a["code"] for a in attrs] == ["a", "d"]
     assert all(a["date_from"] == "2026" and a["date_to"] is None for a in attrs)
+
+
+def test_append_device_creation_record_creates_and_appends(tmp_path):
+    """Creation ledger mirrors the deletion ledger: appends to
+    additions/device_additions.jsonl, creating the dir on first use."""
+    import json as _json
+
+    from tostools.tos import _append_device_creation_record
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    p = _append_device_creation_record(
+        repo, {"id_entity": 21606, "serial": "4718131963"}
+    )
+    p2 = _append_device_creation_record(repo, {"id_entity": 7, "serial": "Z"})
+    assert p == p2 == repo / "additions" / "device_additions.jsonl"
+    lines = p.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    assert _json.loads(lines[0])["id_entity"] == 21606
+    assert _json.loads(lines[1])["serial"] == "Z"
+
+
+def test_audit_log_device_creation_writes_record(tmp_path):
+    """audit_log_device_creation resolves the corrections repo, writes a
+    device_create record, and is best-effort (no raise)."""
+    import json as _json
+
+    from tostools import tos as tosmod
+
+    repo = tmp_path / "corrections"
+    repo.mkdir()
+    with (
+        patch.object(tosmod, "_git_commit_file", return_value=False),
+        patch("tostools.archive.tos_corrections_dir", return_value=repo),
+    ):
+        out = tosmod.audit_log_device_creation(
+            21606,
+            subtype="gnss_receiver",
+            serial="4718131963",
+            model="TRIMBLE NETRS",
+            location="B9",
+            date_start="2011-08-18",
+            source="receivers cfg add-receiver",
+            note="BALD",
+        )
+    assert out["logged"] is True
+    rec = _json.loads(
+        (repo / "additions" / "device_additions.jsonl").read_text().strip()
+    )
+    assert rec["action"] == "device_create"
+    assert rec["id_entity"] == 21606 and rec["serial"] == "4718131963"
+    assert rec["source"] == "receivers cfg add-receiver"

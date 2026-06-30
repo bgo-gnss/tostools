@@ -1389,6 +1389,73 @@ def _audit_log_device_deletion(
     return {"logged": True, "log": str(log_path), "committed": committed}
 
 
+def _append_device_creation_record(repo_dir: Path, record: Dict[str, Any]) -> Path:
+    """Append one JSON record to ``<repo>/additions/device_additions.jsonl``.
+
+    The append-only ledger is the audit trail for device CREATIONS (``tos device
+    add`` / ``receivers cfg add-receiver``) — symmetric with
+    ``deletions/device_deletions.jsonl``. A creation is just as much a TOS
+    mutation as a deletion, but unlike an applied triage it otherwise leaves no
+    corrections-repo artifact. Creates the ``additions/`` directory on first use.
+    """
+    import json as _json
+
+    log_dir = repo_dir / "additions"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "device_additions.jsonl"
+    with log_path.open("a", encoding="utf-8") as fh:
+        fh.write(_json.dumps(record, ensure_ascii=False) + "\n")
+    return log_path
+
+
+def audit_log_device_creation(
+    id_entity: int,
+    *,
+    subtype: Optional[str],
+    serial: Optional[str],
+    model: Optional[str],
+    location: Optional[str] = None,
+    date_start: Optional[str] = None,
+    source: str = "tos device add",
+    note: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Append + commit an audit record for a confirmed device creation.
+
+    Public so ``receivers cfg add-receiver`` can log the devices it creates
+    through the same ledger as ``tos device add``. Best-effort and
+    **non-fatal**: the entity already exists, so a logging or git failure warns
+    on stderr and returns an ``error`` field rather than raising. Resolves the
+    corrections repo via :func:`archive.tos_corrections_dir`.
+    """
+    from datetime import datetime
+
+    from .archive import tos_corrections_dir
+
+    record = {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "action": "device_create",
+        "id_entity": id_entity,
+        "subtype": subtype,
+        "serial": serial,
+        "model": model,
+        "location": location,
+        "date_start": date_start,
+        "source": source,
+        "note": note,
+    }
+    try:
+        repo = tos_corrections_dir()
+        log_path = _append_device_creation_record(repo, record)
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠ --commit: could not write creation record: {exc}", file=sys.stderr)
+        return {"logged": False, "error": str(exc)}
+
+    committed = _git_commit_file(
+        log_path, message=f"additions: create dev {id_entity} ({subtype} {serial})"
+    )
+    return {"logged": True, "log": str(log_path), "committed": committed}
+
+
 def _device_delete_main(args) -> int:
     """Handle ``tos device delete --id <n>`` — delete a jointless device entity.
 
@@ -2065,6 +2132,21 @@ def _device_main(argv):
             "--triage is given."
         ),
     )
+    p_add.add_argument(
+        "--commit",
+        action="store_true",
+        help=(
+            "After a live (--no-dry-run) creation, append a record to "
+            "additions/device_additions.jsonl in the gps-tos-corrections repo "
+            "and git-commit it (the audit trail for device creations, "
+            "symmetric with deletions/). Best-effort; never fails the create."
+        ),
+    )
+    p_add.add_argument(
+        "--note",
+        default=None,
+        help="Free-text reason stored in the --commit creation record.",
+    )
 
     p_show = sub.add_parser(
         "show",
@@ -2581,6 +2663,23 @@ def _device_main(argv):
             f"(or pass --triage <file> --placeholder TOKEN to do it in one "
             f"shot next time)"
         )
+
+    # ---- Creation audit log (gps-tos-corrections) ----------------------------
+    # Symmetric with `tos device delete --commit`: record the creation in the
+    # corrections repo so additions leave a trail like deletions do.
+    if getattr(args, "commit", False) and not dry_run and id_entity is not None:
+        audit = audit_log_device_creation(
+            id_entity,
+            subtype=args.subtype,
+            serial=args.serial,
+            model=igs_model,
+            location=args.location,
+            date_start=date_start,
+            source="tos device add",
+            note=getattr(args, "note", None),
+        )
+        if audit.get("logged") and not args.json:
+            print(f"--commit: creation logged → {audit.get('log')}")
     return 0
 
 
