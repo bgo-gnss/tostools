@@ -38,7 +38,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Protocol
 
 from .archive import (
     ArchiveDay,
@@ -240,16 +240,35 @@ class ReceiverSegment:
     header: ReceiverHeader
 
 
+class _HeaderLike(Protocol):
+    """Structural type for any RINEX-header identity the segmenter consumes."""
+
+    @property
+    def key(self) -> tuple: ...
+
+    @property
+    def is_known(self) -> bool: ...
+
+
 def _segment_range(
     days: List[ArchiveDay],
     lo: int,
     hi: int,
-    read_fn: Callable[[Path], Optional[ReceiverHeader]],
-    cache: Dict[int, Optional[ReceiverHeader]],
-) -> List[ReceiverSegment]:
-    """Binary-search header-key boundaries over ``days[lo..hi]`` (inclusive)."""
+    read_fn: Callable[[Path], Optional[_HeaderLike]],
+    cache: Dict[int, Any],
+    segment_cls: Callable[..., Any] = ReceiverSegment,
+) -> List[Any]:
+    """Binary-search header-key boundaries over ``days[lo..hi]`` (inclusive).
 
-    def hdr(i: int) -> Optional[ReceiverHeader]:
+    Header-type-generic: ``read_fn`` returns any object exposing ``.key``
+    (a normalized identity tuple) and ``.is_known`` (bool), and ``segment_cls``
+    is the ``(start, end, header)`` frozen dataclass to emit — defaults to
+    :class:`ReceiverSegment` so existing callers are unaffected; the antenna
+    timeline passes ``AntennaSegment``. A ``None``/``not is_known`` header is a
+    missing read, not a boundary.
+    """
+
+    def hdr(i: int) -> Optional[_HeaderLike]:
         if i not in cache:
             cache[i] = read_fn(days[i].file_path)
         return cache[i]
@@ -263,7 +282,7 @@ def _segment_range(
             i += step
         return None
 
-    def segs(a: int, b: int) -> List[ReceiverSegment]:
+    def segs(a: int, b: int) -> List[Any]:
         left = valid_from(a, 1, b)
         right = valid_from(b, -1, a)
         if left is None or right is None:
@@ -281,11 +300,11 @@ def _segment_range(
                 mh = hdr(mi)
                 if mh is not None and mh.is_known and mh.key != lh.key:
                     return _coalesce(segs(li, mi) + segs(mi, ri))
-            return [ReceiverSegment(days[li].obs_date, days[ri].obs_date, lh)]
+            return [segment_cls(days[li].obs_date, days[ri].obs_date, lh)]
         if ri - li <= 1:
             return [
-                ReceiverSegment(days[li].obs_date, days[li].obs_date, lh),
-                ReceiverSegment(days[ri].obs_date, days[ri].obs_date, rh),
+                segment_cls(days[li].obs_date, days[li].obs_date, lh),
+                segment_cls(days[ri].obs_date, days[ri].obs_date, rh),
             ]
         mid = (li + ri) // 2
         return _coalesce(segs(li, mid) + segs(mid, ri))
@@ -293,12 +312,17 @@ def _segment_range(
     return segs(lo, hi)
 
 
-def _coalesce(segs: List[ReceiverSegment]) -> List[ReceiverSegment]:
-    out: List[ReceiverSegment] = []
+def _coalesce(segs: List[Any]) -> List[Any]:
+    """Merge adjacent segments with equal ``header.key``.
+
+    Reconstructs the merged segment via ``type(p)(...)`` so it works for any
+    ``(start, end, header)`` segment dataclass (ReceiverSegment / AntennaSegment).
+    """
+    out: List[Any] = []
     for s in segs:
         if out and out[-1].header.key == s.header.key:
             p = out[-1]
-            out[-1] = ReceiverSegment(p.start, max(p.end, s.end), p.header)
+            out[-1] = type(p)(p.start, max(p.end, s.end), p.header)
         else:
             out.append(s)
     return out
@@ -382,6 +406,28 @@ def _same_unit(a: tuple, b: tuple) -> bool:
     if a[1] is not None and b[1] is not None and a[1] != b[1]:
         return False
     return True
+
+
+def coalesce_receiver_units(
+    timeline: List[ReceiverSegment],
+) -> List[ReceiverSegment]:
+    """Merge adjacent firmware-only boundaries into one physical-receiver segment.
+
+    :func:`build_receiver_timeline` keys on ``(type, serial, firmware)`` — correct
+    for a firmware timeline, but it fragments one physical unit across its firmware
+    bumps. For a *receiver* (unit) view, coalesce neighbours that are
+    :func:`_same_unit` (type+serial, ignoring firmware), keeping the earliest
+    start and latest end. The retained header is the segment's FIRST (its firmware
+    string is no longer meaningful for a unit view and should not be displayed).
+    """
+    out: List[ReceiverSegment] = []
+    for s in timeline:
+        if out and _same_unit(out[-1].header.key, s.header.key):
+            p = out[-1]
+            out[-1] = ReceiverSegment(p.start, max(p.end, s.end), p.header)
+        else:
+            out.append(s)
+    return out
 
 
 def current_receiver_install_date(timeline: List[ReceiverSegment]) -> Optional[date]:

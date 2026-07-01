@@ -8204,6 +8204,67 @@ def _audit_main(argv):
     )
     p_verify.add_argument("--port", type=int, default=443)
 
+    p_rtl = sub.add_parser(
+        "rinex-timeline",
+        help=(
+            "Empirical receiver / firmware / antenna timeline from the cold "
+            "RINEX archive (no TOS). The truth onboard-station consumes."
+        ),
+        description=(
+            "Reads RINEX headers across "
+            "``<archive>/<YYYY>/<mon>/<STATION>/<rate>/rinex/`` and returns the "
+            "segmented history of one metadata field:\n"
+            "  receiver — physical receiver units (firmware bumps coalesced),\n"
+            "  firmware — every REC # / TYPE / VERS firmware change,\n"
+            "  antenna  — ANT # / TYPE + ANTENNA: DELTA H/E/N (type/radome/"
+            "serial/height).\n\n"
+            "Boundaries are found by binary-searching header keys, so a 25-year "
+            "station costs a few dozen header reads, not thousands. Archive root "
+            "resolves like verify-from-rinex: --archive-root → env "
+            "TOSTOOLS_ARCHIVE_ROOT → receivers.cfg [archive_paths] "
+            "cold_archive_prepath → mount probe."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos audit rinex-timeline --station OLKE --field firmware\n"
+            "  tos audit rinex-timeline --station OLKE --field receiver --json\n"
+            "  tos audit rinex-timeline --station RHOF --field antenna\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rtl.add_argument(
+        "--station",
+        required=True,
+        help="Station marker (e.g. OLKE). Case-insensitive.",
+    )
+    p_rtl.add_argument(
+        "--field",
+        choices=("receiver", "firmware", "antenna"),
+        default="receiver",
+        help="Which metadata field to segment (default: receiver).",
+    )
+    p_rtl.add_argument(
+        "--rate",
+        default="15s_24hr",
+        help="Archive rate subdir to read (default: 15s_24hr).",
+    )
+    p_rtl.add_argument(
+        "--archive-root",
+        type=Path,
+        default=None,
+        help=(
+            "Override the resolved archive root. Default: env "
+            "TOSTOOLS_ARCHIVE_ROOT, then receivers.cfg, then probed mount."
+        ),
+    )
+    p_rtl.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of pretty text."
+    )
+    # --server/--port are unused by this read-only verb but the shared
+    # post-parse client construction below references them.
+    p_rtl.add_argument("--server", default="vi-api.vedur.is", help=argparse.SUPPRESS)
+    p_rtl.add_argument("--port", type=int, default=443, help=argparse.SUPPRESS)
+
     args = p.parse_args(argv)
 
     scheme = "https" if args.port == 443 else "http"
@@ -8709,8 +8770,42 @@ def _audit_main(argv):
     if args.kind == "verify-from-rinex":
         return _audit_verify_from_rinex_main(args, client)
 
+    if args.kind == "rinex-timeline":
+        return _audit_rinex_timeline_main(args)
+
     p.error(f"unknown kind: {args.kind}")
     return 2
+
+
+def _audit_rinex_timeline_main(args) -> int:
+    """Handle ``tos audit rinex-timeline`` — empirical archive-header timeline.
+
+    Read-only, no TOS. Resolves the archive root like verify-from-rinex and
+    prints the segmented receiver / firmware / antenna history. Exit 0 when
+    segments were found, 1 when the archive yields nothing (so callers can tell
+    "no data" from a populated timeline), 2 on a bad field (argparse-guarded).
+    """
+    import json as _json
+
+    from . import audit_rinex_timeline as rtl_mod
+
+    try:
+        report = rtl_mod.run_rinex_timeline(
+            args.station,
+            args.field,
+            root=args.archive_root,
+            rate=args.rate,
+        )
+    except FileNotFoundError as exc:
+        print(f"rinex-timeline: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(_json.dumps(report.to_json_dict(), ensure_ascii=False, indent=2))
+    else:
+        print(rtl_mod.format_report(report))
+
+    return 0 if report.rows else 1
 
 
 # ---------------------------------------------------------------------------
