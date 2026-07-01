@@ -6,7 +6,7 @@ This module provides functions for generating IGS-standard site logs from TOS me
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from ..utils.logging import get_logger
 
@@ -15,30 +15,55 @@ def generate_igs_site_log(
     station_data: Dict[str, Any],
     device_sessions: List[Dict[str, Any]],
     loglevel: int = logging.WARNING,
+    *,
+    country_code: str = "ISL",
+    monument_number: str = "00",
+    agencies: Optional[Dict[str, Any]] = None,
+    prepared_by: str = "GNSS Operator",
+    prepared_email: str = "gnss-epos@vedur.is",
+    previous_site_log: str = "",
 ) -> str:
     """
-    Generate IGS-standard site log from station and device data.
+    Generate an IGS v2.0 site log from station and device data.
 
     Args:
         station_data: Station metadata from TOS
         device_sessions: Device session history
         loglevel: Logging level
+        country_code: ISO country for the 9-char station ID (``RHOF00ISL``)
+        monument_number: 2-digit monument/receiver number of the 9-char ID
+        agencies: Optional agency rendering data for §11/§12/§13 (the caller
+            resolves TOS contact roles through ``agencies.yaml`` — tostools takes
+            plain dicts so it doesn't depend on the resolver)::
+
+                {"poc":         {agency dict},          # §11 On-Site POC
+                 "responsible": {agency dict} | None,   # §12 — None ⇒ same as §11
+                 "data_center": {"primary": "IMO", "secondary": "", "url": "..."}}
+
+            An agency dict has ``name_lines`` (list), ``abbrev``, ``address``
+            (list), ``contact_name``, ``phone``, ``email``. When ``agencies`` is
+            None the sections render as empty v2.0 form placeholders.
+        prepared_by / prepared_email: §0 "Prepared by" identity.
+        previous_site_log: §0 "Previous Site Log" — the prior dated filename in
+            the M3G series (``rhof00isl_20240827.log``); the caller discovers it
+            from the site-log archive.
 
     Returns:
         IGS-formatted site log as string
     """
     logger = get_logger(__name__, loglevel)
 
-    marker = station_data.get("marker", "").upper()
-    site_name = station_data.get("name", "")
-    iers_domes = station_data.get("iers_domes_number", "")
+    marker = (station_data.get("marker") or "").upper()
+    site_name = station_data.get("name") or ""
+    iers_domes = station_data.get("iers_domes_number") or ""
 
-    # Parse dates (currently not used in output, but available for future use)
-    station_data.get("date_start", "")
+    # 9-char station ID (EPOS/IGS v2.0): MARKER + monument/receiver number + country.
+    mon = str(monument_number)[:2].rjust(2, "0")
+    nine_char = f"{marker}{mon}{country_code.upper()}"
 
     # Site identification section
     site_id_section = _generate_site_identification(
-        marker, site_name, iers_domes, station_data, device_sessions
+        marker, site_name, iers_domes, station_data, device_sessions, nine_char
     )
 
     # Site location section
@@ -50,19 +75,30 @@ def generate_igs_site_log(
     # GNSS antenna section
     antenna_section = _generate_antenna_section(device_sessions)
 
+    # Static / low-churn sections (§5-§10) + agency sections (§11-§13).
+    static_sections = _generate_static_sections(station_data)
+    agencies = agencies or {}
+    poc_section = _generate_agency_section(
+        "11.", "On-Site, Point of Contact Agency Information", agencies.get("poc")
+    )
+    responsible_section = _generate_agency_section(
+        "12.", "Responsible Agency (if different from 11.)", agencies.get("responsible")
+    )
+    more_info_section = _generate_more_information(agencies.get("data_center"))
+
     # Combine all sections
-    site_log_content = f"""     {marker}ISL00 Site Information Form (site log)
+    site_log_content = f"""     {nine_char} Site Information Form (site log v2.0)
      International GNSS Service
      See Instructions at:
-       ftp://igs.ign.fr/pub/igscb/igscb_mail/general/sitelog_instr.txt
+       https://files.igs.org/pub/station/general/sitelog_instr.txt
 
 
 0.   Form
 
-     Prepared by (full name)  : GNSS Operator
+     Prepared by (full name)  : {prepared_by} ({prepared_email})
      Date Prepared            : {datetime.now().strftime('%Y-%m-%d')}
      Report Type              : UPDATE
-     Previous Site Log       :
+     Previous Site Log        : {previous_site_log}
      Modified/Added Sections  : (n.n,n.n,...)
 
 
@@ -74,11 +110,18 @@ def generate_igs_site_log(
 
 {antenna_section}
 
-More Information           : (multiple lines)
+{static_sections}
+
+{poc_section}
+
+{responsible_section}
+
+{more_info_section}
 """
 
     logger.info(f"Generated IGS site log for {marker}")
-    return site_log_content
+    # Normalize: empty-value fields otherwise end "…: " with a trailing space.
+    return "\n".join(ln.rstrip() for ln in site_log_content.splitlines()) + "\n"
 
 
 def _generate_site_identification(
@@ -87,6 +130,7 @@ def _generate_site_identification(
     iers_domes: str,
     station_data: Dict[str, Any],
     device_sessions: List[Dict[str, Any]],
+    nine_char: str = "",
 ) -> str:
     """Generate site identification section (Section 1)."""
 
@@ -123,7 +167,7 @@ def _generate_site_identification(
     return f"""1.   Site Identification of the GNSS Monument
 
      Site Name                : {site_name}
-     Four Character ID        : {marker}
+     Nine Character ID        : {nine_char or marker}
      Monument Inscription     :
      IERS DOMES Number        : {iers_domes}
      CDP Number               :
@@ -131,13 +175,13 @@ def _generate_site_identification(
        Height of the Monument : {monument_height}
        Monument Foundation    : {foundation}
        Foundation Depth       : (m)
-     Marker Description       : {station_data.get('marker_description', '')}
-     Date Installed           : {station_data.get('date_start', '')}
-     Geologic Characteristic  : {station_data.get('geological_characteristic', '').upper()}
-       Bedrock Type           : {station_data.get('bedrock_type', '').upper()}
-       Bedrock Condition      : {station_data.get('bedrock_condition', '').upper()}
-       Fracture Spacing       : {station_data.get('fracture_spacing', '')}
-       Fault zones nearby     : {station_data.get('is_near_fault_zones', '').upper()}
+     Marker Description       : {station_data.get('marker_description') or ''}
+     Date Installed           : {station_data.get('date_start') or ''}
+     Geologic Characteristic  : {(station_data.get('geological_characteristic') or '').upper()}
+       Bedrock Type           : {(station_data.get('bedrock_type') or '').upper()}
+       Bedrock Condition      : {(station_data.get('bedrock_condition') or '').upper()}
+       Fracture Spacing       : {station_data.get('fracture_spacing') or ''}
+       Fault zones nearby     : {(station_data.get('is_near_fault_zones') or '').upper()}
          Distance/activity    :
      Additional Information   : (multiple lines)"""
 
@@ -145,9 +189,11 @@ def _generate_site_identification(
 def _generate_site_location(station_data: Dict[str, Any]) -> str:
     """Generate site location section (Section 2)."""
 
-    lat = station_data.get("lat", 0.0)
-    lon = station_data.get("lon", 0.0)
-    altitude = station_data.get("altitude", 0.0)
+    # `or 0.0`: present-but-None coordinates must not crash the ECEF math or the
+    # signed fixed-width format specs below.
+    lat = station_data.get("lat") or 0.0
+    lon = station_data.get("lon") or 0.0
+    altitude = station_data.get("altitude") or 0.0
 
     # Convert to approximate ECEF coordinates
     # This is a simplified conversion - in production should use precise transformations
@@ -201,10 +247,12 @@ def _generate_receiver_section(device_sessions: List[Dict[str, Any]]) -> str:
     for session in receiver_sessions:
         receiver = session.get("gnss_receiver", {})
 
-        receiver_type = receiver.get("model", "")
-        serial_num = receiver.get("serial_number", "")
-        firmware_ver = receiver.get("firmware_version", "") or receiver.get(
-            "software_version", ""
+        # `or ""` (not .get default): TOS delivers present-but-None fields, which
+        # would crash the fixed-width format specs below (the HAMR/SKOG case).
+        receiver_type = receiver.get("model") or ""
+        serial_num = receiver.get("serial_number") or ""
+        firmware_ver = (
+            receiver.get("firmware_version") or receiver.get("software_version") or ""
         )
 
         date_installed = (
@@ -304,8 +352,10 @@ def _generate_antenna_section(device_sessions: List[Dict[str, Any]]) -> str:
     for session in antenna_sessions:
         antenna = session.get("antenna", {})
 
-        antenna_type = antenna.get("model", "")
-        serial_num = antenna.get("serial_number", "")
+        # `or ""`: a present-but-None model/serial (e.g. HAMR's antenna session)
+        # crashed the `{antenna_type:<16}` format spec with NoneType.__format__.
+        antenna_type = antenna.get("model") or ""
+        serial_num = antenna.get("serial_number") or ""
         # IGS "Marker->ARP Up Ecc." is the FULL mark -> ARP height and must equal the
         # RINEX header's "ANTENNA: DELTA H". TOS stores the antenna eccentricity
         # (monument-top -> ARP) separately from the monument height (mark ->
@@ -320,8 +370,8 @@ def _generate_antenna_section(device_sessions: List[Dict[str, Any]]) -> str:
         # Get radome info if available from same session
         radome_type = "NONE"
         if "radome" in session:
-            radome_info = session.get("radome", {})
-            radome_type = radome_info.get("model", "NONE")
+            radome_info = session.get("radome") or {}
+            radome_type = radome_info.get("model") or "NONE"
 
         date_installed = (
             session.get("time_from", "").strftime("%Y-%m-%dT%H:%MZ")
@@ -353,6 +403,109 @@ def _generate_antenna_section(device_sessions: List[Dict[str, Any]]) -> str:
         section_num += 1
 
     return "\n\n".join(antenna_sections)
+
+
+def _generate_static_sections(station_data: Dict[str, Any]) -> str:
+    """Sections 5-10 — v2.0 form skeletons for data TOS does not carry.
+
+    §6 Frequency Standard is real data (all our receivers run on their INTERNAL
+    oscillator, effective from station start); the rest are emitted as empty v2.0
+    form headers so the log is section-complete for M3G/EPOS parsers.
+    """
+    date_start = str(station_data.get("date_start") or "")[:10] or "(CCYY-MM-DD)"
+    return f"""5.   Surveyed Local Ties
+
+5.x  Tied Marker Name         :
+
+
+6.   Frequency Standard
+
+6.1  Standard Type            : INTERNAL
+       Input Frequency        :
+       Effective Dates        : {date_start}/CCYY-MM-DD
+       Notes                  : (multiple lines)
+
+
+7.   Collocation Information
+
+7.x  Instrumentation Type     : (GPS/GLONASS/DORIS/PRARE/SLR/VLBI/TIME/etc)
+
+
+8.   Meteorological Instrumentation
+
+8.1.x Humidity Sensor Model   :
+
+
+9.   Local Ongoing Conditions Possibly Affecting Computed Position
+
+9.1.x Radio Interferences     : (TV/CELL PHONE ANTENNA/RADAR/etc)
+
+
+10.  Local Episodic Effects Possibly Affecting Data Quality
+
+10.x Date                     : (CCYY-MM-DD/CCYY-MM-DD)
+     Event                    : (TREE CLEARING/CONSTRUCTION/etc)"""
+
+
+def _multiline_value(label: str, lines: List[str]) -> str:
+    """Render ``label : v1`` with continuation lines (`` : v2`` …) per IGS format."""
+    lines = [ln for ln in (lines or []) if ln] or [""]
+    out = [f"     {label:<25}: {lines[0]}"]
+    for extra in lines[1:]:
+        out.append(f"     {'':<25}: {extra}")
+    return "\n".join(out)
+
+
+def _generate_agency_section(
+    number: str, title: str, agency: Optional[Dict[str, Any]]
+) -> str:
+    """§11 / §12 agency-information block.
+
+    ``agency`` is a plain dict (``name_lines``, ``abbrev``, ``address``,
+    ``contact_name``, ``phone``, ``email``) — resolved by the caller from TOS
+    contact roles + agencies.yaml. None ⇒ the empty v2.0 form placeholders (used
+    for §12 when the responsible agency IS the §11 contact, per the form's
+    "if different from 11.").
+    """
+    ag = agency or {}
+    name_lines = ag.get("name_lines") or []
+    address = ag.get("address") or []
+    return f"""{number:<5}{title}
+
+{_multiline_value("Agency", list(name_lines))}
+     Preferred Abbreviation   : {ag.get("abbrev") or ""}
+{_multiline_value("Mailing Address", list(address))}
+     Primary Contact
+       Contact Name           : {ag.get("contact_name") or ""}
+       Telephone (primary)    : {ag.get("phone") or ""}
+       Telephone (secondary)  :
+       Fax                    :
+       E-mail                 : {ag.get("email") or ""}
+     Secondary Contact
+       Contact Name           :
+       Telephone (primary)    :
+       Telephone (secondary)  :
+       Fax                    :
+       E-mail                 :
+     Additional Information   : (multiple lines)"""
+
+
+def _generate_more_information(data_center: Optional[Dict[str, Any]]) -> str:
+    """§13 More Information — data centers + URL (from the agency resolution)."""
+    dc = data_center or {}
+    return f"""13.  More Information
+
+     Primary Data Center      : {dc.get("primary") or ""}
+     Secondary Data Center    : {dc.get("secondary") or ""}
+     URL for More Information : {dc.get("url") or ""}
+     Hardcopy on File
+       Site Map               : (Y or URL)
+       Site Diagram           : (Y or URL)
+       Horizon Mask           : (Y or URL)
+       Monument Description   : (Y or URL)
+       Site Pictures          : (Y or URL)
+     Additional Information   : (multiple lines)
+     Antenna Graphics with Dimensions"""
 
 
 def validate_site_log_completeness(
