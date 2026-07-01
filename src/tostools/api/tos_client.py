@@ -240,57 +240,117 @@ class TOSClient:
     def _build_history_from_connections(
         self, device_sessions: List[Dict]
     ) -> List[Dict]:
-        """Build device history by grouping on connection (time_from, time_to).
+        """Build CUMULATIVE station sessions from device joins (boundary sweep).
 
         The legacy ``get_device_history()`` pairs sorted start/end dates across
         all device types, which breaks for long-lived stations where many dates
-        coincide (e.g. an antenna connection ending on the same date a new
-        receiver connection starts).  This method uses the connection's own
-        ``time_from``/``time_to`` fields — set by TOS when the device was
-        physically attached — so the open/closed status is always correct.
+        coincide. The previous version of this method grouped devices by their
+        EXACT join ``(time_from, time_to)`` pair instead — but that means
+        devices joined on *different* dates could never share a session. A
+        station with honestly back-dated staggered installs (ODDF: monument
+        2021, antenna 2023, receiver 2025 — all currently open) came out as N
+        single-device sessions, and the "current" session carried only the
+        newest device: ``cfg reconcile`` read "TOS: no value" for the antenna
+        fields, site logs dropped the monument, and the dissemination code
+        needed its own concurrent-session merge to compensate.
+
+        This version mirrors :func:`tostools.devices.station_sessions`'
+        boundary-merge (see ``docs/architecture/synthesis-legacy-divergence.md``)
+        applied to JOIN periods:
+
+        1. Per ``(join period, subtype)``, select ONE attribute epoch —
+           preferring the open one — exactly as before. (Attribute-epoch
+           splits *within* a join stay collapsed here; the fine-grained view
+           is :func:`~tostools.devices.station_sessions`' job.)
+        2. Every distinct join boundary starts/ends a window; a trailing open
+           window is added when any join is open.
+        3. Each window is slot-filled with every device whose join covers it —
+           so a session now carries ALL concurrently-attached devices. When
+           two joins of the same subtype cover a window (overlapping-join
+           data defect), the later-starting join wins.
+        4. Adjacent windows with identical fills are coalesced (a boundary
+           whose device lost the same-subtype pick would otherwise split a
+           session where nothing visible changed).
         """
         from datetime import datetime
 
         from ..legacy.gps_metadata_qc import device_structure
 
-        # Map (time_from, time_to) → {subtype: device_dict}
-        periods: Dict[Any, Dict[str, Any]] = {}
-
+        # Step 1 — per (join period, subtype), select one attribute epoch,
+        # preferring the open one (date_to=None). Same selection as before.
+        selected: Dict[Any, Dict[str, Any]] = {}
         for session in device_sessions:
             time_from = session.get("time_from")
             time_to = session.get("time_to")
             device = session["device"]
             subtype = device.get("code_entity_subtype")
-            if not subtype:
+            if not subtype or not time_from:
                 continue
-            key = (time_from, time_to)
-            if key not in periods:
-                periods[key] = {}
-            # Prefer the entry whose attribute period is still open (date_to=None).
-            existing = periods[key].get(subtype)
-            if existing is None or device.get("date_to") is None:
+            key = (time_from, time_to, subtype)
+            if key not in selected or device.get("date_to") is None:
                 try:
-                    periods[key][subtype] = device_structure(device.copy())
+                    selected[key] = device_structure(device.copy())
                 except (KeyError, TypeError):
                     pass
 
+        if not selected:
+            return []
+
+        # Step 2 — join boundaries → candidate windows (+ open tail).
+        boundaries: set = set()
+        has_open = False
+        for tf, tt, _ in selected:
+            boundaries.add(tf)
+            if tt:
+                boundaries.add(tt)
+            else:
+                has_open = True
+        bounds = sorted(boundaries)
+        windows: List[tuple] = [
+            (bounds[i], bounds[i + 1]) for i in range(len(bounds) - 1)
+        ]
+        if has_open:
+            windows.append((bounds[-1], None))
+
+        # Step 3 — slot-fill each window with covering joins. ISO strings in
+        # one format ("%Y-%m-%dT%H:%M:%S") compare correctly lexically.
+        filled: List[tuple] = []  # (start, end, {subtype: selected-key})
+        for start, end in windows:
+            slots: Dict[str, Any] = {}
+            for key in selected:
+                tf, tt, subtype = key
+                if tf > start:
+                    continue
+                if end is None:
+                    if tt is not None:
+                        continue
+                elif tt is not None and tt < end:
+                    continue
+                prev = slots.get(subtype)
+                # Same-subtype overlap: the later-starting join wins.
+                if prev is None or tf > prev[0]:
+                    slots[subtype] = key
+            if slots:
+                filled.append((start, end, slots))
+
+        # Step 4 — coalesce adjacent windows with identical fills.
+        merged: List[list] = []
+        for start, end, slots in filled:
+            if merged and merged[-1][2] == slots and merged[-1][1] == start:
+                merged[-1][1] = end
+            else:
+                merged.append([start, end, slots])
+
         result = []
-        for (time_from, time_to), devices in sorted(
-            periods.items(), key=lambda x: x[0][0] or ""
-        ):
-            if not devices:
-                continue
+        for start, end, slots in merged:
             session_dict: Dict[str, Any] = {
-                "time_from": (
-                    datetime.strptime(time_from, "%Y-%m-%dT%H:%M:%S")
-                    if time_from
-                    else None
-                ),
+                "time_from": datetime.strptime(start, "%Y-%m-%dT%H:%M:%S"),
                 "time_to": (
-                    datetime.strptime(time_to, "%Y-%m-%dT%H:%M:%S") if time_to else None
+                    datetime.strptime(end, "%Y-%m-%dT%H:%M:%S") if end else None
                 ),
             }
-            session_dict.update(devices)
+            for subtype, key in slots.items():
+                session_dict[subtype] = selected[key]
             result.append(session_dict)
 
         return result
