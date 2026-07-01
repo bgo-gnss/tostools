@@ -1513,6 +1513,50 @@ def audit_log_device_creation(
     return {"logged": True, "log": str(log_path), "committed": committed}
 
 
+def _audit_log_contact_change(
+    *,
+    action: str,
+    subdir: str,
+    filename: str,
+    record: Dict[str, Any],
+    commit_msg: str,
+) -> Dict[str, Any]:
+    """Append + git-commit an audit record for a confirmed contact write.
+
+    The corrections-repo counterpart for the ``tos contact`` write verbs
+    (``create`` / ``assign`` / ``remove`` / ``patch-relationship`` /
+    ``patch-entity``) — symmetric with the device ``additions/`` and
+    ``deletions/`` ledgers, so contact/relationship mutations leave the same
+    audit trail. One generic helper (the five verbs differ only in
+    ``action`` / ``subdir`` / ``filename`` / ``record`` / ``commit_msg``).
+
+    Best-effort and **non-fatal**: the TOS write already happened, so a logging
+    or git failure warns on stderr and returns an ``error`` field rather than
+    raising. Resolves the corrections repo via
+    :func:`archive.tos_corrections_dir`; never pushes.
+    """
+    import json as _json
+    from datetime import datetime
+
+    from .archive import tos_corrections_dir
+
+    rec = {"ts": datetime.now().isoformat(timespec="seconds"), "action": action}
+    rec.update(record)
+    try:
+        repo = tos_corrections_dir()
+        log_dir = repo / subdir
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / filename
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write(_json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as exc:  # noqa: BLE001 - audit is best-effort, never fatal
+        print(f"⚠ --commit: could not write contact record: {exc}", file=sys.stderr)
+        return {"logged": False, "error": str(exc)}
+
+    committed = _git_commit_file(log_path, message=commit_msg)
+    return {"logged": True, "log": str(log_path), "committed": committed}
+
+
 def _device_delete_main(args) -> int:
     """Handle ``tos device delete --id <n>`` — delete a jointless device entity.
 
@@ -5171,6 +5215,12 @@ def _contact_main(argv):
         action="store_true",
         help="Commit the write. Default: dry-run (payload logged only).",
     )
+    p_patch.add_argument(
+        "--commit",
+        action="store_true",
+        help="After a live (--no-dry-run) write, append an audit record to the "
+        "gps-tos-corrections repo and git-commit it (best-effort; never pushes).",
+    )
     p_patch.add_argument("--json", action="store_true", help="Structured output.")
     p_patch.add_argument("--server", default="vi-api.vedur.is")
     p_patch.add_argument("--port", type=int, default=443)
@@ -5211,6 +5261,12 @@ def _contact_main(argv):
         action="store_true",
         help="Commit the write. Default: dry-run.",
     )
+    p_assign.add_argument(
+        "--commit",
+        action="store_true",
+        help="After a live (--no-dry-run) write, append an audit record to the "
+        "gps-tos-corrections repo and git-commit it (best-effort; never pushes).",
+    )
     p_assign.add_argument("--json", action="store_true", help="Structured output.")
     p_assign.add_argument("--server", default="vi-api.vedur.is")
     p_assign.add_argument("--port", type=int, default=443)
@@ -5237,6 +5293,12 @@ def _contact_main(argv):
         dest="no_dry_run",
         action="store_true",
         help="Commit the delete. Default: dry-run.",
+    )
+    p_remove.add_argument(
+        "--commit",
+        action="store_true",
+        help="After a live (--no-dry-run) delete, append an audit record to the "
+        "gps-tos-corrections repo and git-commit it (best-effort; never pushes).",
     )
     p_remove.add_argument("--json", action="store_true", help="Structured output.")
     p_remove.add_argument("--server", default="vi-api.vedur.is")
@@ -5286,6 +5348,12 @@ def _contact_main(argv):
         action="store_true",
         help="Commit the create. Default: dry-run.",
     )
+    p_create.add_argument(
+        "--commit",
+        action="store_true",
+        help="After a live (--no-dry-run) create, append an audit record to the "
+        "gps-tos-corrections repo and git-commit it (best-effort; never pushes).",
+    )
     p_create.add_argument("--json", action="store_true", help="Structured output.")
     p_create.add_argument("--server", default="vi-api.vedur.is")
     p_create.add_argument("--port", type=int, default=443)
@@ -5312,6 +5380,12 @@ def _contact_main(argv):
         dest="no_dry_run",
         action="store_true",
         help="Commit the edit. Default: dry-run.",
+    )
+    p_patch_entity.add_argument(
+        "--commit",
+        action="store_true",
+        help="After a live (--no-dry-run) edit, append an audit record to the "
+        "gps-tos-corrections repo and git-commit it (best-effort; never pushes).",
     )
     p_patch_entity.add_argument(
         "--json", action="store_true", help="Structured output."
@@ -5462,6 +5536,15 @@ def _contact_write_main(args, base_url: str) -> int:
     dry_run = not args.no_dry_run
     writer = TOSWriter(base_url=base_url, dry_run=dry_run)
 
+    # --commit records the write in the gps-tos-corrections repo, but only a LIVE
+    # write is worth recording — warn if paired with a dry-run (it's a no-op then).
+    if dry_run and getattr(args, "commit", False):
+        print(
+            "note: --commit has no effect without --no-dry-run (dry-run makes no "
+            "TOS change to record)",
+            file=sys.stderr,
+        )
+
     # ---- Contact-entity verbs (create / patch-entity) ------------------
     _ENTITY_FIELDS = (
         "organization",
@@ -5511,6 +5594,14 @@ def _contact_write_main(args, base_url: str) -> int:
                     f"Next: tos contact assign --station S --contact {new_id} "
                     "--role owner --from DATE"
                 )
+        if not dry_run and getattr(args, "commit", False) and isinstance(new_id, int):
+            _audit_log_contact_change(
+                action="contact_create",
+                subdir="additions",
+                filename="contact_additions.jsonl",
+                record={"id_contact": new_id, "name": args.name, "fields": fields},
+                commit_msg=f"additions: create contact {new_id} ({args.name})",
+            )
         return 0
 
     if args.verb == "patch-entity":
@@ -5552,6 +5643,14 @@ def _contact_write_main(args, base_url: str) -> int:
             print(
                 f"Patched contact {args.id_contact} (FLEET-GLOBAL): "
                 f"{changed}{suffix}"
+            )
+        if not dry_run and getattr(args, "commit", False):
+            _audit_log_contact_change(
+                action="contact_patch",
+                subdir="corrections",
+                filename="contact_changes.jsonl",
+                record={"id_contact": args.id_contact, "changes": fields},
+                commit_msg=f"corrections: patch contact {args.id_contact}",
             )
         return 0
 
@@ -5598,6 +5697,23 @@ def _contact_write_main(args, base_url: str) -> int:
                 f"(id_entity={id_entity}) role={args.role!r} "
                 f"from {args.time_from}{suffix}"
             )
+        if not dry_run and getattr(args, "commit", False):
+            _audit_log_contact_change(
+                action="contact_assign",
+                subdir="additions",
+                filename="contact_relationship_additions.jsonl",
+                record={
+                    "id_contact": args.id_contact,
+                    "id_entity": id_entity,
+                    "station": args.station,
+                    "role": args.role,
+                    "time_from": args.time_from,
+                },
+                commit_msg=(
+                    f"additions: assign contact {args.id_contact} → "
+                    f"{args.station} ({args.role})"
+                ),
+            )
         return 0
 
     if args.verb == "patch-relationship":
@@ -5638,9 +5754,22 @@ def _contact_write_main(args, base_url: str) -> int:
         else:
             changes = ", ".join(f"{k}={v}" for k, v in kwargs.items())
             print(f"Patched relationship {args.id_rel}: {changes}{suffix}")
+        if not dry_run and getattr(args, "commit", False):
+            _audit_log_contact_change(
+                action="contact_relationship_patch",
+                subdir="corrections",
+                filename="contact_relationship_changes.jsonl",
+                record={"id_rel": args.id_rel, "changes": kwargs},
+                commit_msg=f"corrections: patch relationship {args.id_rel}",
+            )
         return 0
 
     if args.verb == "remove":
+        # Capture the row before deleting so --commit can record what was removed
+        # (the delete erases it — a bare id would be an opaque audit trail).
+        pre = None
+        if not dry_run and getattr(args, "commit", False):
+            pre = writer.get_contact_relationship(args.id_rel)
         try:
             result = writer.delete_contact_relationship(args.id_rel)
         except ValueError as exc:
@@ -5662,6 +5791,14 @@ def _contact_write_main(args, base_url: str) -> int:
             )
         else:
             print(f"Removed relationship {args.id_rel}{suffix}")
+        if not dry_run and getattr(args, "commit", False):
+            _audit_log_contact_change(
+                action="contact_relationship_delete",
+                subdir="deletions",
+                filename="contact_relationship_deletions.jsonl",
+                record={"id_rel": args.id_rel, "deleted": pre},
+                commit_msg=f"deletions: remove relationship {args.id_rel}",
+            )
         return 0
 
     return 2
@@ -7459,6 +7596,24 @@ def _audit_main(argv):
         action="store_true",
         help="Suppress the per-device progress line on stderr.",
     )
+    p_dupser.add_argument(
+        "--arbitrate",
+        action="store_true",
+        help="Classify ONE group (rove / collision / junk / inconclusive) by "
+        "reading each entity's station archive, and recommend the fix. "
+        "Read-only. Requires --serial.",
+    )
+    p_dupser.add_argument(
+        "--serial",
+        help="The shared serial to arbitrate (required with --arbitrate).",
+    )
+    p_dupser.add_argument(
+        "--archive-root",
+        type=Path,
+        default=None,
+        help="Override the cold-archive root for --arbitrate (default: env / "
+        "cfg / mount probe).",
+    )
 
     p_sweep = sub.add_parser(
         "fleet-sweep",
@@ -8455,6 +8610,14 @@ def _audit_main(argv):
             audit_mod.canonical_subtype(args.subtype) if args.subtype else None
         )
 
+        if getattr(args, "arbitrate", False):
+            if not args.serial:
+                print("--arbitrate requires --serial", file=sys.stderr)
+                return 2
+            return _audit_arbitrate_main(
+                client, args.serial, canonical_subtype or "gnss_receiver", args
+            )
+
         dup_progress: Optional[Callable[..., None]] = None
         if not (args.no_progress or args.json or not sys.stderr.isatty()):
             sys.stderr.write(
@@ -8944,6 +9107,112 @@ def _audit_firmware_chain_main(args, client) -> int:
         print(f"triage written: {path}{note}", file=sys.stderr)
 
     return 0 if result.is_actionable else 1
+
+
+def _audit_arbitrate_main(client, serial: str, subtype: str, args) -> int:
+    """Handle ``tos audit duplicate-serials --arbitrate --serial S``.
+
+    READ-ONLY. Finds the entities sharing ``serial``, reads each entity's station
+    archive to get the serial's real deployment periods, then classifies the group
+    (rove / collision / junk / inconclusive) and recommends the fix. Exit 0 on a
+    definite verdict (rove/collision/junk), 1 on inconclusive, 2 on setup error.
+    """
+    import json as _json
+
+    from . import archive as archive_mod
+    from . import audit_arbitrate as arb_mod
+    from . import audit_rinex_timeline as rtl_mod
+    from . import devices as dv
+    from .audit_duplicate_serials import scan_fleet_devices
+    from .history import (
+        KNOWN_MISSING_FROM_CFG_PARENT_IDS,
+        build_join_index,
+        enumerate_known_parents,
+    )
+
+    target = serial.strip()
+    if not args.json and sys.stderr.isatty():
+        sys.stderr.write(
+            "Walking joins + reading each station's archive "
+            "(slow: fleet walk + per-station archive read)...\n"
+        )
+        sys.stderr.flush()
+
+    try:
+        root = archive_mod.cold_archive_prepath(override=args.archive_root)
+    except FileNotFoundError as exc:
+        print(f"arbitrate: {exc}", file=sys.stderr)
+        return 2
+
+    parents = list(
+        enumerate_known_parents(
+            client, extra_parent_ids=KNOWN_MISSING_FROM_CFG_PARENT_IDS
+        )
+    )
+    pmeta = {p.id_entity: p for p in parents}
+    index = build_join_index(client, parents=parents)
+
+    rows = scan_fleet_devices(client, parents=parents, index=index)
+    group = [
+        r for r in rows if r.subtype == subtype and (r.serial or "").strip() == target
+    ]
+
+    marker_cache: dict = {}
+
+    def _marker_of(pid: int):
+        if pid not in marker_cache:
+            ph = client.get_entity_history(pid) or {}
+            vals = dv.attribute_periods(ph).get("marker", [])
+            marker_cache[pid] = vals[-1].get("value") if vals else None
+        return marker_cache[pid]
+
+    archive_cache: dict = {}
+
+    def _station_receiver_rows(marker: str):
+        if marker not in archive_cache:
+            rep = rtl_mod.run_rinex_timeline(marker, "receiver", root=root)
+            archive_cache[marker] = rep.rows
+        return archive_cache[marker]
+
+    legs = []
+    for r in group:
+        # station-parent joins for this entity (exclude warehouse/graveyard)
+        station_pids: list = []
+        for j in index.by_child.get(r.id_entity, []):
+            pm = pmeta.get(j.id_entity_parent)
+            if pm and pm.role == "station" and j.id_entity_parent not in station_pids:
+                station_pids.append(j.id_entity_parent)
+
+        periods: list = []
+        seen = None
+        primary_marker = None
+        for pid in station_pids:
+            mk = _marker_of(pid)
+            if not mk:
+                continue
+            primary_marker = primary_marker or mk
+            for row in _station_receiver_rows(mk):
+                if (row.get("rec_serial") or "").strip() == target:
+                    periods.append((row["date_from"], row.get("last_seen")))
+                elif seen is None:
+                    seen = row.get("rec_serial")
+
+        legs.append(
+            arb_mod.ArbitrationLeg(
+                entity_id=r.id_entity,
+                tos_serial=r.serial or "",
+                station=primary_marker,
+                archive_periods=periods,
+                archive_serial_seen=(None if periods else seen),
+            )
+        )
+
+    verdict = arb_mod.classify_arbitration(target, legs)
+    if args.json:
+        print(_json.dumps(verdict.to_json_dict(), ensure_ascii=False, indent=2))
+    else:
+        print(arb_mod.format_report(verdict))
+    return 0 if verdict.verdict != arb_mod.INCONCLUSIVE else 1
 
 
 def _audit_rinex_timeline_main(args) -> int:

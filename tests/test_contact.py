@@ -684,3 +684,140 @@ def test_contact_patch_entity_requires_a_field(capsys):
     rc = tos_main(["contact", "patch-entity", "1256"])
     assert rc == 2
     assert "at least one field" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# --commit — gps-tos-corrections audit trail for contact writes
+# ---------------------------------------------------------------------------
+
+
+def test_contact_remove_commit_records_audit(capsys):
+    """`remove <id> --no-dry-run --commit` records a deletion audit (with the
+    pre-delete row) in the corrections repo."""
+    from tostools.api.tos_writer import TOSWriter
+
+    pre = {"id": 4987, "id_contact": 2483, "id_entity": 4390, "role": "operator"}
+    with (
+        patch.object(TOSWriter, "_ensure_authenticated", autospec=True),
+        patch.object(
+            TOSWriter, "get_contact_relationship", autospec=True, return_value=pre
+        ),
+        patch.object(
+            TOSWriter, "delete_contact_relationship", autospec=True, return_value={}
+        ),
+        patch("tostools.tos._audit_log_contact_change") as audit,
+    ):
+        rc = tos_main(["contact", "remove", "4987", "--no-dry-run", "--commit"])
+
+    assert rc == 0
+    audit.assert_called_once()
+    kw = audit.call_args.kwargs
+    assert kw["action"] == "contact_relationship_delete"
+    assert kw["subdir"] == "deletions"
+    assert kw["record"]["id_rel"] == 4987
+    assert kw["record"]["deleted"] == pre  # the pre-delete row is captured
+
+
+def test_contact_commit_without_no_dry_run_warns_and_skips_audit(capsys):
+    """`--commit` alone (dry-run) warns and records nothing."""
+    from tostools.api.tos_writer import DryRunResult, TOSWriter
+
+    with (
+        patch.object(
+            TOSWriter,
+            "delete_contact_relationship",
+            autospec=True,
+            return_value=DryRunResult("DELETE", "/x", None),
+        ),
+        patch("tostools.tos._audit_log_contact_change") as audit,
+    ):
+        rc = tos_main(["contact", "remove", "4987", "--commit"])
+
+    assert rc == 0
+    audit.assert_not_called()
+    assert "no effect without --no-dry-run" in capsys.readouterr().err
+
+
+def test_contact_create_commit_records_audit(capsys):
+    from tostools.api.tos_writer import TOSWriter
+
+    with (
+        patch.object(TOSWriter, "_ensure_authenticated", autospec=True),
+        patch.object(
+            TOSWriter, "create_contact", autospec=True, return_value={"id": 9999}
+        ),
+        patch("tostools.tos._audit_log_contact_change") as audit,
+    ):
+        rc = tos_main(
+            [
+                "contact",
+                "create",
+                "--name",
+                "GNSS Operator",
+                "--email",
+                "gnss-epos@vedur.is",
+                "--no-dry-run",
+                "--commit",
+            ]
+        )
+
+    assert rc == 0
+    audit.assert_called_once()
+    kw = audit.call_args.kwargs
+    assert kw["action"] == "contact_create"
+    assert kw["subdir"] == "additions"
+    assert kw["record"]["id_contact"] == 9999
+    assert kw["record"]["name"] == "GNSS Operator"
+
+
+def test_contact_no_commit_flag_records_nothing(capsys):
+    """A live write WITHOUT --commit makes no corrections-repo entry."""
+    from tostools.api.tos_writer import TOSWriter
+
+    with (
+        patch.object(TOSWriter, "_ensure_authenticated", autospec=True),
+        patch.object(
+            TOSWriter, "delete_contact_relationship", autospec=True, return_value={}
+        ),
+        patch("tostools.tos._audit_log_contact_change") as audit,
+    ):
+        rc = tos_main(["contact", "remove", "4987", "--no-dry-run"])
+
+    assert rc == 0
+    audit.assert_not_called()
+
+
+def test_audit_log_contact_change_appends_and_commits(tmp_path):
+    """The helper appends a JSONL record to the right ledger and git-commits it."""
+    import json as _json
+    import subprocess
+
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "t@t"], check=True
+    )
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "t"], check=True)
+
+    with patch("tostools.archive.tos_corrections_dir", return_value=tmp_path):
+        from tostools.tos import _audit_log_contact_change
+
+        res = _audit_log_contact_change(
+            action="contact_relationship_delete",
+            subdir="deletions",
+            filename="contact_relationship_deletions.jsonl",
+            record={"id_rel": 4987, "deleted": {"id_contact": 2483}},
+            commit_msg="deletions: remove relationship 4987",
+        )
+
+    assert res["logged"] is True and res["committed"] is True
+    ledger = tmp_path / "deletions" / "contact_relationship_deletions.jsonl"
+    assert ledger.exists()
+    rec = _json.loads(ledger.read_text().strip())
+    assert rec["action"] == "contact_relationship_delete"
+    assert rec["id_rel"] == 4987 and "ts" in rec
+    log = subprocess.run(
+        ["git", "-C", str(tmp_path), "log", "--oneline"],
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert "remove relationship 4987" in log
