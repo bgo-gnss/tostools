@@ -8265,6 +8265,76 @@ def _audit_main(argv):
     p_rtl.add_argument("--server", default="vi-api.vedur.is", help=argparse.SUPPRESS)
     p_rtl.add_argument("--port", type=int, default=443, help=argparse.SUPPRESS)
 
+    p_fwc = sub.add_parser(
+        "firmware-chain",
+        help=(
+            "Reconstruct a receiver's firmware history from the archive and emit "
+            "an apply-ready triage (delete stale TOS firmware rows + one "
+            "add-attribute-period per firmware period)."
+        ),
+        description=(
+            "Mines the archive firmware timeline for the station's CURRENT "
+            "receiver, normalizes + merges it, and tiers it: single / clean "
+            "(strictly-increasing semver → auto-appliable full chain) / netrs "
+            "(1.x headers unreliable → current-period-only via --probe-value) / "
+            "anomaly (non-monotonic → commented). The triage is DESTRUCTIVE (it "
+            "deletes every existing firmware row); serial-truncation drift, "
+            "anomalies, and a pre-existing multi-period TOS chain all force "
+            "COMMENTED (manual-review) output. Read-only vs TOS."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos audit firmware-chain --station OLKE\n"
+            "  tos audit firmware-chain --station OLKE --emit-triage\n"
+            "  tos audit firmware-chain --station BLEI --probe-value 1.3-2\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_fwc.add_argument(
+        "--station", required=True, help="Station marker (e.g. OLKE). Case-insensitive."
+    )
+    p_fwc.add_argument(
+        "--probe-value",
+        default=None,
+        help=(
+            "Operator-supplied live firmware string, used as the single value for "
+            "the netrs tier (tostools does not probe receivers)."
+        ),
+    )
+    p_fwc.add_argument(
+        "--rate", default="15s_24hr", help="Archive rate subdir (default: 15s_24hr)."
+    )
+    p_fwc.add_argument(
+        "--archive-root",
+        type=Path,
+        default=None,
+        help="Override the resolved archive root (default: env / cfg / mount probe).",
+    )
+    p_fwc.add_argument(
+        "--emit-triage",
+        action="store_true",
+        help=(
+            "Write the triage file into the corrections repo "
+            "(<repo>/<sid>/<sid>_firmware_chain_<YYYYMMDD>.txt) instead of only "
+            "printing the ACTION lines."
+        ),
+    )
+    p_fwc.add_argument(
+        "--triage-dir",
+        type=Path,
+        default=None,
+        help="Override the corrections-repo dir the triage is written under.",
+    )
+    p_fwc.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of pretty text."
+    )
+    p_fwc.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_fwc.add_argument("--port", type=int, default=443)
+
     args = p.parse_args(argv)
 
     scheme = "https" if args.port == 443 else "http"
@@ -8773,8 +8843,107 @@ def _audit_main(argv):
     if args.kind == "rinex-timeline":
         return _audit_rinex_timeline_main(args)
 
+    if args.kind == "firmware-chain":
+        return _audit_firmware_chain_main(args, client)
+
     p.error(f"unknown kind: {args.kind}")
     return 2
+
+
+def _resolve_open_receiver(client, station):
+    """Resolve a station's open TOS gnss_receiver → a ``TosReceiver``, or None.
+
+    Walks the station's open ``children_connections`` for the receiver child, then
+    pulls its ``firmware_version`` attribute periods (for the delete-all rebuild)
+    and open serial. Reuses :func:`devices.attribute_periods` / ``open_attribute``.
+    """
+    from . import audit_firmware_chain as fc_mod
+    from . import devices as devices_mod
+    from .audit_verify_from_rinex import _resolve_station_id
+
+    sid = _resolve_station_id(client, station)
+    if sid is None:
+        return None
+    hist = client.get_entity_history(sid)
+    if not hist:
+        return None
+    for conn in hist.get("children_connections") or []:
+        if conn.get("time_to") not in (None, ""):
+            continue
+        child_id = conn.get("id_entity_child")
+        if not child_id:
+            continue
+        child = client.get_entity_history(int(child_id))
+        if not child:
+            continue
+        if "receiver" not in str(child.get("code_entity_subtype") or ""):
+            continue
+        fw_rows = devices_mod.attribute_periods(child).get("firmware_version", [])
+        serial = devices_mod.open_attribute(child, "serial_number")
+        return fc_mod.TosReceiver(
+            id_entity=int(child_id), serial=serial, fw_rows=fw_rows
+        )
+    return None
+
+
+def _audit_firmware_chain_main(args, client) -> int:
+    """Handle ``tos audit firmware-chain`` — firmware-history reconstruction.
+
+    Exit 0 = an auto-appliable (non-commented) triage was produced; 1 = nothing to
+    do / needs manual review (skip / single-ok / anomaly / truncation / TOS
+    already multi-period → commented); 2 = could not resolve the TOS receiver or
+    the archive root.
+    """
+    import json as _json
+    from datetime import date as _date
+
+    from . import archive as archive_mod
+    from . import audit_firmware_chain as fc_mod
+    from . import receiver_timeline as rt_mod
+
+    tos_rx = _resolve_open_receiver(client, args.station)
+    if tos_rx is None:
+        print(
+            f"firmware-chain: no open gnss_receiver in TOS for {args.station!r}",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        root = archive_mod.cold_archive_prepath(override=args.archive_root)
+    except FileNotFoundError as exc:
+        print(f"firmware-chain: {exc}", file=sys.stderr)
+        return 2
+
+    timeline = rt_mod.build_receiver_timeline(args.station, root, rate=args.rate)
+    result = fc_mod.build_firmware_chain(
+        args.station, tos_rx, timeline=timeline, probe_value=args.probe_value
+    )
+    body = fc_mod.render_triage(result)
+
+    if args.json:
+        print(_json.dumps(result.to_json_dict(), ensure_ascii=False, indent=2))
+    else:
+        print(fc_mod.format_report(result))
+        if result.action_lines:
+            print()
+            print("\n".join(body))
+
+    if args.emit_triage and result.action_lines:
+        base = args.triage_dir or archive_mod.tos_corrections_dir()
+        sid = args.station.upper()
+        stamp = _date.today().strftime("%Y%m%d")
+        out_dir = Path(base) / sid.lower()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / f"{sid.lower()}_firmware_chain_{stamp}.txt"
+        apply_hint = (
+            f"# Apply: tos audit apply {sid.lower()}/{path.name} --apply --commit"
+        )
+        path.write_text("\n".join(body + [apply_hint]) + "\n")
+        note = "  (COMMENTED — review before apply)" if result.commented else ""
+        print(f"triage written: {path}{note}", file=sys.stderr)
+
+    return 0 if result.is_actionable else 1
 
 
 def _audit_rinex_timeline_main(args) -> int:
