@@ -9174,14 +9174,25 @@ def _audit_arbitrate_main(client, serial: str, subtype: str, args) -> int:
             archive_cache[marker] = rep.rows
         return archive_cache[marker]
 
+    def _looks_like_station_marker(mk) -> bool:
+        return bool(mk) and len(str(mk)) == 4 and str(mk).isalnum()
+
     legs = []
     for r in group:
-        # station-parent joins for this entity (exclude warehouse/graveyard)
+        # station-parent joins from the fleet index (exclude warehouse/graveyard)
         station_pids: list = []
         for j in index.by_child.get(r.id_entity, []):
             pm = pmeta.get(j.id_entity_parent)
             if pm and pm.role == "station" and j.id_entity_parent not in station_pids:
                 station_pids.append(j.id_entity_parent)
+        # The fleet index misses INACTIVE/decommissioned station parents (they
+        # aren't enumerated), so a leg deployed there would go unconfirmed. The
+        # entity's own id_entity_parent is its real current parent regardless of
+        # enumeration — include it when it resolves to a station marker.
+        eh = client.get_entity_history(r.id_entity) or {}
+        ip = eh.get("id_entity_parent")
+        if ip and ip not in station_pids and _looks_like_station_marker(_marker_of(ip)):
+            station_pids.append(ip)
 
         periods: list = []
         seen = None
