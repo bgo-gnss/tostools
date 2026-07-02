@@ -990,8 +990,8 @@ def site_log(
         elevation_cuttoff = device.get("elevation_cuttoff") or "0 deg"
         date_installed = _fmt_igs_date(device.get("date_from"))
         date_removed = _fmt_igs_date(device.get("date_to"))
-        temperature_stab = device.get("temperature_stab") or ""
-        add_information = device.get("add_information") or ""
+        temperature_stab = device.get("temperature_stab") or "(deg C) +/- (deg C)"
+        add_information = device.get("add_information") or "(multiple lines)"
 
         receiver_info += (
             f"3.{session_nr + 1}  Receiver Type            : {device_type}\n"
@@ -1004,7 +1004,17 @@ def site_log(
             f"     Temperature Stabiliz.    : {temperature_stab}\n"
             f"     Additional Information   : {add_information}\n\n"
         )
-    # print(receiver_info)
+    receiver_info += (
+        "3.x  Receiver Type            : (A20, from rcvr_ant.tab; see instructions)\n"
+        "     Satellite System         : (GPS+GLO+GAL+BDS+QZSS+IRNSS+SBAS)\n"
+        "     Serial Number            : (A20, but note the first A5 is used in SINEX)\n"
+        "     Firmware Version         : (A11)\n"
+        "     Elevation Cutoff Setting : (deg)\n"
+        "     Date Installed           : (CCYY-MM-DDThh:mmZ)\n"
+        "     Date Removed             : (CCYY-MM-DDThh:mmZ)\n"
+        "     Temperature Stabiliz.    : (none or tolerance in degrees C)\n"
+        "     Additional Information   : (multiple lines)\n\n"
+    )
 
     # NOTE: 4.   GNSS Antenna Information
     antenna_list = list(
@@ -1014,7 +1024,7 @@ def site_log(
     )
     antenna_list.sort(key=lambda x: x["device"]["date_from"])
     module_logger.debug("antenna_list: \n%s", json_print(antenna_list))
-    antenna_info = "\n4.   GNSS Antenna Information\n"
+    antenna_info = "\n4.   GNSS Antenna Information\n\n"
     for session_nr, session in enumerate(antenna_list):
         # antenna_height = 0.0
         device = session["device"]
@@ -1072,13 +1082,13 @@ def site_log(
         alignment = device.get("antenna_alignment") or "0 deg"
         # NOTE: radome is moved to the end of for loop as it needs end dates
 
-        cable_type = device.get("antenna_cable_type") or ""
-        cable_length = device.get("antenna_cable_length") or ""
+        cable_type = device.get("antenna_cable_type") or "(vendor & type number)"
+        cable_length = device.get("antenna_cable_length") or "(m)"
 
         date_installed = _fmt_igs_date(device.get("date_from"))
         date_removed = _fmt_igs_date(device.get("date_to"))
 
-        add_information = device.get("add_information") or ""
+        add_information = device.get("add_information") or "(multiple lines)"
 
         # NOTE: checking RADOME
         radome_iter = (
@@ -1097,7 +1107,7 @@ def site_log(
         module_logger.debug("antenna_radome_serial: %s", antenna_radome_serial)
 
         antenna_info += (
-            f"\n4.{session_nr + 1}  Antenna Type             : {device_type}    {antenna_radome}\n"
+            f"4.{session_nr + 1}  Antenna Type             : {device_type:<16}{antenna_radome}\n"
             # ASH701073.1     SNOW
             f"     Serial Number            : {serial_number}\n"
             f"     Antenna Reference Point  : {arp[-3:]}\n"
@@ -1113,10 +1123,27 @@ def site_log(
             f"     Date Removed             : {date_removed}\n"
             f"     Additional Information   : {add_information}\n\n"
         )
-    # print(antenna_info)
+    antenna_info += (
+        "4.x  Antenna Type             : (A20, from rcvr_ant.tab; see instructions)\n"
+        "     Serial Number            : (A*, but note the first A5 is used in SINEX)\n"
+        '     Antenna Reference Point  : (BPA/BCR/XXX from "antenna.gra"; see instr.)\n'
+        "     Marker->ARP Up Ecc. (m)  : (F8.4)\n"
+        "     Marker->ARP North Ecc(m) : (F8.4)\n"
+        "     Marker->ARP East Ecc(m)  : (F8.4)\n"
+        "     Alignment from True N    : (deg; + is clockwise/east)\n"
+        "     Antenna Radome Type      : (A4 from rcvr_ant.tab; see instructions)\n"
+        "     Radome Serial Number     : \n"
+        "     Antenna Cable Type       : (vendor & type number)\n"
+        "     Antenna Cable Length     : (m)\n"
+        "     Date Installed           : (CCYY-MM-DDThh:mmZ)\n"
+        "     Date Removed             : (CCYY-MM-DDThh:mmZ)\n"
+        "     Additional Information   : (multiple lines)\n\n"
+    )
 
     other_info = (
-        "\n5.   Surveyed Local Ties\n\n"
+        "\n"
+        "5.   Surveyed Local Ties\n"
+        "\n"
         "5.x  Tied Marker Name         : \n"
         "     Tied Marker Usage        : (SLR/VLBI/LOCAL CONTROL/FOOTPRINT/etc)\n"
         "     Tied Marker CDP Number   : (A4)\n"
@@ -1128,27 +1155,28 @@ def site_log(
         "     Accuracy (mm)            : (mm)\n"
         "     Survey method            : (GPS CAMPAIGN/TRILATERATION/TRIANGULATION/etc)\n"
         "     Date Measured            : (CCYY-MM-DDThh:mmZ)\n"
-        "     Additional Information   : (multiple lines)\n\n"
-        "6.   Frequency Standard\n\n"
-        "6.1  Standard Type            : (INTERNAL or EXTERNAL H-MASER/CESIUM/etc)\n"
-        "       Input Frequency        : (if external)\n"
-        "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Notes                  : (multiple lines)\n\n"
+        "     Additional Information   : (multiple lines)\n"
+        "\n"
+        "\n"
+        "6.   Frequency Standard\n"
+        "\n"
         "6.x  Standard Type            : (INTERNAL or EXTERNAL H-MASER/CESIUM/etc)\n"
         "       Input Frequency        : (if external)\n"
         "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Notes                  : (multiple lines)\n\n"
-        "7.   Collocation Information\n\n"
-        "7.1  Instrumentation Type     : (GPS/GLONASS/DORIS/PRARE/SLR/VLBI/TIME/etc)\n"
-        "       Status                 : (PERMANENT/MOBILE)\n"
-        "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Notes                  : (multiple lines)\n\n"
+        "       Notes                  : (multiple lines)\n"
+        "\n"
+        "\n"
+        "7.   Collocation Information\n"
+        "\n"
         "7.x  Instrumentation Type     : (GPS/GLONASS/DORIS/PRARE/SLR/VLBI/TIME/etc)\n"
         "       Status                 : (PERMANENT/MOBILE)\n"
         "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Notes                  : (multiple lines)\n\n"
-        "8.   Meteorological Instrumentation\n\n"
-        "8.1.1 Humidity Sensor Model   : \n"
+        "       Notes                  : (multiple lines)\n"
+        "\n"
+        "\n"
+        "8.   Meteorological Instrumentation\n"
+        "\n"
+        "8.1.x  Humidity Sensor Model  : \n"
         "       Manufacturer           : \n"
         "       Serial Number          : \n"
         "       Data Sampling Interval : (sec)\n"
@@ -1157,18 +1185,9 @@ def site_log(
         "       Height Diff to Ant     : (m)\n"
         "       Calibration date       : (CCYY-MM-DD)\n"
         "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Notes                  : (multiple lines)\n\n"
-        "8.1.x Humidity Sensor Model   : \n"
-        "       Manufacturer           : \n"
-        "       Serial Number          : \n"
-        "       Data Sampling Interval : (sec)\n"
-        "       Accuracy (% rel h)     : (% rel h)\n"
-        "       Aspiration             : (UNASPIRATED/NATURAL/FAN/etc)\n"
-        "       Height Diff to Ant     : (m)\n"
-        "       Calibration date       : (CCYY-MM-DD)\n"
-        "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Notes                  : (multiple lines)\n\n"
-        "8.2.1 Pressure Sensor Model   : \n"
+        "       Notes                  : (multiple lines)\n"
+        "\n"
+        "8.2.x  Pressure Sensor Model  : \n"
         "       Manufacturer           : \n"
         "       Serial Number          : \n"
         "       Data Sampling Interval : (sec)\n"
@@ -1176,17 +1195,9 @@ def site_log(
         "       Height Diff to Ant     : (m)\n"
         "       Calibration date       : (CCYY-MM-DD)\n"
         "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Notes                  : (multiple lines)\n\n"
-        "8.2.x Pressure Sensor Model   : \n"
-        "       Manufacturer           : \n"
-        "       Serial Number          : \n"
-        "       Data Sampling Interval : (sec)\n"
-        "       Accuracy               : (hPa)\n"
-        "       Height Diff to Ant     : (m)\n"
-        "       Calibration date       : (CCYY-MM-DD)\n"
-        "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Notes                  : (multiple lines)\n\n"
-        "8.3.1 Temp. Sensor Model      : \n"
+        "       Notes                  : (multiple lines)\n"
+        "\n"
+        "8.3.x  Temp. Sensor Model     : \n"
         "       Manufacturer           : \n"
         "       Serial Number          : \n"
         "       Data Sampling Interval : (sec)\n"
@@ -1195,61 +1206,40 @@ def site_log(
         "       Height Diff to Ant     : (m)\n"
         "       Calibration date       : (CCYY-MM-DD)\n"
         "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Notes                  : (multiple lines)\n\n"
-        "8.3.x Temp. Sensor Model      : \n"
-        "       Manufacturer           : \n"
-        "       Serial Number          : \n"
-        "       Data Sampling Interval : (sec)\n"
-        "       Accuracy               : (deg C)\n"
-        "       Aspiration             : (UNASPIRATED/NATURAL/FAN/etc)\n"
-        "       Height Diff to Ant     : (m)\n"
-        "       Calibration date       : (CCYY-MM-DD)\n"
-        "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Notes                  : (multiple lines)\n\n"
-        "8.4.1 Water Vapor Radiometer  : \n"
+        "       Notes                  : (multiple lines)\n"
+        "\n"
+        "8.4.x  Water Vapor Radiometer : \n"
         "       Manufacturer           : \n"
         "       Serial Number          : \n"
         "       Distance to Antenna    : (m)\n"
         "       Height Diff to Ant     : (m)\n"
         "       Calibration date       : (CCYY-MM-DD)\n"
         "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Notes                  : (multiple lines)\n\n"
-        "8.4.x Water Vapor Radiometer  : \n"
-        "       Manufacturer           : \n"
-        "       Serial Number          : \n"
-        "       Distance to Antenna    : (m)\n"
-        "       Height Diff to Ant     : (m)\n"
-        "       Calibration date       : (CCYY-MM-DD)\n"
-        "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Notes                  : (multiple lines)\n\n"
-        "8.5.1 Other Instrumentation   : (multiple lines)\n"
-        "8.5.x Other Instrumentation   : (multiple lines)\n\n"
-        "9.  Local Ongoing Conditions Possibly Affecting Computed Position\n\n"
-        "9.1.1 Radio Interferences     : (TV/CELL PHONE ANTENNA/RADAR/etc)\n"
+        "       Notes                  : (multiple lines)\n"
+        "\n"
+        "8.5.x  Other Instrumentation  : (multiple lines)\n"
+        "\n"
+        "\n"
+        "9.   Local Ongoing Conditions Possibly Affecting Computed Position\n"
+        "\n"
+        "9.1.x  Radio Interferences    : (TV/CELL PHONE ANTENNA/RADAR/etc)\n"
         "       Observed Degradations  : (SN RATIO/DATA GAPS/etc)\n"
         "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Additional Information : (multiple lines)\n\n"
-        "9.1.x Radio Interferences     : (TV/CELL PHONE ANTENNA/RADAR/etc)\n"
-        "       Observed Degradations  : (SN RATIO/DATA GAPS/etc)\n"
+        "       Additional Information : (multiple lines)\n"
+        "\n"
+        "9.2.x  Multipath Sources      : (METAL ROOF/DOME/VLBI ANTENNA/etc)\n"
         "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Additional Information : (multiple lines)\n\n"
-        "9.2.1 Multipath Sources       : (METAL ROOF/DOME/VLBI ANTENNA/etc)\n"
+        "       Additional Information : (multiple lines)\n"
+        "\n"
+        "9.3.x  Signal Obstructions    : (TREES/BUILDINGS/etc)\n"
         "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Additional Information : (multiple lines)\n\n"
-        "9.2.x Multipath Sources       : (METAL ROOF/DOME/VLBI ANTENNA/etc)\n"
-        "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Additional Information : (multiple lines)\n\n"
-        "9.3.1 Signal Obstructions     : (TREES/BUILDINGS/etc)\n"
-        "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Additional Information : (multiple lines)\n\n"
-        "9.3.x Signal Obstructions     : (TREES/BUILDINGS/etc)\n"
-        "       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "       Additional Information : (multiple lines)\n\n"
-        "10.  Local Episodic Effects Possibly Affecting Data Quality\n\n"
-        "10.1 Date                     : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "     Event                    : (TREE CLEARING/CONSTRUCTION/etc)\n"
-        "10.x Date                     : (CCYY-MM-DD/CCYY-MM-DD)\n"
-        "     Event                    : (TREE CLEARING/CONSTRUCTION/etc)\n"
+        "       Additional Information : (multiple lines)\n"
+        "\n"
+        "\n"
+        "10.  Local Episodic Effects Possibly Affecting Data Quality\n"
+        "\n"
+        "10.x  Date                    : (CCYY-MM-DD/CCYY-MM-DD)\n"
+        "      Event                   : (TREE CLEARING/CONSTRUCTION/etc)\n\n"
     )
 
     if agencies is not None:
@@ -1260,7 +1250,7 @@ def site_log(
             "11.  On-Site, Point of Contact Agency Information",
             agencies.get("poc"),
         )
-        operator_info = "\n" + _igs_agency_section(
+        operator_info = "\n\n\n\n" + _igs_agency_section(
             "12.  Responsible Agency (if different from 11.)",
             agencies.get("responsible"),
         )
@@ -1369,18 +1359,18 @@ def site_log(
         map_url = ""
 
     more_info = (
-        f"\n\n13.  More Information\n\n"
+        f"\n\n\n13.  More Information\n\n"
         f"     Primary Data Center      : {primary_data_center}\n"
         f"     Secondary Data Center    : {secondary_data_center}\n"
         f"     URL for More Information : {main_url}\n"
         f"     Hardcopy on File\n"
-        f"       Site Map               : {map_url}\n"
+        f"       Site Map               : {map_url or '(Y or URL)'}\n"
         f"       Site Diagram           : (Y or URL)\n"
         f"       Horizon Mask           : (Y or URL)\n"
         f"       Monument Description   : (Y or URL)\n"
         f"       Site Pictures          : (Y or URL)\n"
         f"     Additional Information   : (multiple lines)\n"
-        f"     Antenna Graphics with Dimensions"
+        f"     Antenna Graphics with Dimensions\n\n\n"
     )
 
     module_logger.debug("monument_height: %s", monument_height)
@@ -1389,14 +1379,14 @@ def site_log(
         f"     {nine_char} Site Information Form (site log v2.0)\n"
         f"     International GNSS Service\n"
         f"     See Instructions at:\n"
-        f"       https://files.igs.org/pub/station/general/sitelog_instr_v2.0.txt\n\n"
+        f"       https://files.igs.org/pub/station/general/sitelog_instr_v2.0.txt\n\n\n"
         f"0.   Form\n\n"
         f"     Prepared by (full name)  : {prepared_by} ({prepared_email})\n"
         f"     Date Prepared            : {dt.now().strftime('%Y-%m-%d')}\n"
         f"     Report Type              : {report_type}\n"
         f"     If Update:\n"
         f"      Previous Site Log       : {previous_log}\n"
-        f"      Modified/Added Sections : {modified_sections}\n\n"
+        f"      Modified/Added Sections : {modified_sections}\n\n\n"
         f"1.   Site Identification of the GNSS Monument\n\n"
         f"     Site Name                : {site_name}\n"
         f"     Nine Character ID        : {nine_char}\n"
@@ -1414,8 +1404,8 @@ def site_log(
         f"       Bedrock Condition      : {bedrock_condition}\n"
         f"       Fracture Spacing       : {fracture_spacing}\n"
         f"       Fault zones nearby     : {fault_zone}\n"
-        f"         Distance/activity    : \n"
-        f"     Additional Information   : \n\n"
+        f"         Distance/activity    : (multiple lines)\n"
+        f"     Additional Information   : (multiple lines)\n\n\n"
         f"2.   Site Location Information\n\n"
         f"     City or Town             : {city}\n"
         f"     State or Province        : {state}\n"
@@ -1428,7 +1418,7 @@ def site_log(
         f"       Latitude (N is +)      : {latitude}\n"
         f"       Longitude (E is +)     : {longitude}\n"
         f"       Elevation (m,ellips.)  : {elevation}\n"
-        f"     Additional Information   : \n\n"
+        f"     Additional Information   : (multiple lines)\n\n"
         f"{receiver_info}"
         f"{antenna_info}"
         f"{other_info}"
