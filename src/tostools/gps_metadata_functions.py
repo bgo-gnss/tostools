@@ -1261,7 +1261,7 @@ def site_log(station_identifier, loglevel=logging.WARNING):
         f"{marker}ISL00 Site Information Form (site log)\n"
         f"    International GNSS Service\n"
         f"    See Instructions at:\n"
-        f"      https://files.igs.org/pub/station/general/sitelog_instr.txt\n\n\n"
+        f"      https://files.igs.org/pub/station/general/sitelog_instr_v2.0.txt\n\n\n"
         f"0.   Form\n\n"
         f"     Prepared by (full name)  : {primary_contact} ({email})\n"
         f"     Date Prepared            : {dt.now().strftime('%Y-%m-%d')}\n"
