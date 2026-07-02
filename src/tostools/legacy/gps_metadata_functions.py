@@ -687,29 +687,112 @@ def get_monument_height(device_iter, date_from, date_to, loglevel=logging.WARNIN
     return monument_height
 
 
+def _igs_agency_section(header, data):
+    """Render a §11/§12 agency block from an injected agency dict.
+
+    ``data`` is the shape produced by receivers' ``resolve_sitelog_agencies``:
+    ``{"name_lines": [...], "abbrev": str, "address": [...], "contact_name": str,
+    "phone": str, "email": str}`` — or None for the empty (template) block, as
+    M3G renders an unused §12. Multi-line Agency / Mailing Address use the IGS
+    continuation form (``                              : line2``).
+    """
+    cont = "                              : "
+    if data is None:
+        agency_lines = "     Agency                   : (multiple lines)\n"
+        abbrev = "(A10)"
+        address_lines = "     Mailing Address          : (multiple lines)\n"
+        contact_name = phone = email = ""
+    else:
+        names = [ln for ln in (data.get("name_lines") or []) if ln] or [""]
+        agency_lines = f"     Agency                   : {names[0]}\n"
+        for ln in names[1:]:
+            agency_lines += f"{cont}{ln}\n"
+        abbrev = data.get("abbrev") or ""
+        addr = [ln for ln in (data.get("address") or []) if ln] or [""]
+        address_lines = f"     Mailing Address          : {addr[0]}\n"
+        for ln in addr[1:]:
+            address_lines += f"{cont}{ln}\n"
+        contact_name = data.get("contact_name") or ""
+        phone = data.get("phone") or ""
+        email = data.get("email") or ""
+    return (
+        f"\n{header}\n\n"
+        f"{agency_lines}"
+        f"     Preferred Abbreviation   : {abbrev}\n"
+        f"{address_lines}"
+        f"     Primary Contact\n"
+        f"       Contact Name           : {contact_name}\n"
+        f"       Telephone (primary)    : {phone}\n"
+        f"       Telephone (secondary)  : \n"
+        f"       Fax                    : \n"
+        f"       E-mail                 : {email}\n"
+        f"     Secondary Contact\n"
+        f"       Contact Name           : \n"
+        f"       Telephone (primary)    : \n"
+        f"       Telephone (secondary)  : \n"
+        f"       Fax                    : \n"
+        f"       E-mail                 : \n"
+        f"     Additional Information   : (multiple lines)"
+    )
+
+
+def _fmt_igs_date(value, placeholder="CCYY-MM-DDThh:mmZ"):
+    """TOS date string/None → IGS ``CCYY-MM-DDThh:mmZ`` (tolerant parse)."""
+    if not value:
+        return placeholder
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return dt.strptime(str(value)[:19], fmt).strftime("%Y-%m-%dT%H:%MZ")
+        except ValueError:
+            continue
+    return placeholder
+
+
 def site_log(
     station_identifier,
     loglevel=logging.WARNING,
     report_type="UPDATE",
     previous_log="",
     modified_sections="1",
+    agencies=None,
+    prepared_by="GNSS Operator",
+    prepared_email="gnss-epos@vedur.is",
+    monument_number="00",
+    country_code="ISL",
+    station=None,
+    device_sessions=None,
 ):
-    """"""
+    """Render the IGS v2.0 site log for ``station_identifier`` from TOS.
+
+    This is the canonical site-log renderer (proven M3G-identical format).
+    New keyword args keep it the single source of truth for both the
+    ``tos sitelog`` CLI and receivers' EPOS dissemination:
+
+    - ``agencies``: role-guided §11/§12/§13 data (receivers
+      ``resolve_sitelog_agencies`` shape: poc/responsible/data_center).
+      None keeps the legacy TOS-contact rendering (CLI behaviour).
+    - ``previous_log``/``modified_sections``: §0 M3G dated-series chain.
+    - ``monument_number``/``country_code``: the nine-character ID parts.
+    - ``station``/``device_sessions``: injectable pre-fetched metadata
+      (offline tests / callers with their own TOS access); both default to
+      a live TOS fetch when None.
+    """
 
     module_logger = get_logger(name=__name__)
     module_logger.setLevel(loglevel)
 
     module_logger.info(station_identifier)
 
-    # station = gps_metadata(station_identifier, url_rest_tos, loglevel=logging.CRITICAL)
-    station, devices_history = gpsqc.get_station_metadata(
-        station_identifier, gpsqc.URL_REST_TOS, loglevel=loglevel
-    )
-    # [NOTE: testing device history]
-    module_logger.debug("devices_history: %s", json_print(devices_history))
-    device_sessions = gpsqc.get_device_sessions(
-        devices_history, gpsqc.URL_REST_TOS, loglevel=loglevel
-    )
+    if station is None or device_sessions is None:
+        # station = gps_metadata(station_identifier, url_rest_tos, loglevel=logging.CRITICAL)
+        station, devices_history = gpsqc.get_station_metadata(
+            station_identifier, gpsqc.URL_REST_TOS, loglevel=loglevel
+        )
+        # [NOTE: testing device history]
+        module_logger.debug("devices_history: %s", json_print(devices_history))
+        device_sessions = gpsqc.get_device_sessions(
+            devices_history, gpsqc.URL_REST_TOS, loglevel=loglevel
+        )
 
     # devices_used = ["gnss_receiver", "antenna", "radome", "monument"]
     module_logger.debug("deveces_sessions: %s", json_print(device_sessions))
@@ -730,15 +813,20 @@ def site_log(
     #     )
 
     # NOTE: 1.   Site Identification of the GNSS Monument
-    site_name = station.get("name", "")
-    marker = station.get("marker", "").upper()
-    iers_domes = station.get("iers_domes_number", "")
-    cdp_num = station.get("cdp_num", "(A4)")
+    site_name = station.get("name") or ""
+    marker = (station.get("marker") or "").upper()
+    nine_char = f"{marker}{monument_number}{country_code}"
+    iers_domes = station.get("iers_domes_number") or ""
+    cdp_num = station.get("cdp_num") or "(A4)"
     monument_height = "(m)"
     monument_inscription = ""
     monument_description = ""
     foundation = ""
     foundation_depth = "(m)"
+    # Monument offsets default to 0.0 — a station with no (open) monument
+    # session must not NameError in the antenna loop below.
+    monument_offset_north_fl = 0.0
+    monument_offset_east_fl = 0.0
 
     monument_iter = (
         session
@@ -779,31 +867,20 @@ def site_log(
             if not foundation_depth == "(m)":
                 foundation_depth = foundation_depth + " m"
 
-    marker_description = station.get(
-        "marker_description", "(CHISELLED CROSS/DIVOT/BRASS NAIL/etc)"
+    marker_description = (
+        station.get("marker_description") or "(CHISELLED CROSS/DIVOT/BRASS NAIL/etc)"
     )
-    station_start_date = station.get("date_start", "") or ""
-    if station_start_date:
-        try:
-            station_start_date = dt.strptime(
-                station_start_date, "%Y-%m-%d %H:%M"
-            ).strftime("%Y-%m-%dT%H:%MZ")
-        except ValueError:
-            try:
-                station_start_date = dt.strptime(
-                    station_start_date[:19], "%Y-%m-%dT%H:%M:%S"
-                ).strftime("%Y-%m-%dT%H:%MZ")
-            except ValueError:
-                station_start_date = "(CCYY-MM-DDThh:mmZ)"
-    else:
-        station_start_date = "(CCYY-MM-DDThh:mmZ)"
-    geological_characteristic = station.get("geological_characteristic", "").upper()
-    bedrock_type = station.get("bedrock_type", "").upper()
-    bedrock_condition = station.get("bedrock_condition", "").upper()
-    fracture_spacing = station.get(
-        "fracture_spacing", "(0 cm/1-10 cm/11-50 cm/51-200 cm/over 200 cm)"
+    station_start_date = _fmt_igs_date(
+        station.get("date_start"), placeholder="(CCYY-MM-DDThh:mmZ)"
     )
-    fault_zone = station.get("is_near_fault_zones", "NO").upper()
+    geological_characteristic = (station.get("geological_characteristic") or "").upper()
+    bedrock_type = (station.get("bedrock_type") or "").upper()
+    bedrock_condition = (station.get("bedrock_condition") or "").upper()
+    fracture_spacing = (
+        station.get("fracture_spacing")
+        or "(0 cm/1-10 cm/11-50 cm/51-200 cm/over 200 cm)"
+    )
+    fault_zone = (station.get("is_near_fault_zones") or "NO").upper()
     # Translate Icelandic responses to English for IGS compliance
     if fault_zone == "NEI":
         fault_zone = "NO"
@@ -812,12 +889,17 @@ def site_log(
     # Keep YES/NO unchanged
 
     # NOTE: 2.   Site Location Information
-    llh = (station["lat"], station["lon"], station["altitude"])
-    itrf = gpsqc.wgs84toitrf08.transform(*llh)
-    coord_keys = ["X", "Y", "Z", "lat", "lon", "alt"]
-    coordinates = dict(zip(coord_keys, (*itrf, *llh)))
+    # None-guard: a station missing surveyed coordinates renders placeholders
+    # instead of crashing in the ITRF transform / float formatting.
+    llh = (station.get("lat"), station.get("lon"), station.get("altitude"))
+    if all(v is not None for v in llh):
+        itrf = gpsqc.wgs84toitrf08.transform(*llh)
+        coord_keys = ["X", "Y", "Z", "lat", "lon", "alt"]
+        coordinates = dict(zip(coord_keys, (*itrf, *llh)))
+    else:
+        coordinates = {}
 
-    city = station.get("city", station["name"])
+    city = station.get("city", station.get("name") or "")
     state = station.get("state", "N/A")
     # Country name/code translation table for IGS compliance
     country_translation = {
@@ -844,17 +926,22 @@ def site_log(
         country = raw_country  # Already ISO 3166-1 alpha-3 code
     else:
         country = country_translation.get(raw_country, "ISL")  # Default to ISL
-    tectonic_plate = station.get("tectonic_plate", "")
+    tectonic_plate = station.get("tectonic_plate") or ""
     if tectonic_plate == "":
         plate_name = {
             "EURA": "EURASIAN",
             "NOAM": "NORTH AMERICAN",
         }
-        plate_short = grep_line_aslist(get_data_file_path("station-plate"), marker)[1]
-        tectonic_plate = plate_name[plate_short] if plate_short != "" else "UNKNOWN"
+        try:
+            plate_short = grep_line_aslist(get_data_file_path("station-plate"), marker)[
+                1
+            ]
+            tectonic_plate = plate_name[plate_short] if plate_short != "" else "UNKNOWN"
+        except (IndexError, KeyError, OSError):
+            tectonic_plate = "UNKNOWN"
 
-    def decimal_to_dms(decimal_deg):
-        """Convert decimal degrees to DDMMSS.SS format"""
+    def decimal_to_dms(decimal_deg, is_longitude=False):
+        """Convert decimal degrees to IGS ±DDMMSS.SS (lat) / ±DDDMMSS.SS (lon)."""
         if not decimal_deg:
             return ""
 
@@ -865,20 +952,26 @@ def site_log(
         minutes = int((abs_deg - degrees) * 60)
         seconds = ((abs_deg - degrees) * 60 - minutes) * 60
 
-        # Format as DDMMSS.SS or DDDMMSS.SS for longitude
-        if abs_deg >= 100:  # longitude
+        # Longitude degrees are always three digits (e.g. -0155648.15).
+        if is_longitude:
             dms_str = f"{degrees:03d}{minutes:02d}{seconds:05.2f}"
-        else:  # latitude
+        else:
             dms_str = f"{degrees:02d}{minutes:02d}{seconds:05.2f}"
 
         return f"{'-' if is_negative else '+'}{dms_str}"
 
-    x_coordinate = coordinates.get("X", "")
-    y_coordinate = coordinates.get("Y", "")
-    z_coordinate = coordinates.get("Z", "")
-    latitude = decimal_to_dms(coordinates.get("lat", ""))
-    longitude = decimal_to_dms(coordinates.get("lon", ""))
-    elevation = coordinates.get("alt", "")
+    # Pre-format so a missing-coordinate station renders blanks, not a crash.
+    def _fmt_m(key):
+        v = coordinates.get(key)
+        return f"{v:.3f}" if v is not None else ""
+
+    x_coordinate = _fmt_m("X")
+    y_coordinate = _fmt_m("Y")
+    z_coordinate = _fmt_m("Z")
+    latitude = decimal_to_dms(coordinates.get("lat"))
+    longitude = decimal_to_dms(coordinates.get("lon"), is_longitude=True)
+    alt_v = coordinates.get("alt")
+    elevation = f"{alt_v:.1f}" if alt_v is not None else ""
 
     # NOTE: 3.   GNSS Receiver Information
     receiver_list = list(
@@ -890,27 +983,15 @@ def site_log(
     receiver_info = "\n3.   GNSS Receiver Information\n\n"
     for session_nr, session in enumerate(receiver_list):
         device = session["device"]
-        device_type = device.get("model", "")
-        satellite_system = device.get("satellite_system", "GPS")
-        serial_number = device.get("serial_number", "000000")
-        firmware_version = device.get("firmware_version", "")
-        elevation_cuttoff = device.get("elevation_cuttoff", "0 deg")
-        date_installed = device["date_from"]
-        if date_installed is None:
-            date_installed = "CCYY-MM-DDThh:mmZ"
-        else:
-            date_installed = dt.strptime(date_installed, "%Y-%m-%dT%H:%M:%S").strftime(
-                "%Y-%m-%dT%H:%MZ"
-            )
-        date_removed = device["date_to"]
-        if date_removed is None:
-            date_removed = "CCYY-MM-DDThh:mmZ"
-        else:
-            date_removed = dt.strptime(date_removed, "%Y-%m-%dT%H:%M:%S").strftime(
-                "%Y-%m-%dT%H:%MZ"
-            )
-        temperature_stab = device.get("temperature_stab", "")
-        add_information = device.get("add_information", "")
+        device_type = device.get("model") or ""
+        satellite_system = device.get("satellite_system") or "GPS"
+        serial_number = device.get("serial_number") or "000000"
+        firmware_version = device.get("firmware_version") or ""
+        elevation_cuttoff = device.get("elevation_cuttoff") or "0 deg"
+        date_installed = _fmt_igs_date(device.get("date_from"))
+        date_removed = _fmt_igs_date(device.get("date_to"))
+        temperature_stab = device.get("temperature_stab") or ""
+        add_information = device.get("add_information") or ""
 
         receiver_info += (
             f"3.{session_nr + 1}  Receiver Type            : {device_type}\n"
@@ -939,9 +1020,9 @@ def site_log(
         device = session["device"]
         module_logger.debug("device: \n%s", json_print(device))
 
-        device_type = device.get("model", "")
-        serial_number = device.get("serial_number", "000000")
-        arp = device.get("antenna_reference_point", "BPA")
+        device_type = device.get("model") or ""
+        serial_number = device.get("serial_number") or "000000"
+        arp = device.get("antenna_reference_point") or "BPA"
         if arp == "DHARP":
             arp = grep_line_aslist(get_data_file_path("antenna_arp.list"), device_type)[
                 1
@@ -988,28 +1069,16 @@ def site_log(
             antenna_offset_east_fl + monument_offset_east_fl
         )
 
-        alignment = device.get("antenna_alignment", "0 deg")
+        alignment = device.get("antenna_alignment") or "0 deg"
         # NOTE: radome is moved to the end of for loop as it needs end dates
 
-        cable_type = device.get("antenna_cable_type", "")
-        cable_length = device.get("antenna_cable_length", "")
+        cable_type = device.get("antenna_cable_type") or ""
+        cable_length = device.get("antenna_cable_length") or ""
 
-        date_installed = device["date_from"]
-        if date_installed is None:
-            date_installed = "CCYY-MM-DDThh:mmZ"
-        else:
-            date_installed = dt.strptime(date_installed, "%Y-%m-%dT%H:%M:%S").strftime(
-                "%Y-%m-%dT%H:%MZ"
-            )
-        date_removed = device["date_to"]
-        if date_removed is None:
-            date_removed = "CCYY-MM-DDThh:mmZ"
-        else:
-            date_removed = dt.strptime(date_removed, "%Y-%m-%dT%H:%M:%S").strftime(
-                "%Y-%m-%dT%H:%MZ"
-            )
+        date_installed = _fmt_igs_date(device.get("date_from"))
+        date_removed = _fmt_igs_date(device.get("date_to"))
 
-        add_information = device.get("add_information", "")
+        add_information = device.get("add_information") or ""
 
         # NOTE: checking RADOME
         radome_iter = (
@@ -1183,57 +1252,27 @@ def site_log(
         "     Event                    : (TREE CLEARING/CONSTRUCTION/etc)\n"
     )
 
-    # NOTE: 11.  On-Site, Point of Contact Agency Information
-    contact = station["contact"]["contact"]
-    module_logger.debug("contact: \n%s", json_print(contact))
+    if agencies is not None:
+        # Role-guided §11/§12/§13 (receivers resolve_sitelog_agencies shape):
+        # §11 = the disseminating agency (IMO), §12 = owner when different,
+        # §13 = data-center primary/secondary + URL.
+        contact_info = _igs_agency_section(
+            "11.  On-Site, Point of Contact Agency Information",
+            agencies.get("poc"),
+        )
+        operator_info = "\n" + _igs_agency_section(
+            "12.  Responsible Agency (if different from 11.)",
+            agencies.get("responsible"),
+        )
+        _dc = agencies.get("data_center") or {}
+        primary_data_center = _dc.get("primary") or ""
+        secondary_data_center = _dc.get("secondary") or ""
+        main_url = _dc.get("url") or ""
+        map_url = ""
 
-    agency = contact.get("name_en", "")
-    address = contact.get("address_en", "")
-    abbreviation = contact.get("abbreviation", "")
-    phone_primary = contact.get("phone_primary", "")
-    email = contact.get("email", "")
-    primary_contact = contact.get("primary_contact", "")
-    department = contact.get("department", "")
-
-    contact_info = (
-        f"\n11.   On-Site, Point of Contact Agency Information\n\n"
-        f"     Agency                   : {agency}\n"
-        f"                              : {department}\n"
-        f"     Preferred Abbreviation   : {abbreviation}\n"
-        f"     Mailing Address          : {address}\n"
-        f"     Primary Contact            \n"
-        f"       Contact Name           : {primary_contact}\n"
-        f"       Telephone (primary)    : +354 {phone_primary}\n"
-        f"       Telephone (secondary)  : \n"
-        f"       Fax                    : \n"
-        f"       E-mail                 : {email}\n"
-        f"     Secondary Contact          \n"
-        f"       Contact Name           : \n"
-        f"       Telephone (primary)    : \n"
-        f"       Telephone (secondary)  : \n"
-        f"       Fax                    : \n"
-        f"       E-mail                 : \n"
-        f"     Additional Information   : (multiple lines)"
-    )
-
-    # NOTE: 12. Responsible Agency (if different from 11.)
-    if (
-        station["contact"]["contact"]["id_entity"]
-        == station["contact"]["operator"]["id_entity"]
-    ):
-        contact = {}
-
-        agency = contact.get("name_en", "(multiple lines)")
-        address = contact.get("address_en", "(multiple lines)")
-        abbreviation = contact.get("abbreviation", "(A10)")
-        phone_primary = contact.get("phone_primary", "")
-        if phone_primary != "":
-            phone_primary = +354 + phone_primary
-        email = contact.get("email", "")
-        primary_contact = contact.get("primary_contact", "")
-        department = contact.get("department", "")
     else:
-        contact = station["contact"]["operator"]
+        # NOTE: 11.  On-Site, Point of Contact Agency Information
+        contact = station["contact"]["contact"]
         module_logger.debug("contact: \n%s", json_print(contact))
 
         agency = contact.get("name_en", "")
@@ -1244,41 +1283,90 @@ def site_log(
         primary_contact = contact.get("primary_contact", "")
         department = contact.get("department", "")
 
-    operator_info = (
-        f"\n\n12.  Responsible Agency (if different from 11.)\n\n"
-        f"     Agency                   : {agency}\n"
-        f"     Preferred Abbreviation   : {abbreviation}\n"
-        f"     Mailing Address          : {address}\n"
-        f"     Primary Contact            \n"
-        f"       Contact Name           : {primary_contact}\n"
-        f"       Telephone (primary)    : {phone_primary}\n"
-        f"       Telephone (secondary)  : \n"
-        f"       Fax                    : \n"
-        f"       E-mail                 : {email}\n"
-        f"     Secondary Contact          \n"
-        f"       Contact Name           : \n"
-        f"       Telephone (primary)    : \n"
-        f"       Telephone (secondary)  : \n"
-        f"       Fax                    : \n"
-        f"       E-mail                 : \n"
-        f"     Additional Information   : (multiple lines)"
-    )
+        contact_info = (
+            f"\n11.   On-Site, Point of Contact Agency Information\n\n"
+            f"     Agency                   : {agency}\n"
+            f"                              : {department}\n"
+            f"     Preferred Abbreviation   : {abbreviation}\n"
+            f"     Mailing Address          : {address}\n"
+            f"     Primary Contact            \n"
+            f"       Contact Name           : {primary_contact}\n"
+            f"       Telephone (primary)    : +354 {phone_primary}\n"
+            f"       Telephone (secondary)  : \n"
+            f"       Fax                    : \n"
+            f"       E-mail                 : {email}\n"
+            f"     Secondary Contact          \n"
+            f"       Contact Name           : \n"
+            f"       Telephone (primary)    : \n"
+            f"       Telephone (secondary)  : \n"
+            f"       Fax                    : \n"
+            f"       E-mail                 : \n"
+            f"     Additional Information   : (multiple lines)"
+        )
 
-    # NOTE: 13.  More Information
-    operator = station["contact"]["operator"]
-    primary_data_center = operator.get("abbreviation", "")
-    primary_contact = operator.get("primary_contact", "")
-    email = operator.get("email", "")
+        # NOTE: 12. Responsible Agency (if different from 11.)
+        if (
+            station["contact"]["contact"]["id_entity"]
+            == station["contact"]["operator"]["id_entity"]
+        ):
+            contact = {}
 
-    if (
-        station["contact"]["operator"]["id_entity"]
-        != station["contact"]["owner"]["id_entity"]
-    ):
-        secondary_data_center = station["contact"]["owner"].get("abbreviation", "")
-    else:
-        secondary_data_center = ""
-    main_url = operator["main_url_en"]
-    map_url = ""
+            agency = contact.get("name_en", "(multiple lines)")
+            address = contact.get("address_en", "(multiple lines)")
+            abbreviation = contact.get("abbreviation", "(A10)")
+            phone_primary = contact.get("phone_primary", "")
+            if phone_primary != "":
+                phone_primary = +354 + phone_primary
+            email = contact.get("email", "")
+            primary_contact = contact.get("primary_contact", "")
+            department = contact.get("department", "")
+        else:
+            contact = station["contact"]["operator"]
+            module_logger.debug("contact: \n%s", json_print(contact))
+
+            agency = contact.get("name_en", "")
+            address = contact.get("address_en", "")
+            abbreviation = contact.get("abbreviation", "")
+            phone_primary = contact.get("phone_primary", "")
+            email = contact.get("email", "")
+            primary_contact = contact.get("primary_contact", "")
+            department = contact.get("department", "")
+
+        operator_info = (
+            f"\n\n12.  Responsible Agency (if different from 11.)\n\n"
+            f"     Agency                   : {agency}\n"
+            f"     Preferred Abbreviation   : {abbreviation}\n"
+            f"     Mailing Address          : {address}\n"
+            f"     Primary Contact            \n"
+            f"       Contact Name           : {primary_contact}\n"
+            f"       Telephone (primary)    : {phone_primary}\n"
+            f"       Telephone (secondary)  : \n"
+            f"       Fax                    : \n"
+            f"       E-mail                 : {email}\n"
+            f"     Secondary Contact          \n"
+            f"       Contact Name           : \n"
+            f"       Telephone (primary)    : \n"
+            f"       Telephone (secondary)  : \n"
+            f"       Fax                    : \n"
+            f"       E-mail                 : \n"
+            f"     Additional Information   : (multiple lines)"
+        )
+
+        # NOTE: 13.  More Information
+        operator = station["contact"]["operator"]
+        primary_data_center = operator.get("abbreviation", "")
+        primary_contact = operator.get("primary_contact", "")
+        email = operator.get("email", "")
+
+        if (
+            station["contact"]["operator"]["id_entity"]
+            != station["contact"]["owner"]["id_entity"]
+        ):
+            secondary_data_center = station["contact"]["owner"].get("abbreviation", "")
+        else:
+            secondary_data_center = ""
+        main_url = operator["main_url_en"]
+        map_url = ""
 
     more_info = (
         f"\n\n13.  More Information\n\n"
@@ -1297,17 +1385,13 @@ def site_log(
 
     module_logger.debug("monument_height: %s", monument_height)
 
-    # Set default contact info for header
-    primary_contact = "GNSS Operator"
-    email = "gnss-epos@vedur.is"
-
     ascii_site_log = (
-        f"     {marker}00ISL Site Information Form (site log v2.0)\n"
+        f"     {nine_char} Site Information Form (site log v2.0)\n"
         f"     International GNSS Service\n"
         f"     See Instructions at:\n"
         f"       https://files.igs.org/pub/station/general/sitelog_instr_v2.0.txt\n\n"
         f"0.   Form\n\n"
-        f"     Prepared by (full name)  : {primary_contact} ({email})\n"
+        f"     Prepared by (full name)  : {prepared_by} ({prepared_email})\n"
         f"     Date Prepared            : {dt.now().strftime('%Y-%m-%d')}\n"
         f"     Report Type              : {report_type}\n"
         f"     If Update:\n"
@@ -1315,7 +1399,7 @@ def site_log(
         f"      Modified/Added Sections : {modified_sections}\n\n"
         f"1.   Site Identification of the GNSS Monument\n\n"
         f"     Site Name                : {site_name}\n"
-        f"     Nine Character ID        : {marker}00ISL\n"
+        f"     Nine Character ID        : {nine_char}\n"
         f"     Monument Inscription     : {monument_inscription}\n"
         f"     IERS DOMES Number        : {iers_domes}\n"
         f"     CDP Number               : {cdp_num}\n"
@@ -1338,12 +1422,12 @@ def site_log(
         f"     Country or Region        : {country}\n"
         f"     Tectonic Plate           : {tectonic_plate}\n"
         f"     Approximate Position (ITRF)\n"
-        f"       X coordinate (m)       : {x_coordinate:.3f}\n"
-        f"       Y coordinate (m)       : {y_coordinate:.3f}\n"
-        f"       Z coordinate (m)       : {z_coordinate:.3f}\n"
+        f"       X coordinate (m)       : {x_coordinate}\n"
+        f"       Y coordinate (m)       : {y_coordinate}\n"
+        f"       Z coordinate (m)       : {z_coordinate}\n"
         f"       Latitude (N is +)      : {latitude}\n"
         f"       Longitude (E is +)     : {longitude}\n"
-        f"       Elevation (m,ellips.)  : {elevation:.1f}\n"
+        f"       Elevation (m,ellips.)  : {elevation}\n"
         f"     Additional Information   : \n\n"
         f"{receiver_info}"
         f"{antenna_info}"
