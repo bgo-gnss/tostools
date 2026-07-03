@@ -64,6 +64,7 @@ def correct_rinex_from_tos(
     output_file: Optional[Path] = None,
     station_config: Optional[Dict[str, Any]] = None,
     loglevel: int = logging.INFO,
+    only_fields: Optional[set] = None,
 ) -> Optional[Path]:
     """
     Correct RINEX header using TOS metadata or station config.
@@ -84,6 +85,11 @@ def correct_rinex_from_tos(
         station_config: Station configuration dict from gps_parser.
                        Should contain 'rinex' section with config_valid_from.
         loglevel: Logging level
+        only_fields: Optional set of RINEX header labels (e.g. ``{"ANTENNA: DELTA H/E/N"}``)
+                     to restrict the rewrite to. When None (default) all known fields
+                     are corrected. When set, only corrections whose label is in the
+                     set are applied — used by ``receivers rinex --fix-headers`` to
+                     touch only the fields that actually differ from TOS.
 
     Returns:
         Path to corrected file, or None if correction failed
@@ -142,6 +148,21 @@ def correct_rinex_from_tos(
     if not corrections:
         logger.warning(f"No corrections available for {station_id}")
         return rinex_file  # Return original file unchanged
+
+    # Field-selective mode: keep only the requested labels (used by
+    # `receivers rinex --fix-headers` to touch only discrepant fields).
+    if only_fields is not None:
+        corrections = {
+            label: values
+            for label, values in corrections.items()
+            if label in only_fields
+        }
+        if not corrections:
+            logger.debug(
+                "No corrections after only_fields filter for %s — leaving file unchanged",
+                station_id,
+            )
+            return rinex_file
 
     # Apply corrections
     corrected_file = _apply_corrections(rinex_file, corrections, output_file, logger)
@@ -487,12 +508,30 @@ def _write_rinex_file(
         logger.warning("END OF HEADER not found, replacing entire content")
         new_content = new_header
 
-    # Write output
+    # Write output — re-compress in the SAME format as the original so the
+    # corrected file is byte-compatible with the archive convention.
     temp_file = output_file.with_suffix(".tmp")
     try:
         if output_file.suffix == ".gz":
             with gzip.open(temp_file, "wt", encoding="utf-8") as f:
                 f.write(new_content)
+        elif output_file.suffix == ".Z":
+            # Unix-compress (LZW). The archive keeps .YYD.Z; re-compress via
+            # the `compress` tool (inverse of `zcat`). `compress` has no
+            # stdin→stdout mode, so write to a temp .Z file then copy its
+            # bytes — keeps the corrected file a real LZW .Z.
+            import subprocess
+            import tempfile
+
+            plain = temp_file.with_suffix(".plain")
+            plain.write_text(new_content, encoding="utf-8")
+            subprocess.run(
+                ["compress", "-f", str(plain)],
+                check=True,
+                capture_output=True,
+            )  # writes plain.Z
+            temp_file.write_bytes(plain.with_suffix(".Z").read_bytes())
+            plain.with_suffix(".Z").unlink(missing_ok=True)
         else:
             with open(temp_file, "w", encoding="utf-8") as f:
                 f.write(new_content)
