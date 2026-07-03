@@ -468,73 +468,78 @@ def _write_rinex_file(
     output_file: Path,
     logger: logging.Logger,
 ) -> None:
-    """Write RINEX file with corrected header."""
-    # Determine if original was compressed
+    """Write RINEX file with corrected header.
+
+    The CRINEX data section (after END OF HEADER) is binary for Hatanaka-
+    compressed files; decoding it as text corrupts it. So we work with BYTES
+    for reading and the header/data split, decode only the header portion,
+    replace it, and re-encode — keeping the data section bit-identical."""
+    import subprocess
+    import tempfile
+
+    # Determine original format
     is_gzipped = original_file.suffix == ".gz"
     is_z_compressed = original_file.suffix == ".Z"
 
-    # Read original content
+    # Read the FULL content as BYTES (never decode the data section for
+    # CRINEX/Hatanaka files where it may be binary).
     if is_gzipped:
-        with gzip.open(original_file, "rt", encoding="utf-8", errors="replace") as f:
-            content = f.read()
+        with gzip.open(original_file, "rb") as f:
+            content_bytes = f.read()
     elif is_z_compressed:
-        import subprocess
-
-        result = subprocess.run(
-            ["zcat", str(original_file)],
-            capture_output=True,
-            text=True,
+        proc = subprocess.run(
+            ["zcat", str(original_file)], capture_output=True, check=True
         )
-        content = result.stdout
+        content_bytes = proc.stdout
     else:
-        with open(original_file, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
+        content_bytes = original_file.read_bytes()
 
-    # Find end of header and replace header section
-    end_marker = "END OF HEADER"
-    if end_marker in content:
-        # Find where data section starts
-        header_end = content.find(end_marker) + len(end_marker)
-        # Find the newline after END OF HEADER
-        next_newline = content.find("\n", header_end)
-        if next_newline > 0:
-            data_section = content[next_newline:]
-        else:
-            data_section = ""
-
-        # Combine new header with data
-        new_content = new_header + data_section
+    # Find END OF HEADER as bytes, split header bytes from data bytes.
+    end_marker_b = b"END OF HEADER"
+    idx = content_bytes.find(end_marker_b)
+    if idx >= 0:
+        # header_bytes = everything up to and including END OF HEADER + trailing \n
+        eoh_end = idx + len(end_marker_b)
+        nl = content_bytes.find(b"\n", eoh_end)
+        header_end = nl + 1 if nl >= 0 else eoh_end
+        header_bytes = content_bytes[:header_end]
+        data_bytes = content_bytes[header_end:]
+        # Decode ONLY the header for the regex-based edits (errors='ignore'
+        # to survive any stray non-UTF-8 bytes in the header).
+        header_text = header_bytes.decode("utf-8", errors="ignore")
+        # Replace the header in the text domain and re-encode.
+        new_content_bytes = new_header.encode("utf-8") + data_bytes
     else:
-        logger.warning("END OF HEADER not found, replacing entire content")
-        new_content = new_header
+        logger.warning("END OF HEADER not found (bytes), replacing entire content")
+        new_content_bytes = new_header.encode("utf-8")
 
     # Write output — re-compress in the SAME format as the original so the
     # corrected file is byte-compatible with the archive convention.
     temp_file = output_file.with_suffix(".tmp")
     try:
         if output_file.suffix == ".gz":
-            with gzip.open(temp_file, "wt", encoding="utf-8") as f:
-                f.write(new_content)
+            with gzip.open(temp_file, "wb") as f:
+                f.write(new_content_bytes)
         elif output_file.suffix == ".Z":
-            # Unix-compress (LZW). The archive keeps .YYD.Z; re-compress via
-            # the `compress` tool (inverse of `zcat`). `compress` has no
-            # stdin→stdout mode, so write to a temp .Z file then copy its
-            # bytes — keeps the corrected file a real LZW .Z.
+            # Unix-compress (LZW). Write plain bytes to a temp file, run
+            # compress.  ``compress foo.plain`` produces ``foo.plain.Z`` —
+            # NOT a simple suffix-replacement of .plain with .Z — so read the
+            # actual compress output filename rather than assuming.
             import subprocess
-            import tempfile
 
-            plain = temp_file.with_suffix(".plain")
-            plain.write_text(new_content, encoding="utf-8")
+            plain = temp_file.with_name(temp_file.name + ".plain")
+            plain.write_bytes(new_content_bytes)
             subprocess.run(
                 ["compress", "-f", str(plain)],
                 check=True,
                 capture_output=True,
-            )  # writes plain.Z
-            temp_file.write_bytes(plain.with_suffix(".Z").read_bytes())
-            plain.with_suffix(".Z").unlink(missing_ok=True)
+            )
+            compressed = plain.with_name(plain.name + ".Z")
+            temp_file.write_bytes(compressed.read_bytes())
+            compressed.unlink(missing_ok=True)
+            plain.unlink(missing_ok=True)
         else:
-            with open(temp_file, "w", encoding="utf-8") as f:
-                f.write(new_content)
+            temp_file.write_bytes(new_content_bytes)
 
         # Atomic replace
         shutil.move(temp_file, output_file)
