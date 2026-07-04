@@ -65,6 +65,7 @@ def correct_rinex_from_tos(
     station_config: Optional[Dict[str, Any]] = None,
     loglevel: int = logging.INFO,
     only_fields: Optional[set] = None,
+    extra_corrections: Optional[Dict[str, Any]] = None,
 ) -> Optional[Path]:
     """
     Correct RINEX header using TOS metadata or station config.
@@ -144,6 +145,13 @@ def correct_rinex_from_tos(
     else:
         logger.debug(f"Querying TOS for {station_id} metadata")
         corrections = _get_corrections_from_tos(station_id, observation_date, loglevel)
+
+    # Caller-supplied corrections (e.g. the receivers-resolved OBSERVER / AGENCY,
+    # which needs agencies.yaml the corrector can't reach). Merged over the TOS/
+    # config corrections, before the only_fields filter, so a field the corrector
+    # cannot build itself can still be written in the same single pass.
+    if extra_corrections:
+        corrections = {**corrections, **extra_corrections}
 
     if not corrections:
         logger.warning(f"No corrections available for {station_id}")

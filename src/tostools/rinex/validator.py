@@ -80,43 +80,91 @@ def compare_rinex_to_tos(
             }
             comparison_result["corrections"]["MARKER NUMBER"] = tos_marker_number
 
-    # Compare receiver information
+    # Compare receiver by NORMALIZED IDENTITY, not raw string. The header stores
+    # fixed-width A20,A20,A20 (serial/type/firmware) columns; TOS stores single-
+    # spaced fields — a raw compare never matches (that was the old unconditional-
+    # flag bug that forced fix-headers to whitelist receiver/antenna out).
+    # ReceiverHeader.key applies IGS-name / placeholder-serial / vendor-firmware
+    # normalization to both sides, so only a REAL change is flagged. Receiver is a
+    # FLAG-only field for --fix-headers (a historical header records the actual
+    # hardware at acquisition; TOS device_history is a reconstruction) — reported,
+    # never auto-rewritten.
     if "REC # / TYPE / VERS" in rinex_info:
-        rinex_receiver = rinex_info["REC # / TYPE / VERS"].strip()
         receiver_info = tos_session.get("gnss_receiver", {})
-
         if receiver_info:
-            tos_receiver = f"{receiver_info.get('serial_number', '')} {receiver_info.get('model', '')} {receiver_info.get('firmware_version', '')}"
+            from ..receiver_timeline import ReceiverHeader
 
-            if rinex_receiver:
+            v = rinex_info["REC # / TYPE / VERS"]
+            rinex_rec = ReceiverHeader(
+                serial=(v[0:20].strip() or None),
+                rtype=(v[20:40].strip() or None),
+                firmware=(v[40:60].strip() or None),
+            )
+            tos_rec = ReceiverHeader(
+                serial=(str(receiver_info.get("serial_number") or "").strip() or None),
+                rtype=(str(receiver_info.get("model") or "").strip() or None),
+                firmware=(
+                    str(receiver_info.get("firmware_version") or "").strip() or None
+                ),
+            )
+            if rinex_rec.is_known and tos_rec.is_known and rinex_rec.key != tos_rec.key:
                 comparison_result["discrepancies"]["receiver"] = {
-                    "rinex": rinex_receiver,
-                    "tos": tos_receiver.strip(),
+                    "rinex": str(rinex_rec),
+                    "tos": str(tos_rec),
                 }
-                comparison_result["corrections"][
-                    "REC # / TYPE / VERS"
-                ] = tos_receiver.strip()
+                comparison_result["corrections"]["REC # / TYPE / VERS"] = [
+                    tos_rec.serial or "",
+                    tos_rec.rtype or "",
+                    tos_rec.firmware or "",
+                ]
             else:
-                comparison_result["missing_rinex"].append("REC # / TYPE / VERS")
+                comparison_result["matches"]["receiver"] = str(tos_rec)
         else:
             comparison_result["missing_tos"].append("receiver information")
 
-    # Compare antenna information
+    # Compare antenna UNIT identity (serial / type / radome) by normalized key.
+    # Height is a separate field (ANTENNA: DELTA H/E/N below), so unit_key ignores
+    # it. Also FLAG-only for --fix-headers, same rationale as the receiver.
     if "ANT # / TYPE" in rinex_info:
-        rinex_antenna = rinex_info["ANT # / TYPE"].strip()
         antenna_info = tos_session.get("antenna", {})
-
         if antenna_info:
-            tos_antenna = f"{antenna_info.get('serial_number', '')} {antenna_info.get('model', '')}"
+            from ..antenna_timeline import AntennaHeader
 
-            if rinex_antenna:
+            v = rinex_info["ANT # / TYPE"]
+            toks = v[20:40].split()
+            rinex_ant = AntennaHeader(
+                serial=(v[0:20].strip() or None),
+                atype=(toks[0] if toks else None),
+                radome=(toks[1] if len(toks) > 1 else None),
+                delta_h=None,
+                delta_e=None,
+                delta_n=None,
+            )
+            radome_info = tos_session.get("radome") or {}
+            tos_ant = AntennaHeader(
+                serial=(str(antenna_info.get("serial_number") or "").strip() or None),
+                atype=(str(antenna_info.get("model") or "").strip() or None),
+                radome=(str(radome_info.get("model") or "").strip() or None),
+                delta_h=None,
+                delta_e=None,
+                delta_n=None,
+            )
+            if (
+                rinex_ant.is_known
+                and tos_ant.is_known
+                and rinex_ant.unit_key != tos_ant.unit_key
+            ):
                 comparison_result["discrepancies"]["antenna"] = {
-                    "rinex": rinex_antenna,
-                    "tos": tos_antenna.strip(),
+                    "rinex": str(rinex_ant),
+                    "tos": str(tos_ant),
                 }
-                comparison_result["corrections"]["ANT # / TYPE"] = tos_antenna.strip()
+                comparison_result["corrections"]["ANT # / TYPE"] = [
+                    tos_ant.serial or "",
+                    tos_ant.atype or "",
+                    tos_ant.radome or "NONE",
+                ]
             else:
-                comparison_result["missing_rinex"].append("ANT # / TYPE")
+                comparison_result["matches"]["antenna"] = str(tos_ant)
         else:
             comparison_result["missing_tos"].append("antenna information")
 
@@ -200,17 +248,32 @@ def compare_rinex_to_tos(
         except (ValueError, TypeError) as e:
             logger.warning(f"Error comparing coordinates: {e}")
 
-    # Compare observer/agency
-    observer_info = tos_session.get("contact", {})
-    if observer_info:
-        agency_name = observer_info.get("owner", {}).get("abbreviation", "")
-        if agency_name:
-            if "OBSERVER / AGENCY" in rinex_info:
-                rinex_agency = rinex_info["OBSERVER / AGENCY"].strip()
-                if agency_name not in rinex_agency:
-                    comparison_result["corrections"][
-                        "OBSERVER / AGENCY"
-                    ] = f"GNSS Operator {agency_name}"
+    # Compare observer / agency. The RINEX OBSERVER (A20) + AGENCY (A40) strings
+    # are resolved from the station's TOS owner organization by the receivers
+    # session provider (agencies.yaml → generic team name + agency, never personal
+    # initials) and placed on the session as ``observer`` / ``agency``. Only
+    # checked when the session carries them (agencies.yaml deployed) — a host
+    # without it simply skips the field. Personal-initials headers (e.g.
+    # "SFS/BGO/SJ / ETH/IMO") are the discrepancy this corrects (EPOS 4.1.7).
+    tos_observer = str(tos_session.get("observer") or "").strip()
+    tos_agency = str(tos_session.get("agency") or "").strip()
+    if (tos_observer or tos_agency) and "OBSERVER / AGENCY" in rinex_info:
+        v = rinex_info["OBSERVER / AGENCY"]
+        rinex_observer = v[0:20].strip()
+        rinex_agency = v[20:60].strip()
+        if rinex_observer == tos_observer and rinex_agency == tos_agency:
+            comparison_result["matches"][
+                "observer_agency"
+            ] = f"{tos_observer} / {tos_agency}"
+        else:
+            comparison_result["discrepancies"]["observer_agency"] = {
+                "rinex": f"{rinex_observer} / {rinex_agency}",
+                "tos": f"{tos_observer} / {tos_agency}",
+            }
+            comparison_result["corrections"]["OBSERVER / AGENCY"] = [
+                tos_observer,
+                tos_agency,
+            ]
 
     logger.info(
         f"Comparison found {len(comparison_result['discrepancies'])} discrepancies"
