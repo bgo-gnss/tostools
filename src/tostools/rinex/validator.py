@@ -59,6 +59,27 @@ def compare_rinex_to_tos(
                 }
                 comparison_result["corrections"]["MARKER NAME"] = tos_marker
 
+    # Compare marker number. TOS is authoritative: MARKER NUMBER carries the
+    # IERS DOMES number when the station has one, else it falls back to the
+    # 4-char marker — the same ``(domes or marker)`` rule as finalize_epos_header
+    # and the legacy compare_tos_to_rinex. A blank header value, or the wrong id,
+    # is a discrepancy. ``tos_session["domes"]`` / ``["marker"]`` are station-level
+    # fields the session providers add (TOSSesionCache / make_session_provider).
+    tos_domes = str(tos_session.get("domes") or "").strip()
+    tos_marker_number = (
+        tos_domes or str(tos_session.get("marker") or "").strip().upper()
+    )
+    if tos_marker_number:
+        rinex_number = str(rinex_info.get("MARKER NUMBER") or "").strip()
+        if rinex_number.upper() == tos_marker_number.upper():
+            comparison_result["matches"]["domes"] = tos_marker_number
+        else:
+            comparison_result["discrepancies"]["domes"] = {
+                "rinex": rinex_number.upper(),
+                "tos": tos_marker_number,
+            }
+            comparison_result["corrections"]["MARKER NUMBER"] = tos_marker_number
+
     # Compare receiver information
     if "REC # / TYPE / VERS" in rinex_info:
         rinex_receiver = rinex_info["REC # / TYPE / VERS"].strip()

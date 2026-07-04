@@ -189,3 +189,64 @@ def test_antenna_height_real_mismatch_still_flagged():
     # Genuine mismatch (composite 1.014 vs DELTA H 1.500) is still a discrepancy.
     r = _ah_result(1.5000, 0.0, 1.014)
     assert "antenna_height" in r["discrepancies"]
+
+
+# ---------------------------------------------------------------------------
+# MARKER NUMBER ← DOMES (EPOS 4.1.7). Checked only when TOS carries a DOMES.
+# ---------------------------------------------------------------------------
+
+
+def _domes_result(rinex_marker_number, tos_domes):
+    """compare_rinex_to_tos over a minimal session carrying a DOMES.
+
+    ``rinex_marker_number`` is the header MARKER NUMBER value (or None to omit
+    the header record entirely); ``tos_domes`` is the station's TOS DOMES.
+    """
+    rinex_info = {"MARKER NAME": "RHOF"}
+    if rinex_marker_number is not None:
+        rinex_info["MARKER NUMBER"] = rinex_marker_number
+    session = {"marker": "RHOF", "domes": tos_domes, "devices": {}, "contact": {}}
+    return compare_rinex_to_tos(rinex_info, session)
+
+
+def test_domes_match_when_header_equals_tos():
+    r = _domes_result("10216M001", "10216M001")
+    assert r["matches"].get("domes") == "10216M001"
+    assert "domes" not in r["discrepancies"]
+    assert "MARKER NUMBER" not in r["corrections"]
+
+
+def test_domes_discrepancy_when_header_blank():
+    # 2000-2011-era RHOF: blank MARKER NUMBER line vs a real TOS DOMES.
+    r = _domes_result("", "10216M001")
+    assert r["discrepancies"]["domes"] == {"rinex": "", "tos": "10216M001"}
+    assert r["corrections"]["MARKER NUMBER"] == "10216M001"
+
+
+def test_domes_discrepancy_when_header_has_4char_id():
+    # 2012-2022-era RHOF: MARKER NUMBER carries the 4-char ID, not the DOMES.
+    r = _domes_result("RHOF", "10216M001")
+    assert r["discrepancies"]["domes"] == {"rinex": "RHOF", "tos": "10216M001"}
+    assert r["corrections"]["MARKER NUMBER"] == "10216M001"
+
+
+def test_domes_discrepancy_when_header_record_absent():
+    # No MARKER NUMBER record at all still flags (corrector can only replace an
+    # existing line, but the validator must surface the gap regardless).
+    r = _domes_result(None, "10216M001")
+    assert r["discrepancies"]["domes"] == {"rinex": "", "tos": "10216M001"}
+
+
+def test_falls_back_to_marker_when_no_domes_and_header_matches():
+    # Station without a DOMES: MARKER NUMBER should be the 4-char marker. Header
+    # already carries it → a match, no correction.
+    r = _domes_result("RHOF", "")
+    assert r["matches"].get("domes") == "RHOF"
+    assert "domes" not in r["discrepancies"]
+
+
+def test_falls_back_to_marker_when_no_domes_and_header_wrong():
+    # No DOMES + blank/other MARKER NUMBER → correct it to the 4-char marker.
+    r = _domes_result("", "")
+    assert r["discrepancies"]["domes"] == {"rinex": "", "tos": "RHOF"}
+    assert r["corrections"]["MARKER NUMBER"] == "RHOF"

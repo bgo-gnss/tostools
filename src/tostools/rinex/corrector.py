@@ -307,6 +307,18 @@ def _get_corrections_from_tos(
         # MARKER NAME
         corrections["MARKER NAME"] = [station_id.upper()]
 
+        # MARKER NUMBER ← IERS DOMES, falling back to the 4-char marker when the
+        # station has no DOMES (same (domes or marker) rule as finalize_epos_header
+        # and the legacy compare_tos_to_rinex). Matches the domes discrepancy check
+        # in compare_rinex_to_tos, so a --fix-headers run that flags MARKER NUMBER
+        # can actually correct it.
+        domes = str(station_data.get("iers_domes_number") or "").strip()
+        marker_number = (
+            domes or str(station_data.get("marker") or station_id).strip().upper()
+        )
+        if marker_number:
+            corrections["MARKER NUMBER"] = [marker_number]
+
         # REC # / TYPE / VERS - from gnss_receiver
         receiver = session.get("gnss_receiver", {})
         if receiver:
@@ -408,6 +420,39 @@ def _format_rinex_data(label: str, values: list) -> Optional[str]:
         return v.ljust(60)[:60]
 
 
+def _insert_header_record(
+    header_content: str,
+    label: str,
+    new_line: str,
+    logger: logging.Logger,
+) -> str:
+    """Insert a header record that is absent from the file.
+
+    Positional insert that preserves the existing line endings (string splice,
+    not splitlines/join): ``MARKER NUMBER`` goes immediately after the
+    ``MARKER NAME`` line (RINEX convention); any other label goes just before
+    ``END OF HEADER``. Returns the content unchanged if no anchor is found —
+    a malformed header is never corrupted further.
+    """
+    if label == "MARKER NUMBER":
+        anchor = re.compile(r"^.*MARKER NAME.*$", re.M)
+        m = anchor.search(header_content)
+        if m:
+            # After the anchor line's content, before its newline.
+            pos = m.end()
+            return header_content[:pos] + "\n" + new_line + header_content[pos:]
+
+    eoh = re.compile(r"^.*END OF HEADER.*$", re.M)
+    m = eoh.search(header_content)
+    if m:
+        # Before the END OF HEADER line.
+        pos = m.start()
+        return header_content[:pos] + new_line + "\n" + header_content[pos:]
+
+    logger.debug("No insert anchor for %s; header left unchanged", label)
+    return header_content
+
+
 def _apply_corrections(
     rinex_file: Path,
     corrections: Dict[str, Any],
@@ -441,14 +486,21 @@ def _apply_corrections(
             # RINEX format: 60 chars data + 20 chars label
             new_line = f"{data_part}{label}"
 
-            # Replace in header
+            # Replace the existing record, or INSERT it when the label line is
+            # absent. Insert matters for MARKER NUMBER: pre-DOMES-era headers
+            # (e.g. RHOF 2000-2011) carry no MARKER NUMBER line at all, so a
+            # replace-only corrector would silently no-op and never write the
+            # DOMES. RINEX places MARKER NUMBER right after MARKER NAME; any
+            # other absent label goes just before END OF HEADER.
             pattern = rf"(^.*{re.escape(label)}.*$)"
             mstring = re.compile(pattern, re.M)
             if mstring.search(header_content):
                 header_content = re.sub(mstring, new_line, header_content)
                 logger.debug(f"Applied correction to {label}")
             else:
-                logger.debug(f"Label {label} not found in header")
+                header_content = _insert_header_record(
+                    header_content, label, new_line, logger
+                )
         except Exception as e:
             logger.warning(f"Failed to apply correction for {label}: {e}")
 
