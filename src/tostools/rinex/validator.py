@@ -33,6 +33,7 @@ def compare_rinex_to_tos(
     loglevel: int = logging.WARNING,
     coord_tolerance: float = 10.0,
     observation_date: Any = None,
+    expected_interval: Any = None,
 ) -> Dict[str, Any]:
     """
     Compare RINEX header information with TOS database session.
@@ -326,6 +327,24 @@ def compare_rinex_to_tos(
                 "rinex": tofo.date().isoformat(),
                 "expected": observation_date.date().isoformat(),
             }
+    # INTERVAL — session-mixing guard: the header sampling rate must match the
+    # nominal rate of the session the file belongs to (caller supplies it — e.g.
+    # 15.0s for 15s_24hr, 1.0s for 1Hz_1hr). A mismatch means a file sorted into
+    # the wrong tier. Only when the header carries an INTERVAL (many older files
+    # omit it) and the caller passes an expected rate; flag-only (a misplaced file
+    # is a data problem, not a header field to rewrite).
+    if expected_interval is not None:
+        rinex_interval_raw = str(rinex_info.get("INTERVAL") or "").strip()
+        if rinex_interval_raw:
+            try:
+                rinex_interval = float(rinex_interval_raw.split()[0])
+                if abs(rinex_interval - float(expected_interval)) > 0.001:
+                    comparison_result["discrepancies"]["interval"] = {
+                        "rinex": rinex_interval,
+                        "expected": float(expected_interval),
+                    }
+            except (ValueError, IndexError):
+                pass
 
     logger.info(
         f"Comparison found {len(comparison_result['discrepancies'])} discrepancies"

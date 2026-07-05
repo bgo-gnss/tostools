@@ -469,3 +469,35 @@ def test_time_of_first_obs_skipped_without_observation_date():
         {"marker": "RHOF"},
     )
     assert "time_of_first_obs" not in r["discrepancies"]
+
+
+# ---------------------------------------------------------------------------
+# INTERVAL — session-mixing guard (flag-only): header sampling rate must match
+# the nominal rate of the session tier the file belongs to.
+# ---------------------------------------------------------------------------
+
+
+def test_interval_mismatch_flagged():
+    r = compare_rinex_to_tos(
+        {"INTERVAL": "30.000"}, {"marker": "RHOF"}, expected_interval=15.0
+    )
+    assert r["discrepancies"]["interval"] == {"rinex": 30.0, "expected": 15.0}
+
+
+def test_interval_match_not_flagged():
+    r = compare_rinex_to_tos(
+        {"INTERVAL": "15.000"}, {"marker": "RHOF"}, expected_interval=15.0
+    )
+    assert "interval" not in r["discrepancies"]
+
+
+def test_interval_skipped_when_header_empty():
+    r = compare_rinex_to_tos(
+        {"INTERVAL": ""}, {"marker": "RHOF"}, expected_interval=15.0
+    )
+    assert "interval" not in r["discrepancies"]
+
+
+def test_interval_skipped_without_expected():
+    r = compare_rinex_to_tos({"INTERVAL": "30.000"}, {"marker": "RHOF"})
+    assert "interval" not in r["discrepancies"]
