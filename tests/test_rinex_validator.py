@@ -176,7 +176,43 @@ def test_antenna_height_composite_matches_rinex_delta_h():
     # RHOF: ecc -0.007 + monument 1.014 == DELTA H 1.0070 -> match (no discrepancy).
     r = _ah_result(1.0070, -0.007, 1.014)
     assert "antenna_height" not in r["discrepancies"]
-    assert r["matches"]["antenna_height"] == 1.0070
+    assert r["matches"]["antenna_height"] == [1.0070, 0.0, 0.0]
+
+
+def test_antenna_east_north_offset_flagged():
+    # H matches but the header carries a bogus east offset TOS says is 0 → flagged.
+    rinex_info = {"ANTENNA: DELTA H/E/N": "1.0140 0.0030 0.0000"}
+    session = {
+        "antenna": {"antenna_height": 0.0, "antenna_offset_east": 0.0},
+        "monument": {"monument_height": 1.014},
+    }
+    r = compare_rinex_to_tos(rinex_info, session)
+    assert "antenna_height" in r["discrepancies"]
+    assert r["corrections"]["ANTENNA: DELTA H/E/N"] == [1.014, 0.0, 0.0]
+
+
+def test_antenna_real_east_offset_from_tos_matches():
+    # A genuine TOS east eccentricity is honoured (not assumed 0).
+    rinex_info = {"ANTENNA: DELTA H/E/N": "1.0140 0.1000 0.0000"}
+    session = {
+        "antenna": {"antenna_height": 0.0, "antenna_offset_east": 0.1},
+        "monument": {"monument_height": 1.014},
+    }
+    r = compare_rinex_to_tos(rinex_info, session)
+    assert "antenna_height" not in r["discrepancies"]
+
+
+def test_coordinate_correction_emitted_when_exceeds_tolerance():
+    # A gross coordinate error now emits an APPROX POSITION XYZ correction so
+    # fix-headers can rewrite it (previously detected but silently unfixable).
+    lat, lon, alt = 64.13, -21.93, 50.0
+    x, y, z = _expected_xyz(lat, lon, alt)
+    r = compare_rinex_to_tos(
+        _rinex_info_with_xyz(x, y, z + 20.0),
+        _tos_session_with_coords(lat, lon, alt),
+    )
+    assert "coordinates" in r["discrepancies"]
+    assert r["corrections"]["APPROX POSITION XYZ"] == list(_expected_xyz(lat, lon, alt))
 
 
 def test_antenna_height_no_monument_uses_eccentricity_alone():

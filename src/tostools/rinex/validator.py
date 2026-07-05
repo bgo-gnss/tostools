@@ -168,44 +168,58 @@ def compare_rinex_to_tos(
         else:
             comparison_result["missing_tos"].append("antenna information")
 
-    # Compare antenna height
+    # Compare antenna DELTA H/E/N — all three components (the legacy checker did;
+    # the height-only check missed a bogus east/north offset).
     if "ANTENNA: DELTA H/E/N" in rinex_info:
         rinex_height = rinex_info["ANTENNA: DELTA H/E/N"].strip()
         antenna_info = tos_session.get("antenna", {})
 
         if antenna_info and "antenna_height" in antenna_info:
-            tos_height = antenna_info["antenna_height"]
-
             if rinex_height:
                 try:
-                    # Parse RINEX height (first value in H/E/N)
-                    rinex_h = float(rinex_height.split()[0])
-                    # RINEX "ANTENNA: DELTA H" is the full mark->ARP height, so the
-                    # TOS expectation is the COMPOSITE of the antenna eccentricity
-                    # (monument-top->ARP) and the monument height (mark->monument-top)
-                    # — the same sum the corrector/header path uses. Comparing the
-                    # eccentricity alone falsely flags every station with a non-zero
-                    # monument. monument_height is the canonical code; antenna_height
-                    # on the monument is only a legacy fallback.
+                    parts = rinex_height.split()
+                    rinex_h = float(parts[0])
+                    rinex_e = float(parts[1]) if len(parts) > 1 else 0.0
+                    rinex_n = float(parts[2]) if len(parts) > 2 else 0.0
+                    # H: RINEX "DELTA H" is the full mark->ARP height, so the TOS
+                    # expectation is the COMPOSITE of the antenna eccentricity
+                    # (monument-top->ARP) and the monument height (mark->monument-
+                    # top) — comparing the eccentricity alone falsely flags every
+                    # station with a non-zero monument. monument_height is canonical;
+                    # antenna_height on the monument is only a legacy fallback.
                     monument_info = tos_session.get("monument") or {}
                     mon_h = monument_info.get("monument_height")
                     if mon_h is None:
                         mon_h = monument_info.get("antenna_height")  # legacy fallback
-                    tos_h = float(tos_height) + float(mon_h or 0.0)
+                    tos_h = float(antenna_info["antenna_height"]) + float(mon_h or 0.0)
+                    # E/N: the TOS antenna eccentricity (0.0 for a centered antenna,
+                    # but stored per-station so a real offset is honoured, not
+                    # assumed 0 — a non-zero header E/N that TOS says is 0 is an error).
+                    tos_e = float(antenna_info.get("antenna_offset_east") or 0.0)
+                    tos_n = float(antenna_info.get("antenna_offset_north") or 0.0)
 
-                    if abs(rinex_h - tos_h) > 0.001:  # 1mm tolerance
+                    if (
+                        abs(rinex_h - tos_h) > 0.001
+                        or abs(rinex_e - tos_e) > 0.001
+                        or abs(rinex_n - tos_n) > 0.001
+                    ):  # 1mm tolerance on any component
                         comparison_result["discrepancies"]["antenna_height"] = {
-                            "rinex": rinex_h,
-                            "tos": tos_h,
+                            "rinex": [rinex_h, rinex_e, rinex_n],
+                            "tos": [tos_h, tos_e, tos_n],
                         }
-                        # Format as H/E/N with E=0, N=0
-                        comparison_result["corrections"][
-                            "ANTENNA: DELTA H/E/N"
-                        ] = f"{tos_h:8.4f} 0.0000 0.0000"
+                        comparison_result["corrections"]["ANTENNA: DELTA H/E/N"] = [
+                            tos_h,
+                            tos_e,
+                            tos_n,
+                        ]
                     else:
-                        comparison_result["matches"]["antenna_height"] = rinex_h
+                        comparison_result["matches"]["antenna_height"] = [
+                            rinex_h,
+                            rinex_e,
+                            rinex_n,
+                        ]
                 except (ValueError, IndexError) as e:
-                    logger.warning(f"Error parsing antenna height: {e}")
+                    logger.warning(f"Error parsing antenna DELTA H/E/N: {e}")
 
     # Compare approximate position (XYZ) against TOS coordinates
     rinex_xyz_str = rinex_info.get("APPROX POSITION XYZ", "").strip()
@@ -243,6 +257,10 @@ def compare_rinex_to_tos(
                     "distance_m": distance,
                     "tolerance_m": coord_tolerance,
                 }
+                # APPROX POSITION XYZ is an a-priori position; correct it to the
+                # TOS surveyed ECEF. The tolerance means only gross errors fire —
+                # normal cm/dm plate motion never trips it.
+                comparison_result["corrections"]["APPROX POSITION XYZ"] = tos_xyz
             else:
                 comparison_result["matches"]["coordinates"] = distance
         except (ValueError, TypeError) as e:

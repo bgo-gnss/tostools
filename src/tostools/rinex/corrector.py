@@ -349,11 +349,32 @@ def _get_corrections_from_tos(
                 ant_serial = "0000"
             corrections["ANT # / TYPE"] = [ant_serial, ant_type_full]
 
-        # ANTENNA: DELTA H/E/N
+        # ANTENNA: DELTA H/E/N (composite up + east/north eccentricity)
         ant_height = float(antenna.get("antenna_height", 0) or 0) if antenna else 0.0
         monument = session.get("monument", {})
         mon_height = float(monument.get("monument_height", 0) or 0) if monument else 0.0
-        corrections["ANTENNA: DELTA H/E/N"] = [ant_height + mon_height, 0.0, 0.0]
+        ant_east = float(antenna.get("antenna_offset_east", 0) or 0) if antenna else 0.0
+        ant_north = (
+            float(antenna.get("antenna_offset_north", 0) or 0) if antenna else 0.0
+        )
+        corrections["ANTENNA: DELTA H/E/N"] = [
+            ant_height + mon_height,
+            ant_east,
+            ant_north,
+        ]
+
+        # APPROX POSITION XYZ ← TOS surveyed lat/lon/altitude → ECEF.
+        lat = station_data.get("lat")
+        lon = station_data.get("lon")
+        alt = station_data.get("altitude")
+        if lat is not None and lon is not None and alt is not None:
+            try:
+                from ..gps_metadata_qc import wgs84toitrf08
+
+                x, y, z = wgs84toitrf08.transform(float(lat), float(lon), float(alt))
+                corrections["APPROX POSITION XYZ"] = [x, y, z]
+            except Exception as exc:  # noqa: BLE001 - transform optional
+                logger.debug("APPROX POSITION XYZ transform failed: %s", exc)
 
         logger.debug(f"Corrections from TOS: {list(corrections.keys())}")
         return corrections
