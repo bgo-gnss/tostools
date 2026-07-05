@@ -64,6 +64,8 @@ def correct_rinex_from_tos(
     output_file: Optional[Path] = None,
     station_config: Optional[Dict[str, Any]] = None,
     loglevel: int = logging.INFO,
+    only_fields: Optional[set] = None,
+    extra_corrections: Optional[Dict[str, Any]] = None,
 ) -> Optional[Path]:
     """
     Correct RINEX header using TOS metadata or station config.
@@ -84,6 +86,11 @@ def correct_rinex_from_tos(
         station_config: Station configuration dict from gps_parser.
                        Should contain 'rinex' section with config_valid_from.
         loglevel: Logging level
+        only_fields: Optional set of RINEX header labels (e.g. ``{"ANTENNA: DELTA H/E/N"}``)
+                     to restrict the rewrite to. When None (default) all known fields
+                     are corrected. When set, only corrections whose label is in the
+                     set are applied — used by ``receivers rinex --fix-headers`` to
+                     touch only the fields that actually differ from TOS.
 
     Returns:
         Path to corrected file, or None if correction failed
@@ -139,9 +146,31 @@ def correct_rinex_from_tos(
         logger.debug(f"Querying TOS for {station_id} metadata")
         corrections = _get_corrections_from_tos(station_id, observation_date, loglevel)
 
+    # Caller-supplied corrections (e.g. the receivers-resolved OBSERVER / AGENCY,
+    # which needs agencies.yaml the corrector can't reach). Merged over the TOS/
+    # config corrections, before the only_fields filter, so a field the corrector
+    # cannot build itself can still be written in the same single pass.
+    if extra_corrections:
+        corrections = {**corrections, **extra_corrections}
+
     if not corrections:
         logger.warning(f"No corrections available for {station_id}")
         return rinex_file  # Return original file unchanged
+
+    # Field-selective mode: keep only the requested labels (used by
+    # `receivers rinex --fix-headers` to touch only discrepant fields).
+    if only_fields is not None:
+        corrections = {
+            label: values
+            for label, values in corrections.items()
+            if label in only_fields
+        }
+        if not corrections:
+            logger.debug(
+                "No corrections after only_fields filter for %s — leaving file unchanged",
+                station_id,
+            )
+            return rinex_file
 
     # Apply corrections
     corrected_file = _apply_corrections(rinex_file, corrections, output_file, logger)
@@ -286,6 +315,18 @@ def _get_corrections_from_tos(
         # MARKER NAME
         corrections["MARKER NAME"] = [station_id.upper()]
 
+        # MARKER NUMBER ← IERS DOMES, falling back to the 4-char marker when the
+        # station has no DOMES (same (domes or marker) rule as finalize_epos_header
+        # and the legacy compare_tos_to_rinex). Matches the domes discrepancy check
+        # in compare_rinex_to_tos, so a --fix-headers run that flags MARKER NUMBER
+        # can actually correct it.
+        domes = str(station_data.get("iers_domes_number") or "").strip()
+        marker_number = (
+            domes or str(station_data.get("marker") or station_id).strip().upper()
+        )
+        if marker_number:
+            corrections["MARKER NUMBER"] = [marker_number]
+
         # REC # / TYPE / VERS - from gnss_receiver
         receiver = session.get("gnss_receiver", {})
         if receiver:
@@ -387,6 +428,39 @@ def _format_rinex_data(label: str, values: list) -> Optional[str]:
         return v.ljust(60)[:60]
 
 
+def _insert_header_record(
+    header_content: str,
+    label: str,
+    new_line: str,
+    logger: logging.Logger,
+) -> str:
+    """Insert a header record that is absent from the file.
+
+    Positional insert that preserves the existing line endings (string splice,
+    not splitlines/join): ``MARKER NUMBER`` goes immediately after the
+    ``MARKER NAME`` line (RINEX convention); any other label goes just before
+    ``END OF HEADER``. Returns the content unchanged if no anchor is found —
+    a malformed header is never corrupted further.
+    """
+    if label == "MARKER NUMBER":
+        anchor = re.compile(r"^.*MARKER NAME.*$", re.M)
+        m = anchor.search(header_content)
+        if m:
+            # After the anchor line's content, before its newline.
+            pos = m.end()
+            return header_content[:pos] + "\n" + new_line + header_content[pos:]
+
+    eoh = re.compile(r"^.*END OF HEADER.*$", re.M)
+    m = eoh.search(header_content)
+    if m:
+        # Before the END OF HEADER line.
+        pos = m.start()
+        return header_content[:pos] + new_line + "\n" + header_content[pos:]
+
+    logger.debug("No insert anchor for %s; header left unchanged", label)
+    return header_content
+
+
 def _apply_corrections(
     rinex_file: Path,
     corrections: Dict[str, Any],
@@ -420,14 +494,21 @@ def _apply_corrections(
             # RINEX format: 60 chars data + 20 chars label
             new_line = f"{data_part}{label}"
 
-            # Replace in header
+            # Replace the existing record, or INSERT it when the label line is
+            # absent. Insert matters for MARKER NUMBER: pre-DOMES-era headers
+            # (e.g. RHOF 2000-2011) carry no MARKER NUMBER line at all, so a
+            # replace-only corrector would silently no-op and never write the
+            # DOMES. RINEX places MARKER NUMBER right after MARKER NAME; any
+            # other absent label goes just before END OF HEADER.
             pattern = rf"(^.*{re.escape(label)}.*$)"
             mstring = re.compile(pattern, re.M)
             if mstring.search(header_content):
                 header_content = re.sub(mstring, new_line, header_content)
                 logger.debug(f"Applied correction to {label}")
             else:
-                logger.debug(f"Label {label} not found in header")
+                header_content = _insert_header_record(
+                    header_content, label, new_line, logger
+                )
         except Exception as e:
             logger.warning(f"Failed to apply correction for {label}: {e}")
 
@@ -447,55 +528,78 @@ def _write_rinex_file(
     output_file: Path,
     logger: logging.Logger,
 ) -> None:
-    """Write RINEX file with corrected header."""
-    # Determine if original was compressed
+    """Write RINEX file with corrected header.
+
+    The CRINEX data section (after END OF HEADER) is binary for Hatanaka-
+    compressed files; decoding it as text corrupts it. So we work with BYTES
+    for reading and the header/data split, decode only the header portion,
+    replace it, and re-encode — keeping the data section bit-identical."""
+    import subprocess
+    import tempfile
+
+    # Determine original format
     is_gzipped = original_file.suffix == ".gz"
     is_z_compressed = original_file.suffix == ".Z"
 
-    # Read original content
+    # Read the FULL content as BYTES (never decode the data section for
+    # CRINEX/Hatanaka files where it may be binary).
     if is_gzipped:
-        with gzip.open(original_file, "rt", encoding="utf-8", errors="replace") as f:
-            content = f.read()
+        with gzip.open(original_file, "rb") as f:
+            content_bytes = f.read()
     elif is_z_compressed:
-        import subprocess
-
-        result = subprocess.run(
-            ["zcat", str(original_file)],
-            capture_output=True,
-            text=True,
+        proc = subprocess.run(
+            ["zcat", str(original_file)], capture_output=True, check=True
         )
-        content = result.stdout
+        content_bytes = proc.stdout
     else:
-        with open(original_file, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
+        content_bytes = original_file.read_bytes()
 
-    # Find end of header and replace header section
-    end_marker = "END OF HEADER"
-    if end_marker in content:
-        # Find where data section starts
-        header_end = content.find(end_marker) + len(end_marker)
-        # Find the newline after END OF HEADER
-        next_newline = content.find("\n", header_end)
-        if next_newline > 0:
-            data_section = content[next_newline:]
-        else:
-            data_section = ""
-
-        # Combine new header with data
-        new_content = new_header + data_section
+    # Find END OF HEADER as bytes, split header bytes from data bytes.
+    end_marker_b = b"END OF HEADER"
+    idx = content_bytes.find(end_marker_b)
+    if idx >= 0:
+        # header_bytes = everything up to and including END OF HEADER + trailing \n
+        eoh_end = idx + len(end_marker_b)
+        nl = content_bytes.find(b"\n", eoh_end)
+        header_end = nl + 1 if nl >= 0 else eoh_end
+        header_bytes = content_bytes[:header_end]
+        data_bytes = content_bytes[header_end:]
+        # Decode ONLY the header for the regex-based edits (errors='ignore'
+        # to survive any stray non-UTF-8 bytes in the header).
+        header_text = header_bytes.decode("utf-8", errors="ignore")
+        # Replace the header in the text domain and re-encode.
+        new_content_bytes = new_header.encode("utf-8") + data_bytes
     else:
-        logger.warning("END OF HEADER not found, replacing entire content")
-        new_content = new_header
+        logger.warning("END OF HEADER not found (bytes), replacing entire content")
+        new_content_bytes = new_header.encode("utf-8")
 
-    # Write output
+    # Write output — re-compress in the SAME format as the original so the
+    # corrected file is byte-compatible with the archive convention.
     temp_file = output_file.with_suffix(".tmp")
     try:
         if output_file.suffix == ".gz":
-            with gzip.open(temp_file, "wt", encoding="utf-8") as f:
-                f.write(new_content)
+            with gzip.open(temp_file, "wb") as f:
+                f.write(new_content_bytes)
+        elif output_file.suffix == ".Z":
+            # Unix-compress (LZW). Write plain bytes to a temp file, run
+            # compress.  ``compress foo.plain`` produces ``foo.plain.Z`` —
+            # NOT a simple suffix-replacement of .plain with .Z — so read the
+            # actual compress output filename rather than assuming.
+            import subprocess
+
+            plain = temp_file.with_name(temp_file.name + ".plain")
+            plain.write_bytes(new_content_bytes)
+            subprocess.run(
+                ["compress", "-f", str(plain)],
+                check=True,
+                capture_output=True,
+            )
+            compressed = plain.with_name(plain.name + ".Z")
+            temp_file.write_bytes(compressed.read_bytes())
+            compressed.unlink(missing_ok=True)
+            plain.unlink(missing_ok=True)
         else:
-            with open(temp_file, "w", encoding="utf-8") as f:
-                f.write(new_content)
+            temp_file.write_bytes(new_content_bytes)
 
         # Atomic replace
         shutil.move(temp_file, output_file)

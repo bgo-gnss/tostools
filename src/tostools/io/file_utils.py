@@ -65,8 +65,24 @@ def read_zzipped_file(
         logger.warning(f"File {file_path} not found")
         return None
     except Exception as e:
-        logger.error(f"Error decompressing file {file_path}: {e}")
-        return None
+        # unlzw3 rejects some legitimate Unix-compress .Z streams with
+        # "Invalid Header Flags Byte" (magic-byte mismatch), even though the
+        # system ``zcat``/``uncompress`` handles them fine. Fall back to the
+        # ``zcat`` subprocess — the same path the RINEX corrector uses to read
+        # .Z files. This keeps .Z archive files readable for header QC/fix.
+        import subprocess
+
+        try:
+            proc = subprocess.run(
+                ["zcat", str(file_path)],
+                capture_output=True,
+                check=True,
+            )
+            logger.info(f"Opened (zcat fallback): {file_path}")
+            return proc.stdout
+        except (subprocess.CalledProcessError, FileNotFoundError) as zerr:
+            logger.error(f"Error decompressing file {file_path}: {e}; zcat fallback failed: {zerr}")
+            return None
 
 
 def read_text_file(

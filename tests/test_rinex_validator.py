@@ -189,3 +189,198 @@ def test_antenna_height_real_mismatch_still_flagged():
     # Genuine mismatch (composite 1.014 vs DELTA H 1.500) is still a discrepancy.
     r = _ah_result(1.5000, 0.0, 1.014)
     assert "antenna_height" in r["discrepancies"]
+
+
+# ---------------------------------------------------------------------------
+# MARKER NUMBER ← DOMES (EPOS 4.1.7). Checked only when TOS carries a DOMES.
+# ---------------------------------------------------------------------------
+
+
+def _domes_result(rinex_marker_number, tos_domes):
+    """compare_rinex_to_tos over a minimal session carrying a DOMES.
+
+    ``rinex_marker_number`` is the header MARKER NUMBER value (or None to omit
+    the header record entirely); ``tos_domes`` is the station's TOS DOMES.
+    """
+    rinex_info = {"MARKER NAME": "RHOF"}
+    if rinex_marker_number is not None:
+        rinex_info["MARKER NUMBER"] = rinex_marker_number
+    session = {"marker": "RHOF", "domes": tos_domes, "devices": {}, "contact": {}}
+    return compare_rinex_to_tos(rinex_info, session)
+
+
+def test_domes_match_when_header_equals_tos():
+    r = _domes_result("10216M001", "10216M001")
+    assert r["matches"].get("domes") == "10216M001"
+    assert "domes" not in r["discrepancies"]
+    assert "MARKER NUMBER" not in r["corrections"]
+
+
+def test_domes_discrepancy_when_header_blank():
+    # 2000-2011-era RHOF: blank MARKER NUMBER line vs a real TOS DOMES.
+    r = _domes_result("", "10216M001")
+    assert r["discrepancies"]["domes"] == {"rinex": "", "tos": "10216M001"}
+    assert r["corrections"]["MARKER NUMBER"] == "10216M001"
+
+
+def test_domes_discrepancy_when_header_has_4char_id():
+    # 2012-2022-era RHOF: MARKER NUMBER carries the 4-char ID, not the DOMES.
+    r = _domes_result("RHOF", "10216M001")
+    assert r["discrepancies"]["domes"] == {"rinex": "RHOF", "tos": "10216M001"}
+    assert r["corrections"]["MARKER NUMBER"] == "10216M001"
+
+
+def test_domes_discrepancy_when_header_record_absent():
+    # No MARKER NUMBER record at all still flags (corrector can only replace an
+    # existing line, but the validator must surface the gap regardless).
+    r = _domes_result(None, "10216M001")
+    assert r["discrepancies"]["domes"] == {"rinex": "", "tos": "10216M001"}
+
+
+def test_falls_back_to_marker_when_no_domes_and_header_matches():
+    # Station without a DOMES: MARKER NUMBER should be the 4-char marker. Header
+    # already carries it → a match, no correction.
+    r = _domes_result("RHOF", "")
+    assert r["matches"].get("domes") == "RHOF"
+    assert "domes" not in r["discrepancies"]
+
+
+def test_falls_back_to_marker_when_no_domes_and_header_wrong():
+    # No DOMES + blank/other MARKER NUMBER → correct it to the 4-char marker.
+    r = _domes_result("", "")
+    assert r["discrepancies"]["domes"] == {"rinex": "", "tos": "RHOF"}
+    assert r["corrections"]["MARKER NUMBER"] == "RHOF"
+
+
+# ---------------------------------------------------------------------------
+# Receiver / antenna: REAL per-component equality (not the old unconditional
+# flag). Header stores fixed-width columns; TOS single-spaced fields — a raw
+# compare never matched. Normalized identity (ReceiverHeader/AntennaHeader key)
+# means only a genuine change is flagged. Flag-only fields for --fix-headers.
+# ---------------------------------------------------------------------------
+
+# RINEX REC # / TYPE / VERS data portion: A20 serial + A20 type + A20 vers.
+_REC_RHOF = "5038K70713          TRIMBLE NETR9       NP 4.60 / SP 4.60"
+# RINEX ANT # / TYPE: A20 serial + A20 (type [+ radome]).
+_ANT_RHOF = "1441045161          TRM57971.00"
+
+
+def _rec_session(serial, model, firmware):
+    return {
+        "marker": "RHOF",
+        "gnss_receiver": {
+            "serial_number": serial,
+            "model": model,
+            "firmware_version": firmware,
+        },
+    }
+
+
+def test_receiver_formatting_only_difference_is_not_flagged():
+    # Fixed-width header cols vs single-spaced TOS, SAME values, and firmware
+    # written two ways ("NP 4.60 / SP 4.60" vs "4.60") → normalized equal → match.
+    # This is the exact case the old unconditional flag got wrong.
+    r = compare_rinex_to_tos(
+        {"REC # / TYPE / VERS": _REC_RHOF},
+        _rec_session("5038K70713", "TRIMBLE NETR9", "4.60"),
+    )
+    assert "receiver" not in r["discrepancies"]
+    assert "receiver" in r["matches"]
+
+
+def test_receiver_real_model_change_is_flagged():
+    r = compare_rinex_to_tos(
+        {"REC # / TYPE / VERS": _REC_RHOF},
+        _rec_session("5038K70713", "SEPT POLARX5", "5.4.0"),
+    )
+    assert "receiver" in r["discrepancies"]
+    assert r["corrections"]["REC # / TYPE / VERS"][1] == "SEPT POLARX5"
+
+
+def test_receiver_placeholder_serial_not_falsely_flagged():
+    # RINEX serial all zeros (unknown) + TOS synthetic serial → both normalize to
+    # None on the serial component, so a serial-only difference is not a change.
+    rec = "00000000            TRIMBLE NETR9       NP 4.60 / SP 4.60"
+    r = compare_rinex_to_tos(
+        {"REC # / TYPE / VERS": rec},
+        _rec_session("receiver-rhof-20150101", "TRIMBLE NETR9", "4.60"),
+    )
+    assert "receiver" not in r["discrepancies"]
+
+
+def _ant_session(serial, model, radome=None):
+    s = {"marker": "RHOF", "antenna": {"serial_number": serial, "model": model}}
+    if radome is not None:
+        s["radome"] = {"model": radome}
+    return s
+
+
+def test_antenna_formatting_only_difference_is_not_flagged():
+    # Header has no radome token (→ NONE); TOS radome "NONE" → normalized equal.
+    r = compare_rinex_to_tos(
+        {"ANT # / TYPE": _ANT_RHOF},
+        _ant_session("1441045161", "TRM57971.00", radome="NONE"),
+    )
+    assert "antenna" not in r["discrepancies"]
+    assert "antenna" in r["matches"]
+
+
+def test_antenna_real_type_change_is_flagged():
+    r = compare_rinex_to_tos(
+        {"ANT # / TYPE": _ANT_RHOF},
+        _ant_session("1441045161", "LEIAR25.R4", radome="LEIT"),
+    )
+    assert "antenna" in r["discrepancies"]
+    assert r["corrections"]["ANT # / TYPE"][1] == "LEIAR25.R4"
+
+
+def test_receiver_missing_tos_records_missing_not_discrepancy():
+    r = compare_rinex_to_tos({"REC # / TYPE / VERS": _REC_RHOF}, {"marker": "RHOF"})
+    assert "receiver" not in r["discrepancies"]
+    assert "receiver information" in r["missing_tos"]
+
+
+# ---------------------------------------------------------------------------
+# OBSERVER / AGENCY — resolved from TOS owner org (agencies.yaml) by the
+# receivers session provider and placed on the session. Personal-initials
+# headers are the discrepancy this corrects (EPOS 4.1.7).
+# ---------------------------------------------------------------------------
+
+
+def _oa_result(rinex_oa, observer, agency):
+    info = {"MARKER NAME": "RHOF"}
+    if rinex_oa is not None:
+        info["OBSERVER / AGENCY"] = rinex_oa
+    session = {"marker": "RHOF"}
+    if observer is not None:
+        session["observer"] = observer
+    if agency is not None:
+        session["agency"] = agency
+    return compare_rinex_to_tos(info, session)
+
+
+def test_observer_agency_match():
+    r = _oa_result(
+        "GNSSatIMO           Vedurstofa Islands", "GNSSatIMO", "Vedurstofa Islands"
+    )
+    assert "observer_agency" not in r["discrepancies"]
+    assert "observer_agency" in r["matches"]
+
+
+def test_observer_agency_personal_initials_flagged():
+    # "SFS/BGO/SJ / ETH/IMO" → generic GNSSatIMO / Vedurstofa Islands.
+    r = _oa_result("SFS/BGO/SJ          ETH/IMO", "GNSSatIMO", "Vedurstofa Islands")
+    assert r["discrepancies"]["observer_agency"]["tos"] == (
+        "GNSSatIMO / Vedurstofa Islands"
+    )
+    assert r["corrections"]["OBSERVER / AGENCY"] == [
+        "GNSSatIMO",
+        "Vedurstofa Islands",
+    ]
+
+
+def test_observer_agency_skipped_when_session_lacks_it():
+    # No agencies.yaml deployed → provider puts nothing on the session → no check.
+    r = _oa_result("SFS/BGO/SJ          ETH/IMO", None, None)
+    assert "observer_agency" not in r["discrepancies"]
+    assert "OBSERVER / AGENCY" not in r["corrections"]

@@ -72,7 +72,7 @@ def test_v2_title_nine_char_order_and_url():
     # 9-char = MARKER + monument + country (RHOF00ISL — NOT the old RHOFISL00).
     assert "RHOF00ISL Site Information Form (site log v2.0)" in first
     assert "RHOFISL00" not in log
-    assert "https://files.igs.org/pub/station/general/sitelog_instr.txt" in log
+    assert "https://files.igs.org/pub/station/general/sitelog_instr_v2.0.txt" in log
     assert "ftp://igs.ign.fr" not in log
     # §1 uses the v2.0 label, §0 carries the team email.
     assert "Nine Character ID        : RHOF00ISL" in log

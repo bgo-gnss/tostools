@@ -90,7 +90,7 @@ def generate_igs_site_log(
     site_log_content = f"""     {nine_char} Site Information Form (site log v2.0)
      International GNSS Service
      See Instructions at:
-       https://files.igs.org/pub/station/general/sitelog_instr.txt
+       https://files.igs.org/pub/station/general/sitelog_instr_v2.0.txt
 
 
 0.   Form
