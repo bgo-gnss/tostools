@@ -66,6 +66,7 @@ def correct_rinex_from_tos(
     loglevel: int = logging.INFO,
     only_fields: Optional[set] = None,
     extra_corrections: Optional[Dict[str, Any]] = None,
+    tos_metadata_cache: Optional[Dict[str, Any]] = None,
 ) -> Optional[Path]:
     """
     Correct RINEX header using TOS metadata or station config.
@@ -144,7 +145,12 @@ def correct_rinex_from_tos(
         corrections = _get_corrections_from_config(station_id, station_config, logger)
     else:
         logger.debug(f"Querying TOS for {station_id} metadata")
-        corrections = _get_corrections_from_tos(station_id, observation_date, loglevel)
+        corrections = _get_corrections_from_tos(
+            station_id,
+            observation_date,
+            loglevel,
+            tos_metadata_cache=tos_metadata_cache,
+        )
 
     # Caller-supplied corrections (e.g. the receivers-resolved OBSERVER / AGENCY,
     # which needs agencies.yaml the corrector can't reach). Merged over the TOS/
@@ -226,6 +232,7 @@ def _get_corrections_from_tos(
     station_id: str,
     observation_date: Optional[datetime],
     loglevel: int,
+    tos_metadata_cache: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Get RINEX corrections from TOS database.
 
@@ -235,12 +242,26 @@ def _get_corrections_from_tos(
     - antenna: {model, serial_number, antenna_height}
     - radome: {model}
     - monument: {monument_height}
+
+    ``tos_metadata_cache`` (optional, caller-owned) memoizes the date-independent
+    ``gps_metadata(station_id)`` fetch across many dates: a batch that corrects
+    every day of a station (re-rinex, fleet sweeps) makes 1 TOS call per station
+    instead of 1 per file. Only a non-empty result is cached — an empty/miss
+    re-fetches next time (never freeze a soft miss for the whole run).
     """
     logger = get_logger(__name__, loglevel)
 
     try:
-        # Get station metadata from TOS
-        station_data = gps_metadata(station_id, URL_REST_TOS, loglevel=loglevel)
+        sid = station_id.upper()
+        # Cache holds the whole station payload (device_history + station meta),
+        # which does not depend on observation_date — the session is resolved
+        # locally below. Cache the fetch, not the per-date resolution.
+        if tos_metadata_cache is not None and sid in tos_metadata_cache:
+            station_data = tos_metadata_cache[sid]
+        else:
+            station_data = gps_metadata(station_id, URL_REST_TOS, loglevel=loglevel)
+            if station_data and tos_metadata_cache is not None:
+                tos_metadata_cache[sid] = station_data
 
         if not station_data:
             logger.warning(f"No TOS data found for {station_id}")
@@ -556,7 +577,6 @@ def _write_rinex_file(
     for reading and the header/data split, decode only the header portion,
     replace it, and re-encode — keeping the data section bit-identical."""
     import subprocess
-    import tempfile
 
     # Determine original format
     is_gzipped = original_file.suffix == ".gz"
