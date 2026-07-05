@@ -14,11 +14,25 @@ from .. import gps_metadata_qc as gpsqc
 from ..utils.logging import get_logger
 
 
+def _parse_time_of_first_obs(value: Any) -> Any:
+    """Parse a RINEX ``TIME OF FIRST OBS`` value → ``datetime``, or None.
+
+    Format is free-width ``YYYY MM DD HH MM SS.sssssss SYS`` — the first three
+    integers are the date.
+    """
+    try:
+        parts = str(value).split()
+        return datetime(int(parts[0]), int(parts[1]), int(parts[2]))
+    except (ValueError, IndexError, TypeError):
+        return None
+
+
 def compare_rinex_to_tos(
     rinex_info: Dict[str, str],
     tos_session: Dict[str, Any],
     loglevel: int = logging.WARNING,
     coord_tolerance: float = 10.0,
+    observation_date: Any = None,
 ) -> Dict[str, Any]:
     """
     Compare RINEX header information with TOS database session.
@@ -292,6 +306,26 @@ def compare_rinex_to_tos(
                 tos_observer,
                 tos_agency,
             ]
+
+    # File-integrity consistency (flag-only — a misnamed or misdated file is a
+    # data problem, not a header field to rewrite; ported from the legacy
+    # compare_tos_to_rinex "rinex file" block):
+    #   * the filename's 4-char prefix must be the station marker;
+    #   * the header TIME OF FIRST OBS date must be the file's observation date.
+    fname = str(rinex_info.get("file_name") or "").strip()
+    tos_marker_id = str(tos_session.get("marker") or "").strip().upper()
+    if fname and tos_marker_id and fname[:4].upper() != tos_marker_id:
+        comparison_result["discrepancies"]["filename_marker"] = {
+            "rinex": fname[:4].upper(),
+            "tos": tos_marker_id,
+        }
+    if observation_date is not None and "TIME OF FIRST OBS" in rinex_info:
+        tofo = _parse_time_of_first_obs(rinex_info["TIME OF FIRST OBS"])
+        if tofo is not None and tofo.date() != observation_date.date():
+            comparison_result["discrepancies"]["time_of_first_obs"] = {
+                "rinex": tofo.date().isoformat(),
+                "expected": observation_date.date().isoformat(),
+            }
 
     logger.info(
         f"Comparison found {len(comparison_result['discrepancies'])} discrepancies"

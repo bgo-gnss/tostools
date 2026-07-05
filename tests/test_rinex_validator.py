@@ -420,3 +420,52 @@ def test_observer_agency_skipped_when_session_lacks_it():
     r = _oa_result("SFS/BGO/SJ          ETH/IMO", None, None)
     assert "observer_agency" not in r["discrepancies"]
     assert "OBSERVER / AGENCY" not in r["corrections"]
+
+
+# ---------------------------------------------------------------------------
+# File-integrity consistency (flag-only): filename↔marker, TIME OF FIRST OBS↔date.
+# Ported from the legacy compare_tos_to_rinex "rinex file" block.
+# ---------------------------------------------------------------------------
+
+from datetime import datetime as _dt  # noqa: E402
+
+
+def test_filename_marker_mismatch_flagged():
+    r = compare_rinex_to_tos(
+        {"MARKER NAME": "RHOF", "file_name": "AKUR0910.15D.Z"}, {"marker": "RHOF"}
+    )
+    assert r["discrepancies"]["filename_marker"] == {"rinex": "AKUR", "tos": "RHOF"}
+
+
+def test_filename_marker_match_not_flagged():
+    r = compare_rinex_to_tos(
+        {"MARKER NAME": "RHOF", "file_name": "RHOF0910.15D.Z"}, {"marker": "RHOF"}
+    )
+    assert "filename_marker" not in r["discrepancies"]
+
+
+def test_time_of_first_obs_mismatch_flagged():
+    r = compare_rinex_to_tos(
+        {"TIME OF FIRST OBS": "2015     4     2     0     0    0.0000000     GPS"},
+        {"marker": "RHOF"},
+        observation_date=_dt(2015, 4, 1),
+    )
+    tofo = r["discrepancies"]["time_of_first_obs"]
+    assert tofo == {"rinex": "2015-04-02", "expected": "2015-04-01"}
+
+
+def test_time_of_first_obs_match_not_flagged():
+    r = compare_rinex_to_tos(
+        {"TIME OF FIRST OBS": "2015     4     1     0     0    0.0000000     GPS"},
+        {"marker": "RHOF"},
+        observation_date=_dt(2015, 4, 1),
+    )
+    assert "time_of_first_obs" not in r["discrepancies"]
+
+
+def test_time_of_first_obs_skipped_without_observation_date():
+    r = compare_rinex_to_tos(
+        {"TIME OF FIRST OBS": "2015     4     2     0     0    0.0000000     GPS"},
+        {"marker": "RHOF"},
+    )
+    assert "time_of_first_obs" not in r["discrepancies"]
