@@ -603,13 +603,14 @@ def _write_rinex_file(
         eoh_end = idx + len(end_marker_b)
         nl = content_bytes.find(b"\n", eoh_end)
         header_end = nl + 1 if nl >= 0 else eoh_end
-        header_bytes = content_bytes[:header_end]
         data_bytes = content_bytes[header_end:]
-        # Decode ONLY the header for the regex-based edits (errors='ignore'
-        # to survive any stray non-UTF-8 bytes in the header).
-        header_text = header_bytes.decode("utf-8", errors="ignore")
-        # Replace the header in the text domain and re-encode.
-        new_content_bytes = new_header.encode("utf-8") + data_bytes
+        # ``new_header`` (from read_rinex_header) ends at "END OF HEADER" with NO
+        # trailing newline, while ``data_bytes`` starts at the first epoch line.
+        # Concatenating as-is glues them ("END OF HEADER> 2026 ..."), which breaks
+        # the RINEX3 record structure and makes downstream RNX2CRX fail ("ERROR
+        # when reading line N"). Guarantee exactly one newline at the boundary.
+        header_str = new_header if new_header.endswith("\n") else new_header + "\n"
+        new_content_bytes = header_str.encode("utf-8") + data_bytes
     else:
         logger.warning("END OF HEADER not found (bytes), replacing entire content")
         new_content_bytes = new_header.encode("utf-8")
