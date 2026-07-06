@@ -623,15 +623,23 @@ def _write_rinex_file(
             with gzip.open(temp_file, "wb") as f:
                 f.write(new_content_bytes)
         elif output_file.suffix == ".Z":
-            # The IMO archive's ".Z" files are gzip bytes under a .Z name:
-            # the receivers converter writes them with Python gzip, and every
-            # consumer (zcat, gzip, Debian uncompress, GAMIT getimorinex)
-            # reads gzip transparently. So "same format as the original"
-            # means gzip here — NOT LZW compress(1), which would silently
-            # switch the byte format and requires a binary that production
-            # hosts (rek-d01) don't have installed.
-            with gzip.open(temp_file, "wb") as f:
-                f.write(new_content_bytes)
+            # Unix-compress (LZW). Write plain bytes to a temp file, run
+            # compress.  ``compress foo.plain`` produces ``foo.plain.Z`` —
+            # NOT a simple suffix-replacement of .plain with .Z — so read the
+            # actual compress output filename rather than assuming.
+            import subprocess
+
+            plain = temp_file.with_name(temp_file.name + ".plain")
+            plain.write_bytes(new_content_bytes)
+            subprocess.run(
+                ["compress", "-f", str(plain)],
+                check=True,
+                capture_output=True,
+            )
+            compressed = plain.with_name(plain.name + ".Z")
+            temp_file.write_bytes(compressed.read_bytes())
+            compressed.unlink(missing_ok=True)
+            plain.unlink(missing_ok=True)
         else:
             temp_file.write_bytes(new_content_bytes)
 
