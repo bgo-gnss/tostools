@@ -640,7 +640,9 @@ def compare_tos_to_rinex(rinex_dict, session, loglevel=logging.WARNING):
                 "Distance between coordinates:\t{0:>.4f} m".format(distance)
             )
 
-            tolerance = 60.0
+            # 10 m: the RINEX-header position is accurate to a few metres
+            # (bgo 2026-07-06) — one metric with receivers' identity gates.
+            tolerance = 10.0
             if distance > tolerance:
                 module_logger.error(
                     "Distance between TOS database and Rinex files coordinates is more then {0:.4f} m < {1:.4f} m".format(
