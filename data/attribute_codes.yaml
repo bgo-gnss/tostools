@@ -342,7 +342,7 @@ devices:
     description: Galileo constellation enabled
     classification: mutable
     tos_required_for: []
-    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    gps_required_for: [] # NOT presence-required — power-budget optional; consistency-checked vs raw/live receiver
     default_value: ~ # no default — power-budget convention; operator decides
     applies_to: [gnss_receiver]
     gps_relevance: "yes"
@@ -357,7 +357,7 @@ devices:
     description: BeiDou constellation enabled
     classification: mutable
     tos_required_for: []
-    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    gps_required_for: [] # NOT presence-required — power-budget optional; consistency-checked vs raw/live receiver
     default_value: ~ # no default — power-budget convention; operator decides
     applies_to: [gnss_receiver]
     gps_relevance: "yes"
@@ -372,7 +372,7 @@ devices:
     description: QZSS constellation enabled
     classification: mutable
     tos_required_for: []
-    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    gps_required_for: [] # NOT presence-required — power-budget optional; consistency-checked vs raw/live receiver
     default_value: ~ # no default — power-budget convention; operator decides
     applies_to: [gnss_receiver]
     gps_relevance: "yes"
@@ -387,7 +387,7 @@ devices:
     description: SBAS constellation enabled
     classification: mutable
     tos_required_for: []
-    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    gps_required_for: [] # NOT presence-required — power-budget optional; consistency-checked vs raw/live receiver
     default_value: ~ # no default — power-budget convention; operator decides
     applies_to: [gnss_receiver]
     gps_relevance: "yes"
@@ -402,7 +402,7 @@ devices:
     description: IRNSS (NavIC) constellation enabled
     classification: mutable
     tos_required_for: []
-    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    gps_required_for: [] # NOT presence-required — power-budget optional; consistency-checked vs raw/live receiver
     default_value: ~ # no default — power-budget convention; operator decides
     applies_to: [gnss_receiver]
     gps_relevance: "yes"
@@ -421,7 +421,7 @@ devices:
       entity. Default 80 is the standard receiver-side port.
     classification: mutable # mutable — network reconfig
     tos_required_for: []
-    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    gps_required_for: [] # receiver-management config, no geodetic-metadata consumer (EPOS/sitelog/GAMIT)
     default_value: "80" # local receiver port — convention across the fleet
     applies_to: [gnss_receiver]
     gps_relevance: "yes"
@@ -481,8 +481,9 @@ devices:
     description: Antenna direction relative to true north (degrees)
     classification: mutable # likely inherent — installation orientation
     tos_required_for: []
-    gps_required_for: [antenna] # USER FILLS IN — strict superset of tos
-    default_value: "0.0" # USER OPTIONAL — what TOS records as the default
+    gps_required_for: [] # soft — see gps_recommended_for
+    gps_recommended_for: [antenna] # RECOMMENDED — logged reminder; absent → default 0.0 at dissemination/sitelog (rare non-zero surveys)
+    default_value: "0.0" # north-aligned default when unrecorded
     applies_to: [antenna]
     gps_relevance: "yes"
     subtypes_observed: [antenna]
@@ -627,7 +628,7 @@ devices:
     description: Manufacturer of the device
     classification: inherent
     tos_required_for: []
-    gps_required_for: [gnss_receiver, antenna] # USER FILLS IN — strict superset of tos
+    gps_required_for: [] # equipment IGS-name carries make; no separate manufacturer consumer
     default_value: ~ # USER OPTIONAL — what TOS records as the default
     applies_to: [gnss_receiver, antenna, radome, monument]
     gps_relevance: "yes"
@@ -766,7 +767,7 @@ devices:
       the standard receiver-side convention; override only for non-standard sites.
     classification: mutable
     tos_required_for: []
-    gps_required_for: [gnss_receiver] # USER FILLS IN — strict superset of tos
+    gps_required_for: [] # receiver-management config, no geodetic-metadata consumer (EPOS/sitelog/GAMIT)
     default_value: "192.168.100.60" # local receiver IP — convention across the fleet
     applies_to: [gnss_receiver]
     gps_relevance: "yes"

@@ -12058,7 +12058,13 @@ def _print_missing_attributes_report(report, *, verbose: bool = False):
                 by_device.setdefault(v.id_entity, []).append(v)
             entity_meta[v.id_entity] = (v.subtype, v.name, v.scope)
         print()
-        print(f"  flagged ({len(report.violations)} attribute(s)):")
+        n_hard = len(report.hard_violations)
+        n_rec = len(report.recommended_missing)
+        header = f"  flagged ({n_hard} required"
+        if n_rec:
+            header += f", {n_rec} recommended"
+        header += " attribute(s)):"
+        print(header)
 
         def _emit_entity(eid: int, vios: List) -> None:
             subtype, label, _scope = entity_meta[eid]
@@ -12073,7 +12079,8 @@ def _print_missing_attributes_report(report, *, verbose: bool = False):
                 if v.suggested_date_from is not None:
                     hint_parts.append(f"date hint: {v.suggested_date_from}")
                 hint_str = ", ".join(hint_parts)
-                print(f"      · {v.code:24s} ({hint_str})")
+                tag = "  [recommended]" if v.severity == "recommended" else ""
+                print(f"      · {v.code:24s} ({hint_str}){tag}")
                 if verbose:
                     print(f"        suppress: SUPPRESS {v.id_entity} {v.code}")
 
