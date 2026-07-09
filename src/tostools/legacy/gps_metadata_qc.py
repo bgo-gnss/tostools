@@ -220,8 +220,15 @@ def device_attribute_history(device, session_start, session_end, loglevel=loggin
         "serial_number",
         "model",
         "date_start",
+        # GNSS constellation toggles — the site log §3.3 Satellite System is
+        # composed from those set 'true' (tos audit constellations populates them).
         "GPS",
         "GLO",
+        "GAL",
+        "BDS",
+        "QZSS",
+        "SBAS",
+        "IRN",
         "firmware_version",
         "software_version",
         "antenna_height",
@@ -229,6 +236,7 @@ def device_attribute_history(device, session_start, session_end, loglevel=loggin
         "antenna_offset_north",
         "antenna_offset_east",
         "antenna_reference_point",
+        "azimuth",  # antenna orientation → §4 Alignment from True N
         "date_from",  # add keys above this point
         "date_to",
     ]

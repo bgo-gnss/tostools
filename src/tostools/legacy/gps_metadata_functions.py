@@ -748,6 +748,25 @@ def _fmt_igs_date(value, placeholder="CCYY-MM-DDThh:mmZ"):
     return placeholder
 
 
+# GNSS constellation attribute codes, canonical order (baseline first).
+_CONSTELLATION_CODES = ("GPS", "GLO", "GAL", "BDS", "QZSS", "SBAS", "IRN")
+
+
+def satellite_system_from_toggles(device):
+    """Compose the IGS site-log §3.3 Satellite System string from a receiver
+    device dict's constellation toggles (those set ``'true'``), joined with
+    ``+``. ``tos audit constellations`` populates the toggles from the recorded
+    data. Falls back to the ``"GPS"`` fleet baseline when none are set — so an
+    un-populated receiver renders no worse than the historical hardcoded value.
+    """
+    codes = [
+        c
+        for c in _CONSTELLATION_CODES
+        if str(device.get(c) or "").strip().lower() == "true"
+    ]
+    return "+".join(codes) if codes else "GPS"
+
+
 def site_log(
     station_identifier,
     loglevel=logging.WARNING,
@@ -984,7 +1003,7 @@ def site_log(
     for session_nr, session in enumerate(receiver_list):
         device = session["device"]
         device_type = device.get("model") or ""
-        satellite_system = device.get("satellite_system") or "GPS"
+        satellite_system = satellite_system_from_toggles(device)
         serial_number = device.get("serial_number") or "000000"
         firmware_version = device.get("firmware_version") or ""
         elevation_cuttoff = device.get("elevation_cuttoff") or "0 deg"
@@ -1079,7 +1098,16 @@ def site_log(
             antenna_offset_east_fl + monument_offset_east_fl
         )
 
-        alignment = device.get("antenna_alignment") or "0 deg"
+        # §4 Alignment from True N — antenna azimuth (Áttarhorn). Absent → 0.0
+        # (north-aligned default; the rare non-zero survey is a
+        # `tos audit missing-attributes` recommended reminder).
+        _az = device.get("azimuth")
+        if _az in (None, ""):
+            _az = device.get("antenna_alignment")  # legacy field, if ever set
+        try:
+            alignment = f"{float(_az):.1f}" if _az not in (None, "") else "0.0"
+        except (TypeError, ValueError):
+            alignment = "0.0"
         # NOTE: radome is moved to the end of for loop as it needs end dates
 
         cable_type = device.get("antenna_cable_type") or "(vendor & type number)"
