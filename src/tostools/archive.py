@@ -64,9 +64,14 @@ _RINEX_NAME_RE = re.compile(
 
 # Raw-filename date pattern. Receivers package's getSeptentrio writes
 # names like ``SAVI201407080000a.sbf`` (yyyymmdd + hhmm + session letter).
+# Raw is archived COMPRESSED (``.sbf.gz``, ``.T00.gz``, …), so the format
+# extension is followed by an optional ``.gz``/``.Z`` suffix — mirror the RINEX
+# pattern above. Without it the classifier is blind to every gzipped raw file =
+# the whole Septentrio era fleet-wide (``verify-from-rinex`` then reports
+# "raw missing / brand undetermined" for every current receiver).
 _RAW_NAME_RE = re.compile(
     r"^(?P<sta>[A-Z0-9]{4})(?P<yyyy>\d{4})(?P<mm>\d{2})(?P<dd>\d{2})"
-    r"\d{4}[a-z]?\.(?P<ext>[A-Za-z0-9]+)$"
+    r"\d{4}[a-z]?\.(?P<ext>[A-Za-z0-9]+)(?:\.(?:gz|Z))?$"
 )
 
 

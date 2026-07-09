@@ -56,6 +56,46 @@ def test_classify_trimble_other_raw():
     assert classify_file_format("ARHO199901010000a.dat").family == "trimble_4000"
 
 
+def test_classify_gzipped_raw():
+    """Raw is archived COMPRESSED (`.sbf.gz`, `.T00.gz`) — the classifier must
+    see through the `.gz`/`.Z` suffix, else it is blind to the whole Septentrio
+    era fleet-wide (regression for the #65 verify-from-rinex raw blindness)."""
+    c = classify_file_format("NYLA202605280000a.sbf.gz")
+    assert c.family == "septentrio"
+    assert c.is_raw is True
+    assert c.date == date(2026, 5, 28)
+    assert c.extension == "sbf"
+    # Trimble gzipped + LZW .Z variants
+    assert classify_file_format("ARHO201501010000a.T00.gz").family == "trimble_other"
+    assert classify_file_format("SAVI201607020000a.T02.Z").family == "trimble_netr9"
+
+
+def test_tos_join_netrs_t00_not_wrong_brand():
+    """A NetRS join (TOS model → expected `trimble_netrs`) whose archive raw is
+    `.T00` (→ `trimble_other`) must NOT flag `wrong_brand` — the extension can't
+    tell NetRS from generic Trimble, so the check is brand-super-family level.
+    Regression for the #65 false wrong_brand (surfaced on NYLA)."""
+    from tostools.audit_verify_from_rinex import (
+        classify_tos_join_against_archive,
+        infer_expected_family,
+    )
+
+    timeline = [
+        ArchiveDay(date(2015, 1, 1), "trimble_other", Path("a.T00")),
+        ArchiveDay(date(2015, 6, 1), "trimble_other", Path("b.T00")),
+    ]
+    expected = infer_expected_family("TRIMBLE NETRS")  # → trimble_netrs
+    v = classify_tos_join_against_archive(
+        "2015-01-01", "2015-12-31", expected, timeline
+    )
+    assert v["status"] == "ok"
+
+    # A genuine brand mismatch (Septentrio raw under a Trimble join) still flags.
+    sept = [ArchiveDay(date(2015, 1, 1), "septentrio", Path("c.sbf"))]
+    v2 = classify_tos_join_against_archive("2015-01-01", "2015-12-31", expected, sept)
+    assert v2["status"] == "wrong_brand"
+
+
 def test_classify_hatanaka_rinex_brand_neutral():
     """Hatanaka `<sta><doy>0.<yy>D[.Z|.gz]` is brand-neutral (post-conversion)."""
     c = classify_file_format("SAVI1840.16D.Z")
