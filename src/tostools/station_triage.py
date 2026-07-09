@@ -48,6 +48,11 @@ from tostools.audit_attribute_dates import (
     audit_station_attribute_dates,
 )
 from tostools.audit_attribute_dates import format_triage_file as format_dates_triage
+from tostools.audit_constellations import (
+    StationConstellationReport,
+    audit_station_constellations,
+)
+from tostools.audit_constellations import format_triage as format_constellation_triage
 from tostools.audit_missing_attributes import (
     StationMissingAttributesReport,
     audit_station_missing_attributes,
@@ -90,6 +95,7 @@ class StationTriageReport:
     missing: Optional[StationMissingAttributesReport] = None
     dates: Optional[StationAttributeDateReport] = None
     rinex: Optional[StationRinexReport] = None
+    constellations: Optional[StationConstellationReport] = None
     coverage: Optional[StationVisitCoverageReport] = None
     # Structural device-graph findings — currently "this station has >1 open
     # join of a singular subtype" (gnss_receiver/antenna/radome/monument). One
@@ -116,6 +122,8 @@ class StationTriageReport:
             # the report's own ``finding_count`` so the breakdown is
             # pinned in one place.
             n += self.rinex.finding_count
+        if self.constellations is not None:
+            n += len(self.constellations.set_true) + len(self.constellations.reviews)
         if self.coverage is not None:
             n += len(self.coverage.violations)
         n += len(self.device_conflicts)
@@ -285,6 +293,20 @@ def generate_station_triage(
             notes.append(f"verify-from-rinex audit FAILED: {exc}")
             rinex_report = None
 
+    # === Section: constellation cross-check (opt-in, archive-gated) ===
+    # Reads the archive RINEX constellation set for the current receiver and
+    # compares it to the open TOS toggles. Same archive gate as verify-from-rinex.
+    constellation_report: Optional[StationConstellationReport] = None
+    if with_archive:
+        try:
+            constellation_report = audit_station_constellations(
+                client, name=station, archive_root=archive_root
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("constellations audit failed on %s: %s", station, exc)
+            notes.append(f"constellations audit FAILED: {exc}")
+            constellation_report = None
+
     # === Section: visit coverage (opt-in, Phase D) ===
     # Skipped by default — pre-vitjun-era stations have huge gaps and
     # the first run would overwhelm the operator before they've used
@@ -346,6 +368,7 @@ def generate_station_triage(
         missing=missing_report,
         dates=dates_report,
         rinex=rinex_report,
+        constellations=constellation_report,
         coverage=coverage_report,
         device_conflicts=device_conflicts,
         notes=notes,
@@ -388,6 +411,9 @@ def format_station_triage(report: StationTriageReport) -> str:
         )
     ):
         parts.append(_section_rinex(report))
+
+    if report.constellations is not None and report.constellations.has_findings:
+        parts.append(_section_constellations(report))
 
     if report.coverage is not None and report.coverage.violations:
         parts.append(_section_coverage(report))
@@ -527,6 +553,30 @@ def _section_rinex(report: StationTriageReport) -> str:
         "# ──────────────────────────────────────────────────────────────────"
     )
     return header + "\n" + body.rstrip()
+
+
+def _section_constellations(report: StationTriageReport) -> str:
+    """Render the constellation cross-check section (data vs TOS toggles)."""
+    con = report.constellations
+    assert con is not None
+    lines = [
+        "# ──────────────────────────────────────────────────────────────────",
+        "# Section: GNSS constellations (data vs TOS toggles)",
+        "# CONFIDENCE: HIGH for set-true (the data records the system → it is",
+        "# on; safe even from an R2 reading). 'review' fires only for a reliable",
+        "# R3 reading claiming absence. Live-receiver query is the preferred",
+        "# confirmation for the current PolaRX5.",
+        "# ──────────────────────────────────────────────────────────────────",
+    ]
+    if con.reviews:
+        lines.append("# REVIEW — TOS claims a system the reliable R3 archive lacks:")
+        for f in con.reviews:
+            lines.append(f"#   {f.code}: TOS={f.tos_value!r}, not observed")
+    triage = format_constellation_triage(con)
+    if triage:
+        lines.append("")
+        lines.extend(triage)
+    return "\n".join(lines)
 
 
 def _section_coverage(report: StationTriageReport) -> str:
