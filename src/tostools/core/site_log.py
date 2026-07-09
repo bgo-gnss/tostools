@@ -237,6 +237,19 @@ def _generate_receiver_section(device_sessions: List[Dict[str, Any]]) -> str:
     receiver_sections = []
     section_num = 1
 
+    # §3.3 Satellite System — built from the receiver's TOS constellation toggles
+    # (GPS/GLO/GAL/BDS/QZSS/SBAS/IRN, those set 'true'), the axis the
+    # `tos audit constellations` cross-check populates from the recorded data.
+    # Falls back to "GPS" when no toggle is set (the fleet baseline) so an
+    # un-populated receiver is no worse than before.
+    def _satellite_system(receiver: Dict[str, Any]) -> str:
+        codes = [
+            c
+            for c in ("GPS", "GLO", "GAL", "BDS", "QZSS", "SBAS", "IRN")
+            if str(receiver.get(c) or "").strip().lower() == "true"
+        ]
+        return "+".join(codes) if codes else "GPS"
+
     # Get all receiver sessions sorted by date (direct access to gnss_receiver key)
     receiver_sessions = [
         session for session in device_sessions if "gnss_receiver" in session
@@ -267,7 +280,7 @@ def _generate_receiver_section(device_sessions: List[Dict[str, Any]]) -> str:
         )
 
         receiver_section = f"""3.{section_num}  Receiver Type            : {receiver_type}
-     Satellite System         : GPS
+     Satellite System         : {_satellite_system(receiver)}
      Serial Number            : {serial_num}
      Firmware Version         : {firmware_ver}
      Elevation Cutoff Setting : (deg)
@@ -373,6 +386,15 @@ def _generate_antenna_section(device_sessions: List[Dict[str, Any]]) -> str:
             radome_info = session.get("radome") or {}
             radome_type = radome_info.get("model") or "NONE"
 
+        # §4 Alignment from True N (azimuth / Áttarhorn). Absent → 0.0 (fleet
+        # default: north-aligned); the rare non-zero survey is set in TOS and
+        # surfaced as a `tos audit missing-attributes` recommended reminder.
+        _az_raw = antenna.get("azimuth")
+        try:
+            alignment = f"{float(_az_raw):.1f}" if _az_raw not in (None, "") else "0.0"
+        except (TypeError, ValueError):
+            alignment = "0.0"
+
         date_installed = (
             session.get("time_from", "").strftime("%Y-%m-%dT%H:%MZ")
             if session.get("time_from")
@@ -390,7 +412,7 @@ def _generate_antenna_section(device_sessions: List[Dict[str, Any]]) -> str:
      Marker->ARP Up Ecc. (m)  : {antenna_height:6.4f}
      Marker->ARP North Ecc(m) : 0.0000
      Marker->ARP East Ecc(m)  : 0.0000
-     Alignment from True N    : (deg; + is clockwise/east)
+     Alignment from True N    : {alignment}
      Antenna Radome Type      : {radome_type}
      Radome Serial Number     :
      Antenna Cable Type       : (vendor & type number)
