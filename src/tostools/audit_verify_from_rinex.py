@@ -61,6 +61,28 @@ MODEL_TO_FAMILY = (
 )
 
 
+# Extension-based sub-families collapse to a receiver-brand SUPER-family for the
+# wrong-brand check. The raw extension cannot reliably distinguish NetRS from
+# generic Trimble — NetRS stations write ``.T00`` (→ ``trimble_other``), yet TOS
+# labels them ``TRIMBLE NETRS`` (→ ``trimble_netrs``) — so an exact-family compare
+# false-flags every NetRS join ``wrong_brand``. Brand verification is therefore
+# done at the Trimble-vs-Septentrio level; the sub-family is still reported.
+_SUPER_FAMILY = {
+    "trimble_netr9": "trimble",
+    "trimble_netrs": "trimble",
+    "trimble_other": "trimble",
+    "trimble_4000": "trimble",
+    "septentrio": "septentrio",
+}
+
+
+def _super_family(family: Optional[str]) -> Optional[str]:
+    """Collapse an extension sub-family to its receiver-brand super-family."""
+    if family is None:
+        return None
+    return _SUPER_FAMILY.get(family, family)
+
+
 def infer_expected_family(model: Optional[str]) -> Optional[str]:
     """Map a TOS-stored model string to the archive's brand-family code.
 
@@ -128,8 +150,9 @@ def classify_tos_join_against_archive(
             "status": "rinex_only",
             "detail": "only RINEX days in window; brand undetermined",
         }
-    expected_days = [d for d in raw_days if d.family == expected_family]
-    other_days = [d for d in raw_days if d.family != expected_family]
+    exp_super = _super_family(expected_family)
+    expected_days = [d for d in raw_days if _super_family(d.family) == exp_super]
+    other_days = [d for d in raw_days if _super_family(d.family) != exp_super]
 
     if not expected_days:
         other_families = sorted({d.family for d in other_days})

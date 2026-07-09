@@ -8490,6 +8490,50 @@ def _audit_main(argv):
     )
     p_fwc.add_argument("--port", type=int, default=443)
 
+    p_con = sub.add_parser(
+        "constellations",
+        help=(
+            "Cross-check the current receiver's TOS constellation toggles "
+            "(GPS/GLO/GAL/BDS/QZSS/SBAS/IRN) against what the archive records."
+        ),
+        description=(
+            "Reads the constellation set from the most recent daily RINEX header "
+            "(RINEX-3 SYS / # / OBS TYPES) and compares it to the open TOS toggles "
+            "on the station's current gnss_receiver.\n\n"
+            "  data shows a system, TOS silent → propose set true (safe even from "
+            "an R2 reading — recorded means on);\n"
+            "  TOS says true, data lacks it → 'review', ONLY for a reliable R3 "
+            "reading (R2 under-reports, so its absence proves nothing).\n\n"
+            "The live-receiver query (authoritative for PolaRX5) is the preferred "
+            "confirmation; this verb reads the archive. Archive root resolves like "
+            "verify-from-rinex (--archive-root → env → cfg → mount probe)."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tos audit constellations NYLA\n"
+            "  tos audit constellations NYLA --triage\n"
+            "  tos audit constellations NYLA --json\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_con.add_argument("name", help="Station marker (e.g. NYLA). Case-insensitive.")
+    p_con.add_argument(
+        "--archive-root",
+        type=Path,
+        default=None,
+        help="Override the resolved archive root (default: env / cfg / mount probe).",
+    )
+    p_con.add_argument(
+        "--triage",
+        action="store_true",
+        help="Print apply-ready ACTION lines for the set-true findings.",
+    )
+    p_con.add_argument(
+        "--json", action="store_true", help="Emit JSON instead of pretty text."
+    )
+    p_con.add_argument("--server", default="vi-api.vedur.is", help=argparse.SUPPRESS)
+    p_con.add_argument("--port", type=int, default=443, help=argparse.SUPPRESS)
+
     args = p.parse_args(argv)
 
     scheme = "https" if args.port == 443 else "http"
@@ -9009,6 +9053,9 @@ def _audit_main(argv):
     if args.kind == "firmware-chain":
         return _audit_firmware_chain_main(args, client)
 
+    if args.kind == "constellations":
+        return _audit_constellations_main(args, client)
+
     p.error(f"unknown kind: {args.kind}")
     return 2
 
@@ -9255,6 +9302,84 @@ def _audit_rinex_timeline_main(args) -> int:
         print(rtl_mod.format_report(report))
 
     return 0 if report.rows else 1
+
+
+def _audit_constellations_main(args, client) -> int:
+    """Handle ``tos audit constellations`` — data-vs-TOS constellation cross-check.
+
+    Reads the archived RINEX constellation set for the station's current receiver
+    and compares it to the open TOS toggles. Exit 0 clean, 1 when there are
+    findings (set-true or review), 2 on lookup failure.
+    """
+    import json as _json
+
+    from .audit_constellations import audit_station_constellations, format_triage
+
+    try:
+        report = audit_station_constellations(
+            client, name=args.name, archive_root=args.archive_root
+        )
+    except LookupError as exc:
+        print(f"constellations: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        payload = {
+            "station_id": report.station_id,
+            "station_name": report.station_name,
+            "receiver_id": report.receiver_id,
+            "receiver_serial": report.receiver_serial,
+            "receiver_install": report.receiver_install,
+            "rinex_version": report.reading.version if report.reading else None,
+            "reliable": report.reading.reliable if report.reading else None,
+            "observed": sorted(report.reading.systems) if report.reading else [],
+            "note": report.note,
+            "findings": [
+                {
+                    "code": f.code,
+                    "observed": f.observed,
+                    "tos_value": f.tos_value,
+                    "action": f.action,
+                }
+                for f in report.findings
+            ],
+        }
+        print(_json.dumps(payload, ensure_ascii=False, indent=2))
+        return 1 if report.has_findings else 0
+
+    name = report.station_name or "?"
+    if report.note and not report.reading:
+        print(f"⚠ Station {name!r} (id={report.station_id}) — {report.note}")
+        return 1 if report.has_findings else 0
+
+    reading = report.reading
+    assert reading is not None
+    rel = "R3 reliable" if reading.reliable else f"R{reading.version} — UNDER-REPORTS"
+    marker = "✗" if report.has_findings else "✓"
+    status = "FINDINGS" if report.has_findings else "CLEAN"
+    print(f"{marker} Station {name!r} (id={report.station_id}) — {status}")
+    print(
+        f"  receiver {report.receiver_serial} (id={report.receiver_id}), "
+        f"install {report.receiver_install}"
+    )
+    print(
+        f"  archive RINEX {reading.version} [{rel}] records: "
+        f"{', '.join(sorted(reading.systems)) or '(none)'}"
+    )
+    if report.set_true:
+        print("  data records systems TOS does not have set 'true':")
+        for f in report.set_true:
+            print(f"    · {f.code:5s} observed, TOS={f.tos_value!r} → set true")
+    if report.reviews:
+        print("  TOS claims systems the (reliable) archive does not record:")
+        for f in report.reviews:
+            print(f"    · {f.code:5s} TOS={f.tos_value!r}, not observed → review")
+    if not report.has_findings:
+        print("  TOS toggles agree with the archive.")
+    if args.triage and report.set_true:
+        print()
+        print("\n".join(format_triage(report)))
+    return 1 if report.has_findings else 0
 
 
 # ---------------------------------------------------------------------------
@@ -12058,7 +12183,13 @@ def _print_missing_attributes_report(report, *, verbose: bool = False):
                 by_device.setdefault(v.id_entity, []).append(v)
             entity_meta[v.id_entity] = (v.subtype, v.name, v.scope)
         print()
-        print(f"  flagged ({len(report.violations)} attribute(s)):")
+        n_hard = len(report.hard_violations)
+        n_rec = len(report.recommended_missing)
+        header = f"  flagged ({n_hard} required"
+        if n_rec:
+            header += f", {n_rec} recommended"
+        header += " attribute(s)):"
+        print(header)
 
         def _emit_entity(eid: int, vios: List) -> None:
             subtype, label, _scope = entity_meta[eid]
@@ -12073,7 +12204,8 @@ def _print_missing_attributes_report(report, *, verbose: bool = False):
                 if v.suggested_date_from is not None:
                     hint_parts.append(f"date hint: {v.suggested_date_from}")
                 hint_str = ", ".join(hint_parts)
-                print(f"      · {v.code:24s} ({hint_str})")
+                tag = "  [recommended]" if v.severity == "recommended" else ""
+                print(f"      · {v.code:24s} ({hint_str}){tag}")
                 if verbose:
                     print(f"        suppress: SUPPRESS {v.id_entity} {v.code}")
 

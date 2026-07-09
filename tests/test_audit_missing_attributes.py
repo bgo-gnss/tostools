@@ -71,7 +71,8 @@ def _client_for(history_by_id):
 
 # Minimal catalog exercising the rule across both scopes. Mirrors the real
 # data/attribute_codes.yaml structure but trimmed to the cases the tests cover.
-_CATALOG_YAML = dedent("""
+_CATALOG_YAML = dedent(
+    """
     devices:
       serial_number:
         icelandic_label: Raðnúmer
@@ -114,6 +115,16 @@ _CATALOG_YAML = dedent("""
         applies_to: [gnss_receiver]
         gps_relevance: "no"
 
+      azimuth:
+        # Recommended tier — a soft reminder, not a hard violation.
+        icelandic_label: Áttarhorn
+        classification: mutable
+        gps_required_for: []
+        gps_recommended_for: [antenna]
+        default_value: "0.0"
+        applies_to: [antenna]
+        gps_relevance: "yes"
+
     stations:
       marker:
         icelandic_label: Auðkenni
@@ -149,7 +160,8 @@ _CATALOG_YAML = dedent("""
         gps_required_for: [geophysical]
         applies_to: [geophysical]
         gps_relevance: "yes"
-    """).strip()
+    """
+).strip()
 
 
 @pytest.fixture
@@ -162,6 +174,41 @@ def catalog_path(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 # Walker — basic cases
 # ---------------------------------------------------------------------------
+
+
+def test_recommended_tier_is_reminder_not_violation(catalog_path: Path):
+    """An antenna missing a ``gps_recommended_for`` code (azimuth) is flagged
+    with severity 'recommended' — a logged reminder — and does NOT set
+    has_violations (only required-tier misses fail the audit)."""
+    station = _station(
+        100,
+        "Test Station",
+        connections=[_conn(200)],
+        extra_attrs=[
+            _attr("marker", "tst1"),
+            _attr("date_start", "2010-01-01"),
+            _attr("subtype", "GPS stöð"),
+            _attr("altitude", 12.3),
+        ],
+    )
+    # Antenna with all REQUIRED attrs present but no azimuth (recommended).
+    antenna = _device(
+        200,
+        "antenna",
+        [_attr("serial_number", "ANT9"), _attr("model", "TRM41249.00")],
+    )
+    client = _client_for({100: station, 200: antenna})
+    report = audit_station_missing_attributes(
+        client, id_entity=100, catalog_path=catalog_path
+    )
+
+    rec = report.recommended_missing
+    assert [v.code for v in rec] == ["azimuth"]
+    assert rec[0].severity == "recommended"
+    assert rec[0].suggested_value == "0.0"
+    # Recommended-only misses must NOT fail the audit.
+    assert not report.has_violations
+    assert not report.hard_violations
 
 
 def test_clean_station_emits_no_violations(catalog_path: Path):
@@ -444,7 +491,9 @@ def test_device_with_present_subtype_emits_no_subtype_violation(
         client, id_entity=100, catalog_path=catalog_path
     )
 
-    assert not any(v.code == "subtype" and v.scope == "devices" for v in report.violations)
+    assert not any(
+        v.code == "subtype" and v.scope == "devices" for v in report.violations
+    )
 
 
 def test_not_relevant_code_skipped_even_when_required(catalog_path: Path):
@@ -560,10 +609,12 @@ def test_audited_entities_counts_station_plus_open_devices(catalog_path: Path):
     )
     history_by_id = {
         100: station,
-        200: _device(200, "gnss_receiver",
-                     [_attr("serial_number", "A"), _attr("model", "X")]),
-        201: _device(201, "antenna",
-                     [_attr("serial_number", "B"), _attr("model", "Y")]),
+        200: _device(
+            200, "gnss_receiver", [_attr("serial_number", "A"), _attr("model", "X")]
+        ),
+        201: _device(
+            201, "antenna", [_attr("serial_number", "B"), _attr("model", "Y")]
+        ),
         202: _device(202, "gnss_receiver", []),
         203: _device(203, "router", []),
     }
@@ -573,7 +624,7 @@ def test_audited_entities_counts_station_plus_open_devices(catalog_path: Path):
     )
 
     assert report.audited_entities == 3  # station + 2 open GPS devices
-    assert report.devices_skipped == 1   # router
+    assert report.devices_skipped == 1  # router
     assert not report.has_violations
 
 
@@ -686,9 +737,7 @@ def test_walker_filters_suppressed_violations(catalog_path: Path, tmp_path: Path
     assert report.suppressed[0].line_no == 1
 
 
-def test_walker_bypasses_suppressions_when_disabled(
-    catalog_path: Path, tmp_path: Path
-):
+def test_walker_bypasses_suppressions_when_disabled(catalog_path: Path, tmp_path: Path):
     """``use_suppressions=False`` reports every hit regardless of the
     suppression file content."""
     station = _station(
@@ -768,9 +817,7 @@ def test_triage_default_value_pre_filled_in_action_line(catalog_path: Path):
     """A code with a catalog default_value renders its value into the
     ACTION line — no <FILL_VALUE> placeholder needed."""
     report = _station_with_two_gaps(catalog_path)
-    out = format_triage_file(
-        report, generated_at="2026-05-20T00:00:00+00:00"
-    )
+    out = format_triage_file(report, generated_at="2026-05-20T00:00:00+00:00")
     # subtype → default "GPS stöð" → shlex-quoted to "'GPS stöð'"
     assert "#ACTION 100 add-attribute subtype 'GPS stöð'" in out
 
@@ -778,9 +825,7 @@ def test_triage_default_value_pre_filled_in_action_line(catalog_path: Path):
 def test_triage_fill_value_placeholder_when_no_default(catalog_path: Path):
     """date_start has no catalog default → triage emits the placeholder."""
     report = _station_with_two_gaps(catalog_path)
-    out = format_triage_file(
-        report, generated_at="2026-05-20T00:00:00+00:00"
-    )
+    out = format_triage_file(report, generated_at="2026-05-20T00:00:00+00:00")
     # date_start has no default, and station violations have no date hint
     # → both placeholders appear.
     assert (
@@ -793,9 +838,7 @@ def test_triage_device_date_hint_used_when_present(catalog_path: Path):
     """For device violations, the earliest open-join time_from is used
     as the date hint — no placeholder."""
     report = _station_with_two_gaps(catalog_path)
-    out = format_triage_file(
-        report, generated_at="2026-05-20T00:00:00+00:00"
-    )
+    out = format_triage_file(report, generated_at="2026-05-20T00:00:00+00:00")
     # serial_number missing → no default value, but join date 2015-06-01
     # used as date hint.
     assert (
@@ -809,11 +852,11 @@ def test_triage_action_lines_commented_by_default(catalog_path: Path):
     file is a no-op when fed through `tos audit apply` — the operator
     must explicitly uncomment what they want to fire."""
     report = _station_with_two_gaps(catalog_path)
-    out = format_triage_file(
-        report, generated_at="2026-05-20T00:00:00+00:00"
-    )
+    out = format_triage_file(report, generated_at="2026-05-20T00:00:00+00:00")
     action_lines = [
-        line for line in out.splitlines() if "add-attribute" in line and line.strip().startswith(("ACTION", "#ACTION"))
+        line
+        for line in out.splitlines()
+        if "add-attribute" in line and line.strip().startswith(("ACTION", "#ACTION"))
     ]
     assert action_lines, "expected at least one ACTION line"
     for line in action_lines:
@@ -824,9 +867,7 @@ def test_triage_suppress_hint_per_violation(catalog_path: Path):
     """Every violation block carries a SUPPRESS hint the operator can
     paste into data/audit_suppressions/missing_attributes.txt."""
     report = _station_with_two_gaps(catalog_path)
-    out = format_triage_file(
-        report, generated_at="2026-05-20T00:00:00+00:00"
-    )
+    out = format_triage_file(report, generated_at="2026-05-20T00:00:00+00:00")
     assert "# (or suppress: SUPPRESS 100 subtype)" in out
     assert "# (or suppress: SUPPRESS 100 date_start)" in out
     assert "# (or suppress: SUPPRESS 200 serial_number)" in out
@@ -849,16 +890,12 @@ def test_triage_empty_report_yields_header_only(catalog_path: Path):
     report = audit_station_missing_attributes(
         client, id_entity=100, catalog_path=catalog_path
     )
-    out = format_triage_file(
-        report, generated_at="2026-05-20T00:00:00+00:00"
-    )
+    out = format_triage_file(report, generated_at="2026-05-20T00:00:00+00:00")
     assert "(no violations — nothing to triage)" in out
     # No actual ACTION lines (uncommented or commented-out) — the header's
     # format explanation contains the literal "add-attribute" as documentation,
     # but no `#ACTION ...` violation lines should be present.
-    action_lines = [
-        line for line in out.splitlines() if line.startswith("#ACTION")
-    ]
+    action_lines = [line for line in out.splitlines() if line.startswith("#ACTION")]
     assert action_lines == []
 
 
@@ -866,9 +903,7 @@ def test_triage_groups_station_first_then_devices(catalog_path: Path):
     """Station entity block always precedes device blocks so the operator
     reads the file linearly."""
     report = _station_with_two_gaps(catalog_path)
-    out = format_triage_file(
-        report, generated_at="2026-05-20T00:00:00+00:00"
-    )
+    out = format_triage_file(report, generated_at="2026-05-20T00:00:00+00:00")
     station_idx = out.index("# --- geophysical id_entity=100")
     device_idx = out.index("# --- gnss_receiver id_entity=200")
     assert station_idx < device_idx

@@ -89,6 +89,10 @@ class MissingAttributeViolation:
     scope: str  # "stations" or "devices" — which catalog scope the rule came from
     suggested_value: Optional[str]
     suggested_date_from: Optional[str]
+    # "required" (gps_required_for → a real violation) or "recommended"
+    # (gps_recommended_for → a logged reminder, not a violation; a safe default
+    # is applied at dissemination/sitelog — e.g. antenna azimuth → 0.0).
+    severity: str = "required"
 
 
 @dataclass(frozen=True)
@@ -115,8 +119,19 @@ class StationMissingAttributesReport:
     suppressions_disabled: bool = False
 
     @property
+    def hard_violations(self) -> List[MissingAttributeViolation]:
+        """Required-tier misses only — the ones that count as real violations."""
+        return [v for v in self.violations if v.severity == "required"]
+
+    @property
+    def recommended_missing(self) -> List[MissingAttributeViolation]:
+        """Recommended-tier misses — logged reminders, not violations."""
+        return [v for v in self.violations if v.severity == "recommended"]
+
+    @property
     def has_violations(self) -> bool:
-        return bool(self.violations)
+        # Only hard (required) misses fail the audit; recommended are reminders.
+        return bool(self.hard_violations)
 
     @property
     def suppressed_count(self) -> int:
@@ -229,22 +244,27 @@ def _device_display_label(history: Dict[str, Any]) -> Optional[str]:
 def _required_codes_in_scope(
     scope_rules: Dict[str, Dict[str, Any]],
     entity_subtype: str,
-) -> List[Tuple[str, Dict[str, Any]]]:
-    """Return ``[(code, entry)]`` for rules where ``entity_subtype`` is
-    required AND ``gps_relevance == 'yes'``.
+) -> List[Tuple[str, Dict[str, Any], str]]:
+    """Return ``[(code, entry, severity)]`` for rules that apply to
+    ``entity_subtype``, where ``severity`` is:
 
-    Filtering on ``gps_relevance`` keeps "no" entries (clearly seismic /
-    meteorological) and "maybe" entries (operator review still pending)
-    out of the audit until they're explicitly classified.
+    * ``"required"`` — ``entity_subtype ∈ gps_required_for`` (a real violation).
+    * ``"recommended"`` — ``entity_subtype ∈ gps_recommended_for`` (a logged
+      reminder; a safe default is applied downstream, e.g. azimuth → 0.0).
+
+    ``gps_required_for`` wins if a code lists the subtype in both. Filtering on
+    ``gps_relevance == 'yes'`` keeps "no"/"maybe" entries out until classified.
     """
-    out: List[Tuple[str, Dict[str, Any]]] = []
+    out: List[Tuple[str, Dict[str, Any], str]] = []
     for code, entry in scope_rules.items():
         if entry.get("gps_relevance") != "yes":
             continue
         required = entry.get("gps_required_for") or []
-        if entity_subtype not in required:
-            continue
-        out.append((code, entry))
+        recommended = entry.get("gps_recommended_for") or []
+        if entity_subtype in required:
+            out.append((code, entry, "required"))
+        elif entity_subtype in recommended:
+            out.append((code, entry, "recommended"))
     return out
 
 
@@ -267,7 +287,7 @@ def _audit_entity(
     cross-scope code collisions stay distinct.
     """
     report.audited_entities += 1
-    for code, entry in _required_codes_in_scope(scope_rules, entity_subtype):
+    for code, entry, severity in _required_codes_in_scope(scope_rules, entity_subtype):
         if _open_attribute_value(history, code) is not None:
             continue
         default = entry.get("default_value")
@@ -281,6 +301,7 @@ def _audit_entity(
                 scope=scope_name,
                 suggested_value=suggested_value,
                 suggested_date_from=suggested_date_from,
+                severity=severity,
             )
         )
 
