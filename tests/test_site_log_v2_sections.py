@@ -170,49 +170,41 @@ def test_previous_site_log_rendered_in_form():
     assert "Previous Site Log        : rhof00isl_20240827.log" in log
 
 
-def test_satellite_system_from_constellation_toggles():
-    """§3.3 reflects the receiver's TOS constellation toggles (those 'true'),
-    joined with '+'; no toggle set falls back to the 'GPS' baseline."""
-    sessions = [
-        {
-            "time_from": datetime(2023, 1, 1),
-            "time_to": None,
-            "gnss_receiver": {
-                "model": "SEPT POLARX5",
-                "serial_number": "3075127",
-                "firmware_version": "5.5.0",
-                "GPS": "true",
-                "GLO": "true",
-                "GAL": "true",
-                "BDS": "false",
-            },
-        }
-    ]
-    log = generate_igs_site_log(_STATION, sessions)
-    assert "Satellite System         : GPS+GLO+GAL" in log
-    # Fallback: a receiver with no toggles renders the GPS baseline.
-    assert "Satellite System         : GPS\n" in generate_igs_site_log(
-        _STATION, _SESSIONS
-    )
+def test_satellite_system_from_toggles_helper():
+    """§3.3 Satellite System is composed from the receiver's constellation
+    toggles (those 'true'), joined '+'; none set → 'GPS' baseline. Pins the
+    LIVE legacy renderer's helper (the core renderer is unused)."""
+    from tostools.legacy.gps_metadata_functions import satellite_system_from_toggles
+
+    rx = {"GPS": "true", "GLO": "true", "GAL": "true", "BDS": "false", "QZSS": None}
+    assert satellite_system_from_toggles(rx) == "GPS+GLO+GAL"
+    assert satellite_system_from_toggles({"model": "X"}) == "GPS"  # baseline fallback
+    assert satellite_system_from_toggles({"GPS": "true"}) == "GPS"
 
 
-def test_alignment_from_azimuth():
-    """§4 Alignment from True N uses the antenna azimuth; absent → 0.0."""
-    sessions = [
-        {
-            "time_from": datetime(2023, 1, 1),
-            "time_to": None,
-            "antenna": {
-                "model": "TRM57971.00",
-                "serial_number": "a1",
-                "antenna_height": 0.1,
-                "azimuth": "12.5",
-            },
-        }
-    ]
-    log = generate_igs_site_log(_STATION, sessions)
-    assert "Alignment from True N    : 12.5" in log
-    # Absent azimuth → 0.0 default.
-    assert "Alignment from True N    : 0.0" in generate_igs_site_log(
-        _STATION, _SESSIONS
-    )
+def test_constellation_and_azimuth_codes_captured_by_builder():
+    """The metadata builder's key_list must capture every constellation toggle
+    + azimuth, else the renderer never sees them (the inert-fix regression)."""
+    from tostools.legacy.gps_metadata_qc import device_attribute_history
+
+    device = {
+        "id_entity": 1,
+        "code_entity_subtype": "gnss_receiver",
+        "attributes": [
+            {"code": c, "value": "true", "date_from": "2023-01-01", "date_to": None}
+            for c in ("GPS", "GLO", "GAL", "BDS", "QZSS", "SBAS", "IRN")
+        ]
+        + [
+            {
+                "code": "azimuth",
+                "value": "0.0",
+                "date_from": "2023-01-01",
+                "date_to": None,
+            }
+        ],
+    }
+    rows = device_attribute_history(device, "2023-01-01", None, loglevel=50)
+    assert rows, "expected at least one attribute period"
+    d = rows[0]
+    for c in ("GPS", "GLO", "GAL", "BDS", "QZSS", "SBAS", "IRN", "azimuth"):
+        assert c in d, f"{c} not captured by key_list"
