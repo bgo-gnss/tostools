@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from .api.tos_client import TOSClient
-from .archive import cold_archive_prepath
+from .archive import classify_file_format, cold_archive_prepath
 from .audit import _resolve_station_entity
 from .audit_attribute_dates import (
     _date_only,
@@ -139,6 +139,19 @@ def audit_station_constellations(
         report.note = f"could not read RINEX header: {rinex_path}"
         return report
     report.reading = reading
+
+    # The constellation set must belong to the CURRENT receiver. The most recent
+    # RINEX is normally its data, but a down / just-installed station can leave
+    # the newest archived day sitting in a PREVIOUS receiver's tenure — reading
+    # that would misattribute the old receiver's systems. Gate on the RINEX date
+    # being on/after the current receiver's install; otherwise no cross-check.
+    rinex_date = classify_file_format(Path(rinex_path).name).date
+    if install and rinex_date and str(rinex_date) < install:
+        report.note = (
+            f"most recent RINEX {rinex_date} predates current receiver install "
+            f"{install} — no data yet for the current receiver (no cross-check)"
+        )
+        return report
 
     for code in TOS_CONSTELLATION_CODES:
         observed = code in reading.systems

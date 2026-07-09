@@ -93,7 +93,7 @@ def _mock_station_with_open_receiver(rx_attrs):
     }
 
 
-def _audit_with(monkeypatch, rx_attrs, reading):
+def _audit_with(monkeypatch, rx_attrs, reading, rinex_name="TST12000.26D.gz"):
     import tostools.audit_constellations as mod
 
     station, receiver = _mock_station_with_open_receiver(rx_attrs)
@@ -103,7 +103,9 @@ def _audit_with(monkeypatch, rx_attrs, reading):
     )
     monkeypatch.setattr(mod, "_resolve_station_entity", lambda *a, **k: station)
     monkeypatch.setattr(mod, "cold_archive_prepath", lambda: "/fake")
-    monkeypatch.setattr(mod, "find_most_recent_rinex", lambda *a, **k: "/fake/x.rnx")
+    monkeypatch.setattr(
+        mod, "find_most_recent_rinex", lambda *a, **k: f"/fake/{rinex_name}"
+    )
     monkeypatch.setattr(mod, "read_constellations", lambda p: reading)
     return mod.audit_station_constellations(client, name="TST1")
 
@@ -133,6 +135,25 @@ def test_tos_claims_system_data_lacks_flags_review_only_when_reliable(monkeypatc
     report = _audit_with(monkeypatch, rx_attrs=rx_attrs, reading=reading)
     assert {f.code for f in report.reviews} == {"BDS"}
     assert not report.set_true  # GPS already true and observed
+
+
+def test_rinex_predating_current_receiver_install_is_not_cross_checked(monkeypatch):
+    """If the most recent RINEX predates the current receiver's install (a down /
+    just-installed station), it belongs to a PREVIOUS receiver — no cross-check,
+    so the old receiver's systems aren't misattributed to the current one."""
+    from tostools.constellation import ConstellationReading
+
+    reading = ConstellationReading(
+        version=3.04, systems=frozenset({"GPS", "GLO", "GAL"}), reliable=True
+    )
+    # Install is 2020-01-01 (mock open join); this RINEX is 2015 → predates it.
+    report = _audit_with(
+        monkeypatch, rx_attrs=[], reading=reading, rinex_name="TST12000.15D.gz"
+    )
+    assert not report.has_findings
+    assert (
+        report.note is not None and "predates current receiver install" in report.note
+    )
 
 
 def test_r2_absence_does_not_flag_review(monkeypatch):
