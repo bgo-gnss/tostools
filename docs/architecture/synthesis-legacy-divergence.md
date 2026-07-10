@@ -255,6 +255,14 @@ Until that review happens for a given station, the legacy synthesis
 remains the operational source of truth for *that station's* IGS
 artefacts. The flag default flips per-station as reviews complete.
 
+> **Superseded 2026-07-10.** The per-station review gate below was not
+> adopted. `site_log` now sources the new composer **unconditionally**
+> for every station (matching `PrintTOS` / `station.info`, already
+> new-chain by default). Divergent stations' IGS site logs change without
+> a per-station flag; review happens when a divergent station is added to
+> the EPOS dissemination allowlist, not via a code gate. See the next
+> section.
+
 ## Site-log §3 constellation sub-periods (2026-07-10)
 
 `legacy/gps_metadata_functions.site_log` now builds its flat
