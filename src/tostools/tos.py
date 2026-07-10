@@ -9542,6 +9542,7 @@ _SUPPORTED_VERBS = (
     "fill-gap",
     "move",
     "patch-attribute-date",
+    "patch-attribute-date-to",
     "patch-attribute-value",
     "patch-contact-relationship",
     "patch-join-date",
@@ -9737,6 +9738,18 @@ def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]
                         "patch-attribute-value requires exactly three "
                         "arguments: <code> <date_from_match> <new_value> "
                         "(quote the value if it contains spaces)"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        if verb == "patch-attribute-date-to" and len(tokens) != 6:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "patch-attribute-date-to requires exactly three "
+                        "arguments: <code> <date_from_match> <new_date_to|open>"
                     ),
                     raw=raw,
                 )
@@ -10345,6 +10358,117 @@ def _dispatch_patch_attribute_date(writer, action: ParsedAction) -> ActionResult
             f"PATCH /attribute_value/{id_av} "
             f"date_from {old_date} → {new_date} "
             f"(code={code!r}) — {response!r}"
+        ),
+    )
+
+
+def _dispatch_patch_attribute_date_to(writer, action: ParsedAction) -> ActionResult:
+    """Re-date — or RE-OPEN — an attribute period's ``date_to`` in-place.
+
+    Action shape: ``ACTION <id_entity> patch-attribute-date-to <code>
+    <date_from_match> <new_date_to|open>``. Matches the period by ``code`` +
+    ``date_from`` date-only prefix (same rule + 0/>1-match refusal as
+    :func:`_dispatch_patch_attribute_date`), then PATCHes ``date_to`` — to a
+    date, or to NULL when the new value is ``open``. Re-opening fixes a period
+    that was wrongly closed (e.g. a device constellation toggle closed at a
+    station move instead of following the device to its next real change).
+    """
+    code = action.args[0]
+    match_date = action.args[1][:10]
+    new_to_raw = action.args[2]
+    reopen = new_to_raw.strip().lower() == "open"
+
+    new_to: Optional[str] = None
+    if not reopen:
+        resolved, err = _resolve_date_token(new_to_raw, action.id_entity, writer)
+        if err is not None:
+            return ActionResult(
+                action=action, status="failed", detail=f"patch-attribute-date-to: {err}"
+            )
+        new_to = (resolved or new_to_raw)[:10]
+        if len(new_to) != 10 or new_to[4] != "-" or new_to[7] != "-":
+            return ActionResult(
+                action=action,
+                status="failed",
+                detail=(
+                    "patch-attribute-date-to: new_date_to must be YYYY-MM-DD or "
+                    f"'open' (got {new_to_raw!r})"
+                ),
+            )
+
+    try:
+        attrs = writer.get_attribute_values(action.id_entity, code)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action, status="failed", detail=f"get_attribute_values raised: {exc}"
+        )
+
+    matches = [
+        a
+        for a in attrs
+        if a.get("date_from") and str(a["date_from"])[:10] == match_date
+    ]
+    if not matches:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-date-to: no period for id_entity="
+                f"{action.id_entity} code={code!r} date_from={match_date} "
+                "(re-audit and regenerate triage)"
+            ),
+        )
+    if len(matches) > 1:
+        ids = ", ".join(str(a.get("id_attribute_value")) for a in matches)
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-date-to: {len(matches)} periods match code="
+                f"{code!r} date_from={match_date} (id_attribute_value: {ids}); "
+                "refusing to PATCH ambiguously — disambiguate manually"
+            ),
+        )
+
+    target = matches[0]
+    id_av_raw = target.get("id_attribute_value")
+    if id_av_raw is None:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "patch-attribute-date-to: matching period has no "
+                "id_attribute_value (partial payload); rerun later"
+            ),
+        )
+    try:
+        id_av = int(id_av_raw)
+    except (TypeError, ValueError):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch-attribute-date-to: id_attribute_value={id_av_raw!r} not int",
+        )
+
+    old_to = str(target.get("date_to"))[:10] if target.get("date_to") else "open"
+    try:
+        if reopen:
+            response = writer.patch_attribute_value(id_av, clear_date_to=True)
+        else:
+            response = writer.patch_attribute_value(id_av, date_to=new_to)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch_attribute_value raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"PATCH /attribute_value/{id_av} date_to {old_to} → "
+            f"{'open' if reopen else new_to} (code={code!r}) — {response!r}"
         ),
     )
 
@@ -11429,6 +11553,8 @@ def _dispatch_action(
         return _dispatch_fill_gap(writer, action)
     if action.verb == "patch-attribute-date":
         return _dispatch_patch_attribute_date(writer, action)
+    if action.verb == "patch-attribute-date-to":
+        return _dispatch_patch_attribute_date_to(writer, action)
     if action.verb == "patch-attribute-value":
         return _dispatch_patch_attribute_value(writer, action)
     if action.verb == "patch-join-date":

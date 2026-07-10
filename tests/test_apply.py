@@ -55,6 +55,23 @@ def test_parse_action_file_inline_comment_trimmed():
     assert actions[0].args == ["digitizer"]
 
 
+def test_parse_patch_attribute_date_to():
+    text = "ACTION 19582 patch-attribute-date-to GAL 2022-12-16 open\n"
+    actions, errors = _parse_action_file(text)
+    assert errors == []
+    assert len(actions) == 1
+    assert actions[0].verb == "patch-attribute-date-to"
+    assert actions[0].id_entity == 19582
+    assert actions[0].args == ["GAL", "2022-12-16", "open"]
+
+
+def test_parse_patch_attribute_date_to_wrong_arity_rejected():
+    text = "ACTION 19582 patch-attribute-date-to GAL open\n"  # missing match date
+    actions, errors = _parse_action_file(text)
+    assert actions == []
+    assert errors and "patch-attribute-date-to" in errors[0].message
+
+
 def test_parse_action_file_multiple_actions_preserve_order():
     text = (
         "ACTION 16321 change-subtype digitizer\n"

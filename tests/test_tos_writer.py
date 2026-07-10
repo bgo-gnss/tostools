@@ -597,6 +597,27 @@ def test_patch_attribute_value_raises_with_no_fields():
         w.patch_attribute_value(42)
 
 
+def test_patch_attribute_value_clear_date_to_sends_explicit_null():
+    """clear_date_to=True re-opens a period: PATCH body carries date_to=None.
+
+    A plain date_to=None omits the field (leave untouched); the flag is the
+    only way to send an explicit null and re-open a wrongly-closed period.
+    """
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request", return_value={"ok": True}) as mock_req:
+        w.patch_attribute_value(154232, clear_date_to=True)
+    body = mock_req.call_args.kwargs["data"]
+    assert body == {"date_to": None}
+
+
+def test_patch_attribute_value_date_to_none_omits_field():
+    """Without the flag, date_to=None must NOT appear in the body."""
+    w = _logged_in_writer(dry_run=False)
+    with patch.object(w, "_request", return_value={"ok": True}) as mock_req:
+        w.patch_attribute_value(1, value="x", date_to=None)
+    assert "date_to" not in mock_req.call_args.kwargs["data"]
+
+
 def _http_401() -> "requests.HTTPError":
     resp = MagicMock()
     resp.status_code = 401
