@@ -255,6 +255,48 @@ Until that review happens for a given station, the legacy synthesis
 remains the operational source of truth for *that station's* IGS
 artefacts. The flag default flips per-station as reviews complete.
 
+> **Superseded 2026-07-10.** The per-station review gate below was not
+> adopted. `site_log` now sources the new composer **unconditionally**
+> for every station (matching `PrintTOS` / `station.info`, already
+> new-chain by default). Divergent stations' IGS site logs change without
+> a per-station flag; review happens when a divergent station is added to
+> the EPOS dissemination allowlist, not via a code gate. See the next
+> section.
+
+## Site-log §3 constellation sub-periods (2026-07-10)
+
+`legacy/gps_metadata_functions.site_log` now builds its flat
+`device_sessions` list from `devices.device_sessions(...)` with
+`codes=SITELOG_GPS_ATTRIBUTE_CODES` instead of the legacy
+`gps_metadata_qc.get_device_sessions`. This is unconditional — both the
+`tosGPS sitelog` CLI and receivers' EPOS dissemination call
+`site_log(sid)` with no injected `device_sessions`, so both pick it up.
+
+Motivation: a receiver whose constellation changes mid-tenure (e.g. NYLA
+PolaRX5 3071033 — GPS+GLO from 2022-07-22, Galileo added 2022-12-16) must
+render **two** §3 receiver blocks. The legacy slicer's pair-based dedup
+(Bug 1) collapsed the misaligned GPS+GLO window and the site log showed
+only the later GPS+GLO+GAL block. `SITELOG_GPS_ATTRIBUTE_CODES` is the
+legacy `device_attribute_history` `key_list` minus the `date_from` /
+`date_to` bookkeeping keys — it carries `GAL/BDS/QZSS/SBAS/IRN` (rendered
+into §3.3 "Satellite System") and `azimuth` (§4 "Alignment from True N"),
+which `LEGACY_GPS_ATTRIBUTE_CODES` omits.
+
+GAMIT `station.info` is deliberately **unaffected**: it consumes the
+pivoted `station_sessions` (default `LEGACY_GPS_ATTRIBUTE_CODES`, a
+constellation-free `_device_structure`), so the coalescing pass merges the
+constellation sub-window back — station.info has no constellation column
+and a split there would be a spurious duplicate occupation. It still
+splits on firmware / receiver / antenna as before.
+
+Gate: the rendered-sitelog byte-diff is empty for the clean oracle
+stations (RHOF / AKUR / VMEY / SKRO) before vs. after the swap; NYLA gains
+its GPS+GLO block and station.info keeps the PolaRX5 3071033 tenure as a
+single row. Locked by `test_device_sessions_sitelog_codes_split_constellation_subperiod`,
+`test_device_sessions_legacy_codes_carry_no_galileo`, and
+`test_station_sessions_does_not_split_on_constellation` in
+`tests/test_devices.py`.
+
 ## References
 
 * Vault note `1778713245-tostools-devices-design` — design proposal.

@@ -8529,6 +8529,33 @@ def _audit_main(argv):
         help="Print apply-ready ACTION lines for the set-true findings.",
     )
     p_con.add_argument(
+        "--history",
+        action="store_true",
+        help=(
+            "Reconstruct constellations for EVERY receiver device period (incl. "
+            "decommissioned), not just the current one — first/last + binary "
+            "search over the archive, per-period add-attribute-period triage."
+        ),
+    )
+    p_con.add_argument(
+        "--min-segment-days",
+        type=int,
+        default=None,
+        help=(
+            "--history: ignore reconstructed segments shorter than this many "
+            "days as power-up/config noise (default 4)."
+        ),
+    )
+    p_con.add_argument(
+        "--triage-path",
+        type=Path,
+        default=None,
+        help=(
+            "--history: write a clean apply-ready action file here (commented "
+            "ACTIONs — uncomment the ones you trust, then `tos audit apply`)."
+        ),
+    )
+    p_con.add_argument(
         "--json", action="store_true", help="Emit JSON instead of pretty text."
     )
     p_con.add_argument("--server", default="vi-api.vedur.is", help=argparse.SUPPRESS)
@@ -9315,6 +9342,9 @@ def _audit_constellations_main(args, client) -> int:
 
     from .audit_constellations import audit_station_constellations, format_triage
 
+    if getattr(args, "history", False):
+        return _audit_constellations_history_main(args, client)
+
     try:
         report = audit_station_constellations(
             client, name=args.name, archive_root=args.archive_root
@@ -9382,6 +9412,96 @@ def _audit_constellations_main(args, client) -> int:
     return 1 if report.has_findings else 0
 
 
+def _audit_constellations_history_main(args, client) -> int:
+    """Handle ``tos audit constellations --history`` — per-period reconstruction.
+
+    Reconstructs the satellite systems for every receiver device period from the
+    archive (first/last + binary search) and flags systems TOS omits. Exit 0
+    clean, 1 when there are per-period gaps, 2 on lookup failure.
+    """
+    import json as _json
+
+    from .audit_constellations import (
+        audit_station_constellations_history,
+        format_history_triage,
+    )
+
+    kwargs = {}
+    if getattr(args, "min_segment_days", None) is not None:
+        kwargs["min_segment_days"] = args.min_segment_days
+    try:
+        report = audit_station_constellations_history(
+            client, name=args.name, archive_root=args.archive_root, **kwargs
+        )
+    except LookupError as exc:
+        print(f"constellations: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        payload = {
+            "station_id": report.station_id,
+            "station_name": report.station_name,
+            "marker": report.marker,
+            "note": report.note,
+            "periods": [
+                {
+                    "device_id": p.device_id,
+                    "model": p.model,
+                    "serial": p.serial,
+                    "date_from": p.date_from.isoformat() if p.date_from else None,
+                    "date_to": p.date_to.isoformat() if p.date_to else None,
+                    "reliable": p.reliable,
+                    "n_files": p.n_files,
+                    "systems": {
+                        c: d.isoformat() for c, d in sorted(p.first_seen.items())
+                    },
+                    "missing": [
+                        {"code": c, "date_from": d.isoformat()} for c, d in p.missing
+                    ],
+                    "note": p.note,
+                }
+                for p in report.periods
+            ],
+        }
+        print(_json.dumps(payload, ensure_ascii=False, indent=2))
+        return 1 if report.has_actions else 0
+
+    name = report.station_name or "?"
+    if not report.periods:
+        print(f"⚠ Station {name!r} (id={report.station_id}) — no receiver periods")
+        return 0
+    mark = "✗" if report.has_actions else "✓"
+    status = "FINDINGS" if report.has_actions else "CLEAN"
+    print(f"{mark} Station {name!r} (id={report.station_id}) — {status}")
+    for p in report.periods:
+        end = p.date_to.isoformat() if p.date_to else "open"
+        rel = "R3" if p.reliable else "R2/confirm"
+        systems = ", ".join(f"{c}@{d}" for c, d in sorted(p.first_seen.items())) or (
+            p.note or "(no data)"
+        )
+        print(
+            f"  {p.model} {p.serial} [{p.date_from} → {end}] "
+            f"({p.n_files} files, {rel}): {systems}"
+        )
+        for code, cdate in p.missing:
+            print(f"    · {code:5s} recorded from {cdate}, TOS omits → add")
+
+    triage_lines = format_history_triage(report)
+    if getattr(args, "triage_path", None):
+        audit_cmd = "tos audit constellations " + args.name + " --history"
+        content = f"# {audit_cmd}\n" + "\n".join(triage_lines) + "\n"
+        args.triage_path.write_text(content, encoding="utf-8")
+        print(
+            f"wrote triage file: {args.triage_path} "
+            f"({sum(len(p.missing) for p in report.periods)} action(s), commented)",
+            file=sys.stderr,
+        )
+    elif args.triage and report.has_actions:
+        print()
+        print("\n".join(triage_lines))
+    return 1 if report.has_actions else 0
+
+
 # ---------------------------------------------------------------------------
 # Action-file parser + runner (operator-edited triage workflow)
 # ---------------------------------------------------------------------------
@@ -9422,6 +9542,7 @@ _SUPPORTED_VERBS = (
     "fill-gap",
     "move",
     "patch-attribute-date",
+    "patch-attribute-date-to",
     "patch-attribute-value",
     "patch-contact-relationship",
     "patch-join-date",
@@ -9617,6 +9738,18 @@ def _parse_action_file(text: str) -> tuple[List[ParsedAction], List[ParseError]]
                         "patch-attribute-value requires exactly three "
                         "arguments: <code> <date_from_match> <new_value> "
                         "(quote the value if it contains spaces)"
+                    ),
+                    raw=raw,
+                )
+            )
+            continue
+        if verb == "patch-attribute-date-to" and len(tokens) != 6:
+            errors.append(
+                ParseError(
+                    line_no=i,
+                    message=(
+                        "patch-attribute-date-to requires exactly three "
+                        "arguments: <code> <date_from_match> <new_date_to|open>"
                     ),
                     raw=raw,
                 )
@@ -10225,6 +10358,125 @@ def _dispatch_patch_attribute_date(writer, action: ParsedAction) -> ActionResult
             f"PATCH /attribute_value/{id_av} "
             f"date_from {old_date} → {new_date} "
             f"(code={code!r}) — {response!r}"
+        ),
+    )
+
+
+def _dispatch_patch_attribute_date_to(writer, action: ParsedAction) -> ActionResult:
+    """Re-date an attribute period's ``date_to`` in-place (to a real date).
+
+    Action shape: ``ACTION <id_entity> patch-attribute-date-to <code>
+    <date_from_match> <new_date_to>``. Matches the period by ``code`` +
+    ``date_from`` date-only prefix (same rule + 0/>1-match refusal as
+    :func:`_dispatch_patch_attribute_date`), then PATCHes ``date_to``.
+
+    ``open`` is REFUSED: the TOS backend ignores a null ``date_to`` on PATCH, so
+    a period cannot be re-opened in place (confirmed live 2026-07-10 — the PATCH
+    returns 2xx but the date is unchanged). Re-open by DELETE + re-add instead.
+    """
+    code = action.args[0]
+    match_date = action.args[1][:10]
+    new_to_raw = action.args[2]
+
+    if new_to_raw.strip().lower() == "open":
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "patch-attribute-date-to <code> <date_from> open is NOT "
+                "supported — the TOS backend ignores a null date_to on PATCH "
+                "(cannot clear it in place). Re-open with: "
+                "'delete-attribute-value <id_attribute_value>' then "
+                "'add-attribute-period <code> <value> <date_from> open'."
+            ),
+        )
+
+    resolved, err = _resolve_date_token(new_to_raw, action.id_entity, writer)
+    if err is not None:
+        return ActionResult(
+            action=action, status="failed", detail=f"patch-attribute-date-to: {err}"
+        )
+    new_to = (resolved or new_to_raw)[:10]
+    if len(new_to) != 10 or new_to[4] != "-" or new_to[7] != "-":
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "patch-attribute-date-to: new_date_to must be YYYY-MM-DD "
+                f"(got {new_to_raw!r}); to re-open use delete + re-add"
+            ),
+        )
+
+    try:
+        attrs = writer.get_attribute_values(action.id_entity, code)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action, status="failed", detail=f"get_attribute_values raised: {exc}"
+        )
+
+    matches = [
+        a
+        for a in attrs
+        if a.get("date_from") and str(a["date_from"])[:10] == match_date
+    ]
+    if not matches:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-date-to: no period for id_entity="
+                f"{action.id_entity} code={code!r} date_from={match_date} "
+                "(re-audit and regenerate triage)"
+            ),
+        )
+    if len(matches) > 1:
+        ids = ", ".join(str(a.get("id_attribute_value")) for a in matches)
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                f"patch-attribute-date-to: {len(matches)} periods match code="
+                f"{code!r} date_from={match_date} (id_attribute_value: {ids}); "
+                "refusing to PATCH ambiguously — disambiguate manually"
+            ),
+        )
+
+    target = matches[0]
+    id_av_raw = target.get("id_attribute_value")
+    if id_av_raw is None:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "patch-attribute-date-to: matching period has no "
+                "id_attribute_value (partial payload); rerun later"
+            ),
+        )
+    try:
+        id_av = int(id_av_raw)
+    except (TypeError, ValueError):
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch-attribute-date-to: id_attribute_value={id_av_raw!r} not int",
+        )
+
+    old_to = str(target.get("date_to"))[:10] if target.get("date_to") else "open"
+    try:
+        response = writer.patch_attribute_value(id_av, date_to=new_to)
+    except Exception as exc:  # noqa: BLE001
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch_attribute_value raised: {exc}",
+        )
+
+    return ActionResult(
+        action=action,
+        status="ok",
+        detail=(
+            f"PATCH /attribute_value/{id_av} date_to {old_to} → "
+            f"{new_to} (code={code!r}) — {response!r}"
         ),
     )
 
@@ -11309,6 +11561,8 @@ def _dispatch_action(
         return _dispatch_fill_gap(writer, action)
     if action.verb == "patch-attribute-date":
         return _dispatch_patch_attribute_date(writer, action)
+    if action.verb == "patch-attribute-date-to":
+        return _dispatch_patch_attribute_date_to(writer, action)
     if action.verb == "patch-attribute-value":
         return _dispatch_patch_attribute_value(writer, action)
     if action.verb == "patch-join-date":

@@ -1056,10 +1056,17 @@ class TOSWriter:
         value: Optional[str] = None,
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
+        clear_date_to: bool = False,
     ) -> Any:
         """Modify an existing attribute value by its primary key.
 
         Only fields that are not None are included in the PATCH body.
+        ``clear_date_to=True`` sends an explicit ``date_to: null``; a plain
+        ``date_to=None`` leaves the field untouched. **Caveat:** the live TOS
+        backend IGNORES a null ``date_to`` on PATCH (returns 2xx, date unchanged
+        — confirmed 2026-07-10), so this does NOT actually re-open a period. To
+        re-open, DELETE the row and re-add it open. Kept as a correct low-level
+        primitive in case the backend gains support.
 
         Resilient to a known TOS quirk: the public ``/attribute_value/{id}``
         endpoint intermittently returns ``401 "User provided an invalid token"``
@@ -1075,7 +1082,9 @@ class TOSWriter:
             body["value"] = value
         if date_from is not None:
             body["date_from"] = self._tos_date(date_from)
-        if date_to is not None:
+        if clear_date_to:
+            body["date_to"] = None  # explicit null → re-open the period
+        elif date_to is not None:
             body["date_to"] = self._tos_date(date_to)
         if not body:
             raise ValueError(

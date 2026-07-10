@@ -809,8 +809,21 @@ def site_log(
         )
         # [NOTE: testing device history]
         module_logger.debug("devices_history: %s", json_print(devices_history))
-        device_sessions = gpsqc.get_device_sessions(
-            devices_history, gpsqc.URL_REST_TOS, loglevel=loglevel
+        # §3 constellation sub-periods: build the flat device-session list via
+        # the new devices composer with the full site-log attribute set
+        # (SITELOG_GPS_ATTRIBUTE_CODES — adds GAL/BDS/QZSS/SBAS/IRN + azimuth on
+        # top of the legacy GPS/GLO). A mid-tenure constellation change (e.g. a
+        # GAL toggle added part-way through a receiver's tenure) then surfaces
+        # as a distinct §3 receiver block. The legacy get_device_sessions
+        # slicer drops such misaligned sub-windows via its pair-based dedup
+        # (docs/architecture/synthesis-legacy-divergence.md, Bug 1).
+        from ..api.tos_client import TOSClient
+        from ..devices import SITELOG_GPS_ATTRIBUTE_CODES
+        from ..devices import device_sessions as _compose_device_sessions
+
+        client = TOSClient(base_url=gpsqc.URL_REST_TOS)
+        device_sessions = _compose_device_sessions(
+            client, devices_history, codes=SITELOG_GPS_ATTRIBUTE_CODES
         )
 
     # devices_used = ["gnss_receiver", "antenna", "radome", "monument"]

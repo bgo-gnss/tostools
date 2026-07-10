@@ -19,6 +19,7 @@ import pytest
 
 from tostools.devices import (
     LEGACY_GPS_ATTRIBUTE_CODES,
+    SITELOG_GPS_ATTRIBUTE_CODES,
     _device_structure,
     attribute_at,
     attribute_at_value,
@@ -815,6 +816,85 @@ def test_device_sessions_returns_sorted_per_join_subsessions():
 
 
 # ---------------------------------------------------------------------------
+# Constellation sub-periods — sitelog §3 vs station.info (NYLA regression)
+#
+# NYLA's PolaRX5 3071033 logged GPS+GLO from 2022-07-22 and had Galileo
+# (GAL) toggled on 2022-12-16, mid-tenure. The IGS site log must show two
+# §3 receiver blocks (GPS+GLO, then GPS+GLO+GAL); GAMIT station.info must
+# NOT split on the constellation change (it has no constellation column, so
+# a split would be a spurious duplicate occupation).
+# ---------------------------------------------------------------------------
+
+
+def _nyla_polarx5_device() -> Dict[str, Any]:
+    """PolaRX5 3071033: GPS/GLO from 2022-07-22, GAL added 2022-12-16."""
+    return _gnss_device(
+        _attr("model", "SEPT POLARX5", "2022-07-22T00:00:00", None, 1),
+        _attr("serial_number", "3071033", "2022-07-22T00:00:00", None, 2),
+        _attr("firmware_version", "5.5.0-beta2", "2022-07-22T00:00:00", None, 3),
+        _attr("GPS", "true", "2022-07-22T00:00:00", None, 4),
+        _attr("GLO", "true", "2022-07-22T00:00:00", None, 5),
+        _attr("GAL", "true", "2022-12-16T00:00:00", None, 6),
+    )
+
+
+def test_device_sessions_sitelog_codes_split_constellation_subperiod():
+    """SITELOG codes → the mid-tenure GAL toggle splits the join into two rows."""
+    from tostools.legacy.gps_metadata_functions import satellite_system_from_toggles
+
+    client = MagicMock()
+    client.get_entity_history.return_value = _nyla_polarx5_device()
+    station_history = _station_history_with_children(
+        {
+            "id_entity_connection": 7,
+            "id_entity_child": 12345,
+            "time_from": "2022-07-22T00:00:00",
+            "time_to": "2023-02-09T00:00:00",
+        }
+    )
+
+    rows = device_sessions(client, station_history, codes=SITELOG_GPS_ATTRIBUTE_CODES)
+
+    assert len(rows) == 2
+    first, second = rows[0]["device"], rows[1]["device"]
+    assert (first["date_from"], first["date_to"]) == (
+        "2022-07-22T00:00:00",
+        "2022-12-16T00:00:00",
+    )
+    assert (second["date_from"], second["date_to"]) == (
+        "2022-12-16T00:00:00",
+        "2023-02-09T00:00:00",
+    )
+    # §3.3 Satellite System renders straight off the row toggles.
+    assert satellite_system_from_toggles(first) == "GPS+GLO"
+    assert satellite_system_from_toggles(second) == "GPS+GLO+GAL"
+
+
+def test_device_sessions_legacy_codes_carry_no_galileo():
+    """Default (station.info) codes omit GAL — the row never carries it.
+
+    The 2022-12-16 boundary still appears (the slicer partitions on *all*
+    attribute boundaries), but with GAL absent from ``codes`` both rows read
+    GPS+GLO — so the pivot's coalescing pass can collapse them (see the
+    station_sessions test below).
+    """
+    client = MagicMock()
+    client.get_entity_history.return_value = _nyla_polarx5_device()
+    station_history = _station_history_with_children(
+        {
+            "id_entity_connection": 7,
+            "id_entity_child": 12345,
+            "time_from": "2022-07-22T00:00:00",
+            "time_to": "2023-02-09T00:00:00",
+        }
+    )
+
+    rows = device_sessions(client, station_history)  # default LEGACY codes
+
+    assert all("GAL" not in row["device"] for row in rows)
+
+
+# ---------------------------------------------------------------------------
 # station_sessions / station_at
 # ---------------------------------------------------------------------------
 
@@ -823,6 +903,40 @@ def test_station_sessions_returns_empty_when_station_missing():
     client = MagicMock()
     client.get_entity_history.return_value = None
     assert station_sessions(client, 999) == []
+
+
+def test_station_sessions_does_not_split_on_constellation():
+    """station.info path: the mid-tenure GAL toggle must NOT split the session.
+
+    Default (constellation-free) ``_device_structure`` makes the two atomic
+    sub-windows identical in every tracked slot, so the coalescing pass
+    merges them into one PolaRX5 3071033 occupation — no spurious 2022-12-16
+    row in GAMIT station.info.
+    """
+
+    def _history(id_entity):
+        if id_entity == 100:
+            return _station_history_with_children(
+                {
+                    "id_entity_connection": 7,
+                    "id_entity_child": 12345,
+                    "time_from": "2022-07-22T00:00:00",
+                    "time_to": "2023-02-09T00:00:00",
+                }
+            )
+        return _nyla_polarx5_device()
+
+    client = MagicMock()
+    client.get_entity_history.side_effect = _history
+
+    sessions = station_sessions(client, 100)
+
+    assert len(sessions) == 1
+    receiver = sessions[0]["gnss_receiver"]
+    assert receiver["serial_number"] == "3071033"
+    # No constellation key leaks into the station.info slot content.
+    assert "GAL" not in receiver
+    assert "satellite_system" not in receiver
 
 
 # ---------------------------------------------------------------------------
