@@ -283,7 +283,13 @@ def audit_station_constellations_history(
     Read-only. For each gnss_receiver ever joined to the station, reconstructs
     the satellite systems from the archived RINEX over each join period (first/
     last + binary search) and proposes ``add-attribute-period`` for any system
-    the data records that TOS does not already carry ``true`` for that span.
+    the data records that TOS does not already carry ``true``.
+
+    The join period only SCOPES which archive to read (where the device was
+    observable). The proposed attribute-period itself is DEVICE-scoped and left
+    OPEN: a constellation toggle follows the receiver across station moves and
+    closes only at the device's next real constellation change — never at the
+    station boundary. ``format_history_triage`` emits ``date_to = open``.
     """
     station_history = _resolve_station_entity(client, name=name, id_entity=id_entity)
     station_id = int(station_history["id_entity"])
@@ -344,21 +350,31 @@ def format_history_triage(report: StationConstellationHistoryReport) -> List[str
         return lines
     lines.append(
         f"# {report.station_name} constellation history — systems the archive "
-        "records that TOS omits, per receiver period"
+        "records that TOS omits, per receiver"
+    )
+    lines.append(
+        "# Periods are LEFT OPEN: the constellation toggle is a DEVICE attribute "
+        "and follows the receiver across station moves — it closes only when the "
+        "device's constellation actually changes next, never when it leaves this "
+        "station (systems are added monotonically). The [tenure] shown is just the "
+        "observation window at THIS station."
     )
     lines.append("# ACTIONS COMMENTED — verify then uncomment.")
     for p in report.periods:
         if not p.missing:
             continue
-        end = p.date_to.isoformat() if p.date_to else "open"
+        tenure_end = p.date_to.isoformat() if p.date_to else "open"
         caveat = "" if p.reliable else "   # R2/best-effort — confirm vs raw"
-        lines.append(f"# --- {p.model} {p.serial}  [{p.date_from} -> {end}]{caveat}")
+        lines.append(
+            f"# --- {p.model} {p.serial}  tenure at this station "
+            f"[{p.date_from} -> {tenure_end}]{caveat}"
+        )
         if p.device_id is None:
             lines.append("#     (no device id resolved — skipped)")
             continue
         for code, cdate in p.missing:
             lines.append(
                 f"# ACTION {p.device_id} add-attribute-period {code} true "
-                f"{cdate.isoformat()} {end}"
+                f"{cdate.isoformat()} open"
             )
     return lines
