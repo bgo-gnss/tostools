@@ -642,6 +642,37 @@ LEGACY_GPS_ATTRIBUTE_CODES: List[str] = [
 ]
 
 
+# The full attribute set the IGS **site log** needs. Mirrors the legacy
+# ``gps_metadata_qc.device_attribute_history`` ``key_list`` (minus the
+# ``date_from`` / ``date_to`` bookkeeping keys the slicer adds itself).
+# Superset of :data:`LEGACY_GPS_ATTRIBUTE_CODES` — it additionally carries
+# the higher GNSS constellations (``GAL``/``BDS``/``QZSS``/``SBAS``/``IRN``,
+# rendered into §3.3 "Satellite System") and ``azimuth`` (§4 "Alignment from
+# True N"). Passing this as ``codes`` makes a receiver's constellation
+# sub-periods surface as distinct §3 blocks — e.g. a GAL toggle added mid
+# receiver-tenure splits one block into GPS+GLO and GPS+GLO+GAL windows.
+SITELOG_GPS_ATTRIBUTE_CODES: List[str] = [
+    "serial_number",
+    "model",
+    "date_start",
+    "GPS",
+    "GLO",
+    "GAL",
+    "BDS",
+    "QZSS",
+    "SBAS",
+    "IRN",
+    "firmware_version",
+    "software_version",
+    "antenna_height",
+    "monument_height",
+    "antenna_offset_north",
+    "antenna_offset_east",
+    "antenna_reference_point",
+    "azimuth",
+]
+
+
 def slice_attributes_by_window(
     history: Dict[str, Any],
     window_start: str,
@@ -813,6 +844,7 @@ def device_sessions(
     *,
     subtypes: Sequence[str] = DEFAULT_GPS_SUBTYPES,
     fine: bool = True,
+    codes: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """All per-join sub-sessions for a station's tracked children.
 
@@ -822,9 +854,17 @@ def device_sessions(
 
     For each child connection whose subtype is in ``subtypes`` the
     function fetches the child's full history (one ``GET`` per child) and
-    runs :func:`slice_attributes_by_window` over the join window using
-    :data:`LEGACY_GPS_ATTRIBUTE_CODES`. Zero-duration joins (``time_from
-    == time_to``) are skipped, matching legacy behaviour.
+    runs :func:`slice_attributes_by_window` over the join window. Zero-
+    duration joins (``time_from == time_to``) are skipped, matching legacy
+    behaviour.
+
+    ``codes`` selects which attribute codes each slice row carries and,
+    critically, which value transitions split a device into sub-windows.
+    Defaults to :data:`LEGACY_GPS_ATTRIBUTE_CODES` (byte-equivalent to the
+    legacy pivot, feeding station.info / PrintTOS). Pass
+    :data:`SITELOG_GPS_ATTRIBUTE_CODES` for the IGS site-log path so the
+    higher constellations and ``azimuth`` are carried and constellation
+    sub-periods surface as distinct §3 receiver blocks.
 
     Returns a flat list, sorted by sub-session ``date_from`` ascending.
     Each row is the join's ``children_connections`` dict augmented with a
@@ -835,6 +875,9 @@ def device_sessions(
     legacy output exactly.
     """
     sessions: List[Dict[str, Any]] = []
+
+    if codes is None:
+        codes = LEGACY_GPS_ATTRIBUTE_CODES
 
     subtypes_set = set(subtypes)
     children = station_history.get("children_connections") or []
@@ -858,7 +901,7 @@ def device_sessions(
             device,
             connection["time_from"],
             connection.get("time_to"),
-            codes=LEGACY_GPS_ATTRIBUTE_CODES,
+            codes=codes,
             fine=fine,
         )
 
