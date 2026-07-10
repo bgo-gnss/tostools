@@ -5,8 +5,23 @@ from pathlib import Path
 
 from tostools.constellation import ConstellationReading
 from tostools.constellation_history import (
+    ConstellationSegment,
     segment_by_constellation,
+    system_first_seen,
 )
+
+
+def _seg(df, dt, systems):
+    return ConstellationSegment(
+        date_from=df,
+        date_to=dt,
+        systems=systems,
+        reliable=True,
+        n_files=1,
+        first_file=Path("/x"),
+        last_file=Path("/x"),
+    )
+
 
 GPS = frozenset({"GPS"})
 GPS_GLO = frozenset({"GPS", "GLO"})
@@ -117,6 +132,39 @@ def test_empty_systems_reading_is_skipped_not_a_segment():
     # Only the two real states survive; no empty segment between them.
     assert [s.systems for s in segs] == [GPS_GLO, GPS_GLO_GAL]
     assert all(s.systems for s in segs)
+
+
+def test_system_first_seen_monotonic_additions():
+    # GPS+GLO from Jul, GAL added in Dec — GAL's date_from is the Dec segment.
+    segs = [
+        _seg(date(2022, 7, 22), date(2022, 12, 15), GPS_GLO),
+        _seg(date(2022, 12, 16), date(2023, 2, 8), GPS_GLO_GAL),
+    ]
+    first = system_first_seen(segs)
+    assert first["GPS"] == date(2022, 7, 22)
+    assert first["GLO"] == date(2022, 7, 22)
+    assert first["GAL"] == date(2022, 12, 16)
+
+
+def test_system_first_seen_drops_install_day_blip():
+    # 1-day install blip tracks BDS+SBAS; the settled state is GPS+GLO+GAL.
+    blip = frozenset({"BDS", "GAL", "GLO", "GPS", "SBAS"})
+    segs = [
+        _seg(date(2023, 2, 9), date(2023, 2, 9), blip),  # 1 day → dropped
+        _seg(date(2023, 2, 10), date(2026, 7, 9), GPS_GLO_GAL),
+    ]
+    first = system_first_seen(segs, min_segment_days=4)
+    assert set(first) == {"GPS", "GLO", "GAL"}  # BDS/SBAS blip not recorded
+    assert first["GAL"] == date(2023, 2, 10)
+
+
+def test_system_first_seen_all_short_keeps_longest():
+    segs = [
+        _seg(date(2023, 1, 1), date(2023, 1, 1), GPS),
+        _seg(date(2023, 1, 2), date(2023, 1, 3), GPS_GLO),  # longest (2 days)
+    ]
+    first = system_first_seen(segs, min_segment_days=10)
+    assert set(first) == {"GPS", "GLO"}
 
 
 def test_single_file_period():

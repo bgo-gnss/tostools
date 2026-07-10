@@ -34,6 +34,11 @@ from typing import Callable, Dict, List, Optional, Tuple
 from .archive import classify_file_format
 from .constellation import ConstellationReading, read_constellations
 
+# A segment shorter than this many days is treated as power-up / config-churn
+# noise (e.g. an install-day default that briefly tracks everything) and does
+# not establish a system in TOS. Overridable per call.
+DEFAULT_MIN_SEGMENT_DAYS = 4
+
 DatedFile = Tuple[date, Path]
 ReadFn = Callable[[Path], Optional[ConstellationReading]]
 
@@ -139,6 +144,39 @@ def segment_by_constellation(
         start = first_readable(run_end + 1, n - 1)
 
     return segments
+
+
+def _span_days(seg: ConstellationSegment) -> int:
+    return (seg.date_to - seg.date_from).days + 1
+
+
+def system_first_seen(
+    segments: List[ConstellationSegment],
+    *,
+    min_segment_days: int = DEFAULT_MIN_SEGMENT_DAYS,
+) -> Dict[str, date]:
+    """Earliest date each satellite system is established, blips dropped.
+
+    Segments shorter than ``min_segment_days`` are ignored as power-up / config
+    churn (so a 1-day install default that briefly tracks BDS+SBAS does not
+    record those systems). If every segment is short, the longest is kept so a
+    real-but-brief tenure still yields a result. Because constellations are
+    added monotonically, a system's ``date_from`` is simply the earliest
+    surviving segment that contains it.
+
+    Returns ``{system_code: first_date}``; empty if there are no segments.
+    """
+    if not segments:
+        return {}
+    kept = [s for s in segments if _span_days(s) >= min_segment_days]
+    if not kept:
+        kept = [max(segments, key=_span_days)]
+    first: Dict[str, date] = {}
+    for seg in sorted(kept, key=lambda s: s.date_from):
+        for code in seg.systems:
+            if code not in first:
+                first[code] = seg.date_from
+    return first
 
 
 # --------------------------------------------------------------------------- #
