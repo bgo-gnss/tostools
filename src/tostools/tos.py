@@ -8529,6 +8529,33 @@ def _audit_main(argv):
         help="Print apply-ready ACTION lines for the set-true findings.",
     )
     p_con.add_argument(
+        "--history",
+        action="store_true",
+        help=(
+            "Reconstruct constellations for EVERY receiver device period (incl. "
+            "decommissioned), not just the current one — first/last + binary "
+            "search over the archive, per-period add-attribute-period triage."
+        ),
+    )
+    p_con.add_argument(
+        "--min-segment-days",
+        type=int,
+        default=None,
+        help=(
+            "--history: ignore reconstructed segments shorter than this many "
+            "days as power-up/config noise (default 4)."
+        ),
+    )
+    p_con.add_argument(
+        "--triage-path",
+        type=Path,
+        default=None,
+        help=(
+            "--history: write a clean apply-ready action file here (commented "
+            "ACTIONs — uncomment the ones you trust, then `tos audit apply`)."
+        ),
+    )
+    p_con.add_argument(
         "--json", action="store_true", help="Emit JSON instead of pretty text."
     )
     p_con.add_argument("--server", default="vi-api.vedur.is", help=argparse.SUPPRESS)
@@ -9315,6 +9342,9 @@ def _audit_constellations_main(args, client) -> int:
 
     from .audit_constellations import audit_station_constellations, format_triage
 
+    if getattr(args, "history", False):
+        return _audit_constellations_history_main(args, client)
+
     try:
         report = audit_station_constellations(
             client, name=args.name, archive_root=args.archive_root
@@ -9380,6 +9410,96 @@ def _audit_constellations_main(args, client) -> int:
         print()
         print("\n".join(format_triage(report)))
     return 1 if report.has_findings else 0
+
+
+def _audit_constellations_history_main(args, client) -> int:
+    """Handle ``tos audit constellations --history`` — per-period reconstruction.
+
+    Reconstructs the satellite systems for every receiver device period from the
+    archive (first/last + binary search) and flags systems TOS omits. Exit 0
+    clean, 1 when there are per-period gaps, 2 on lookup failure.
+    """
+    import json as _json
+
+    from .audit_constellations import (
+        audit_station_constellations_history,
+        format_history_triage,
+    )
+
+    kwargs = {}
+    if getattr(args, "min_segment_days", None) is not None:
+        kwargs["min_segment_days"] = args.min_segment_days
+    try:
+        report = audit_station_constellations_history(
+            client, name=args.name, archive_root=args.archive_root, **kwargs
+        )
+    except LookupError as exc:
+        print(f"constellations: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        payload = {
+            "station_id": report.station_id,
+            "station_name": report.station_name,
+            "marker": report.marker,
+            "note": report.note,
+            "periods": [
+                {
+                    "device_id": p.device_id,
+                    "model": p.model,
+                    "serial": p.serial,
+                    "date_from": p.date_from.isoformat() if p.date_from else None,
+                    "date_to": p.date_to.isoformat() if p.date_to else None,
+                    "reliable": p.reliable,
+                    "n_files": p.n_files,
+                    "systems": {
+                        c: d.isoformat() for c, d in sorted(p.first_seen.items())
+                    },
+                    "missing": [
+                        {"code": c, "date_from": d.isoformat()} for c, d in p.missing
+                    ],
+                    "note": p.note,
+                }
+                for p in report.periods
+            ],
+        }
+        print(_json.dumps(payload, ensure_ascii=False, indent=2))
+        return 1 if report.has_actions else 0
+
+    name = report.station_name or "?"
+    if not report.periods:
+        print(f"⚠ Station {name!r} (id={report.station_id}) — no receiver periods")
+        return 0
+    mark = "✗" if report.has_actions else "✓"
+    status = "FINDINGS" if report.has_actions else "CLEAN"
+    print(f"{mark} Station {name!r} (id={report.station_id}) — {status}")
+    for p in report.periods:
+        end = p.date_to.isoformat() if p.date_to else "open"
+        rel = "R3" if p.reliable else "R2/confirm"
+        systems = ", ".join(f"{c}@{d}" for c, d in sorted(p.first_seen.items())) or (
+            p.note or "(no data)"
+        )
+        print(
+            f"  {p.model} {p.serial} [{p.date_from} → {end}] "
+            f"({p.n_files} files, {rel}): {systems}"
+        )
+        for code, cdate in p.missing:
+            print(f"    · {code:5s} recorded from {cdate}, TOS omits → add")
+
+    triage_lines = format_history_triage(report)
+    if getattr(args, "triage_path", None):
+        audit_cmd = "tos audit constellations " + args.name + " --history"
+        content = f"# {audit_cmd}\n" + "\n".join(triage_lines) + "\n"
+        args.triage_path.write_text(content, encoding="utf-8")
+        print(
+            f"wrote triage file: {args.triage_path} "
+            f"({sum(len(p.missing) for p in report.periods)} action(s), commented)",
+            file=sys.stderr,
+        )
+    elif args.triage and report.has_actions:
+        print()
+        print("\n".join(triage_lines))
+    return 1 if report.has_actions else 0
 
 
 # ---------------------------------------------------------------------------

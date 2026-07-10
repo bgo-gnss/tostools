@@ -22,8 +22,9 @@ confirmation and is noted, not performed here.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .api.tos_client import TOSClient
 from .archive import classify_file_format, cold_archive_prepath
@@ -38,6 +39,12 @@ from .constellation import (
     TOS_CONSTELLATION_CODES,
     ConstellationReading,
     read_constellations,
+)
+from .constellation_history import (
+    DEFAULT_MIN_SEGMENT_DAYS,
+    list_rinex_in_period,
+    segment_by_constellation,
+    system_first_seen,
 )
 from .rinex.reader import find_most_recent_rinex
 
@@ -192,4 +199,166 @@ def format_triage(report: StationConstellationReport) -> List[str]:
         lines.append(
             f"# ACTION {report.receiver_id} add-attribute-period {f.code} true {date_from} open"
         )
+    return lines
+
+
+# --------------------------------------------------------------------------- #
+# --history: reconstruct constellations across ALL receiver device periods
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class ReceiverPeriodConstellations:
+    """Reconstructed constellations for one gnss_receiver device period."""
+
+    device_id: Optional[int]
+    serial: Optional[str]
+    model: Optional[str]
+    date_from: Optional[date]  # join install (inclusive)
+    date_to: Optional[date]  # join removal (exclusive); None = open
+    first_seen: Dict[str, date] = field(default_factory=dict)  # code → first date
+    reliable: bool = False  # all reconstructed segments were R3
+    missing: List[Tuple[str, date]] = field(default_factory=list)  # (code, from)
+    n_files: int = 0
+    note: Optional[str] = None
+
+
+@dataclass
+class StationConstellationHistoryReport:
+    """Result of :func:`audit_station_constellations_history`."""
+
+    station_id: int
+    station_name: Optional[str]
+    marker: str
+    periods: List[ReceiverPeriodConstellations] = field(default_factory=list)
+    note: Optional[str] = None
+
+    @property
+    def has_actions(self) -> bool:
+        return any(p.missing for p in self.periods)
+
+
+def _to_date(value: Any) -> Optional[date]:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(_date_only(str(value)))
+    except ValueError:
+        return None
+
+
+def _code_true_in_period(
+    history: Dict[str, Any],
+    code: str,
+    period_from: Optional[date],
+    period_to: Optional[date],
+) -> bool:
+    """True if ``code`` is already recorded ``true`` on the device for a span
+    overlapping ``[period_from, period_to)``. Period-aware (a decommissioned
+    receiver's toggles are closed, so the open-only reader would miss them)."""
+    for a in history.get("attributes") or []:
+        if a.get("code") != code:
+            continue
+        if str(a.get("value") or "").lower() != "true":
+            continue
+        a_from = _to_date(a.get("date_from"))
+        a_to = _to_date(a.get("date_to"))
+        left_ok = a_to is None or period_from is None or a_to > period_from
+        right_ok = period_to is None or a_from is None or a_from < period_to
+        if left_ok and right_ok:
+            return True
+    return False
+
+
+def audit_station_constellations_history(
+    client: TOSClient,
+    *,
+    name: Optional[str] = None,
+    id_entity: Optional[int] = None,
+    archive_root: Optional[Union[str, Path]] = None,
+    min_segment_days: int = DEFAULT_MIN_SEGMENT_DAYS,
+) -> StationConstellationHistoryReport:
+    """Reconstruct constellations for EVERY receiver period and flag TOS gaps.
+
+    Read-only. For each gnss_receiver ever joined to the station, reconstructs
+    the satellite systems from the archived RINEX over each join period (first/
+    last + binary search) and proposes ``add-attribute-period`` for any system
+    the data records that TOS does not already carry ``true`` for that span.
+    """
+    station_history = _resolve_station_entity(client, name=name, id_entity=id_entity)
+    station_id = int(station_history["id_entity"])
+    station_name = _station_display_name(station_history, name)
+    marker = _open_attribute_value(station_history, "marker") or (name or "")
+    report = StationConstellationHistoryReport(
+        station_id=station_id, station_name=station_name, marker=marker
+    )
+
+    root = Path(archive_root) if archive_root else cold_archive_prepath()
+    if root is None:
+        report.note = "no archive root resolved"
+        return report
+
+    for device_id, joins in _station_joins_by_device(station_history).items():
+        history = client.get_entity_history(device_id)
+        if not history or history.get("code_entity_subtype") != "gnss_receiver":
+            continue
+        serial = _open_attribute_value(history, "serial_number")
+        model = _open_attribute_value(history, "model")
+        for join in joins:
+            df = _to_date(join.get("time_from"))
+            dt = _to_date(join.get("time_to"))
+            files = list_rinex_in_period(root, marker, df, dt)
+            segments = segment_by_constellation(files)
+            first_seen = system_first_seen(segments, min_segment_days=min_segment_days)
+            reliable = bool(segments) and all(s.reliable for s in segments)
+            missing = [
+                (code, first_seen[code])
+                for code in TOS_CONSTELLATION_CODES
+                if code in first_seen
+                and not _code_true_in_period(history, code, df, dt)
+            ]
+            missing.sort(key=lambda cd: (cd[1], cd[0]))
+            report.periods.append(
+                ReceiverPeriodConstellations(
+                    device_id=int(device_id) if device_id is not None else None,
+                    serial=serial,
+                    model=model,
+                    date_from=df,
+                    date_to=dt,
+                    first_seen=first_seen,
+                    reliable=reliable,
+                    missing=missing,
+                    n_files=len(files),
+                    note=None if files else "no archived RINEX in period",
+                )
+            )
+
+    report.periods.sort(key=lambda p: (p.date_from or date.min))
+    return report
+
+
+def format_history_triage(report: StationConstellationHistoryReport) -> List[str]:
+    """Apply-ready (commented) ACTION lines for the per-period gaps."""
+    lines: List[str] = []
+    if not report.has_actions:
+        return lines
+    lines.append(
+        f"# {report.station_name} constellation history — systems the archive "
+        "records that TOS omits, per receiver period"
+    )
+    lines.append("# ACTIONS COMMENTED — verify then uncomment.")
+    for p in report.periods:
+        if not p.missing:
+            continue
+        end = p.date_to.isoformat() if p.date_to else "open"
+        caveat = "" if p.reliable else "   # R2/best-effort — confirm vs raw"
+        lines.append(f"# --- {p.model} {p.serial}  [{p.date_from} -> {end}]{caveat}")
+        if p.device_id is None:
+            lines.append("#     (no device id resolved — skipped)")
+            continue
+        for code, cdate in p.missing:
+            lines.append(
+                f"# ACTION {p.device_id} add-attribute-period {code} true "
+                f"{cdate.isoformat()} {end}"
+            )
     return lines
