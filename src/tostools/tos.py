@@ -10363,38 +10363,49 @@ def _dispatch_patch_attribute_date(writer, action: ParsedAction) -> ActionResult
 
 
 def _dispatch_patch_attribute_date_to(writer, action: ParsedAction) -> ActionResult:
-    """Re-date — or RE-OPEN — an attribute period's ``date_to`` in-place.
+    """Re-date an attribute period's ``date_to`` in-place (to a real date).
 
     Action shape: ``ACTION <id_entity> patch-attribute-date-to <code>
-    <date_from_match> <new_date_to|open>``. Matches the period by ``code`` +
+    <date_from_match> <new_date_to>``. Matches the period by ``code`` +
     ``date_from`` date-only prefix (same rule + 0/>1-match refusal as
-    :func:`_dispatch_patch_attribute_date`), then PATCHes ``date_to`` — to a
-    date, or to NULL when the new value is ``open``. Re-opening fixes a period
-    that was wrongly closed (e.g. a device constellation toggle closed at a
-    station move instead of following the device to its next real change).
+    :func:`_dispatch_patch_attribute_date`), then PATCHes ``date_to``.
+
+    ``open`` is REFUSED: the TOS backend ignores a null ``date_to`` on PATCH, so
+    a period cannot be re-opened in place (confirmed live 2026-07-10 — the PATCH
+    returns 2xx but the date is unchanged). Re-open by DELETE + re-add instead.
     """
     code = action.args[0]
     match_date = action.args[1][:10]
     new_to_raw = action.args[2]
-    reopen = new_to_raw.strip().lower() == "open"
 
-    new_to: Optional[str] = None
-    if not reopen:
-        resolved, err = _resolve_date_token(new_to_raw, action.id_entity, writer)
-        if err is not None:
-            return ActionResult(
-                action=action, status="failed", detail=f"patch-attribute-date-to: {err}"
-            )
-        new_to = (resolved or new_to_raw)[:10]
-        if len(new_to) != 10 or new_to[4] != "-" or new_to[7] != "-":
-            return ActionResult(
-                action=action,
-                status="failed",
-                detail=(
-                    "patch-attribute-date-to: new_date_to must be YYYY-MM-DD or "
-                    f"'open' (got {new_to_raw!r})"
-                ),
-            )
+    if new_to_raw.strip().lower() == "open":
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "patch-attribute-date-to <code> <date_from> open is NOT "
+                "supported — the TOS backend ignores a null date_to on PATCH "
+                "(cannot clear it in place). Re-open with: "
+                "'delete-attribute-value <id_attribute_value>' then "
+                "'add-attribute-period <code> <value> <date_from> open'."
+            ),
+        )
+
+    resolved, err = _resolve_date_token(new_to_raw, action.id_entity, writer)
+    if err is not None:
+        return ActionResult(
+            action=action, status="failed", detail=f"patch-attribute-date-to: {err}"
+        )
+    new_to = (resolved or new_to_raw)[:10]
+    if len(new_to) != 10 or new_to[4] != "-" or new_to[7] != "-":
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=(
+                "patch-attribute-date-to: new_date_to must be YYYY-MM-DD "
+                f"(got {new_to_raw!r}); to re-open use delete + re-add"
+            ),
+        )
 
     try:
         attrs = writer.get_attribute_values(action.id_entity, code)
@@ -10452,10 +10463,7 @@ def _dispatch_patch_attribute_date_to(writer, action: ParsedAction) -> ActionRes
 
     old_to = str(target.get("date_to"))[:10] if target.get("date_to") else "open"
     try:
-        if reopen:
-            response = writer.patch_attribute_value(id_av, clear_date_to=True)
-        else:
-            response = writer.patch_attribute_value(id_av, date_to=new_to)
+        response = writer.patch_attribute_value(id_av, date_to=new_to)
     except Exception as exc:  # noqa: BLE001
         return ActionResult(
             action=action,
@@ -10468,7 +10476,7 @@ def _dispatch_patch_attribute_date_to(writer, action: ParsedAction) -> ActionRes
         status="ok",
         detail=(
             f"PATCH /attribute_value/{id_av} date_to {old_to} → "
-            f"{'open' if reopen else new_to} (code={code!r}) — {response!r}"
+            f"{new_to} (code={code!r}) — {response!r}"
         ),
     )
 
