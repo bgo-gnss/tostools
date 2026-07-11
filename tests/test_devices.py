@@ -25,6 +25,7 @@ from tostools.devices import (
     attribute_at_value,
     child_joins,
     close_join,
+    coalesce_render_sessions,
     correct_attribute,
     decommission_device,
     device_sessions,
@@ -892,6 +893,119 @@ def test_device_sessions_legacy_codes_carry_no_galileo():
     rows = device_sessions(client, station_history)  # default LEGACY codes
 
     assert all("GAL" not in row["device"] for row in rows)
+
+
+# ---------------------------------------------------------------------------
+# coalesce_render_sessions — site-log §3 phantom-sliver merge
+# ---------------------------------------------------------------------------
+
+
+def _sitelog_receiver_signature(device: Dict[str, Any]):
+    """The §3 render signature site_log coalesces on."""
+    from tostools.legacy.gps_metadata_functions import satellite_system_from_toggles
+
+    return (
+        device.get("id_entity"),
+        device.get("model"),
+        satellite_system_from_toggles(device),
+        device.get("serial_number"),
+        device.get("firmware_version"),
+    )
+
+
+def _nyla_netrs_device_with_late_gps_toggle() -> Dict[str, Any]:
+    """TRIMBLE NETRS 4539258413: everything installs 2006-07-27 but the GPS
+    constellation toggle was entered with date_from 2006-07-28 — the one-day
+    TOS data-entry artifact that split NYLA §3 into two identical blocks.
+    Firmware bumps 1.1-5 → 1.3-2 at 2019-04-06 (a real change)."""
+    return _gnss_device(
+        _attr("model", "TRIMBLE NETRS", "2006-07-27T00:00:00", None, 1),
+        _attr("serial_number", "4539258413", "2006-07-27T00:00:00", None, 2),
+        _attr(
+            "firmware_version",
+            "1.1-5",
+            "2006-07-27T00:00:00",
+            "2019-04-06T00:00:00",
+            3,
+        ),
+        _attr("firmware_version", "1.3-2", "2019-04-06T00:00:00", None, 4),
+        # GPS toggle starts one day late — the artifact.
+        _attr("GPS", "true", "2006-07-28T00:00:00", None, 5),
+    )
+
+
+def test_coalesce_render_sessions_merges_late_toggle_sliver():
+    """The one-day GPS-toggle sliver merges; the real firmware split survives."""
+    client = MagicMock()
+    client.get_entity_history.return_value = _nyla_netrs_device_with_late_gps_toggle()
+    station_history = _station_history_with_children(
+        {
+            "id_entity_connection": 7,
+            "id_entity_child": 12345,
+            "time_from": "2006-07-27T00:00:00",
+            "time_to": "2022-07-22T00:00:00",
+        }
+    )
+
+    rows = device_sessions(client, station_history, codes=SITELOG_GPS_ATTRIBUTE_CODES)
+    # Raw slicer emits three sub-windows: the sliver + main 1.1-5 + 1.3-2.
+    assert len(rows) == 3
+
+    merged = coalesce_render_sessions(rows, _sitelog_receiver_signature)
+
+    # Sliver + main 1.1-5 window collapse; the 1.3-2 firmware block stays.
+    assert len(merged) == 2
+    first, second = merged[0]["device"], merged[1]["device"]
+    assert (first["date_from"], first["date_to"]) == (
+        "2006-07-27T00:00:00",
+        "2019-04-06T00:00:00",
+    )
+    assert first["firmware_version"] == "1.1-5"
+    assert (second["date_from"], second["date_to"]) == (
+        "2019-04-06T00:00:00",
+        "2022-07-22T00:00:00",
+    )
+    assert second["firmware_version"] == "1.3-2"
+
+
+def test_coalesce_render_sessions_preserves_constellation_split():
+    """A genuine GPS+GLO → GPS+GLO+GAL change must NOT be coalesced away."""
+    client = MagicMock()
+    client.get_entity_history.return_value = _nyla_polarx5_device()
+    station_history = _station_history_with_children(
+        {
+            "id_entity_connection": 7,
+            "id_entity_child": 12345,
+            "time_from": "2022-07-22T00:00:00",
+            "time_to": "2023-02-09T00:00:00",
+        }
+    )
+
+    rows = device_sessions(client, station_history, codes=SITELOG_GPS_ATTRIBUTE_CODES)
+    merged = coalesce_render_sessions(rows, _sitelog_receiver_signature)
+
+    # The GAL toggle changes the satellite-system signature component → kept.
+    assert len(merged) == 2
+
+
+def test_coalesce_render_sessions_does_not_mutate_input():
+    client = MagicMock()
+    client.get_entity_history.return_value = _nyla_netrs_device_with_late_gps_toggle()
+    station_history = _station_history_with_children(
+        {
+            "id_entity_connection": 7,
+            "id_entity_child": 12345,
+            "time_from": "2006-07-27T00:00:00",
+            "time_to": "2022-07-22T00:00:00",
+        }
+    )
+    rows = device_sessions(client, station_history, codes=SITELOG_GPS_ATTRIBUTE_CODES)
+    before = [(r["device"]["date_from"], r["device"]["date_to"]) for r in rows]
+
+    coalesce_render_sessions(rows, _sitelog_receiver_signature)
+
+    after = [(r["device"]["date_from"], r["device"]["date_to"]) for r in rows]
+    assert before == after
 
 
 # ---------------------------------------------------------------------------

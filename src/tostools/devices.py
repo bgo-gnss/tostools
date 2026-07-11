@@ -99,7 +99,7 @@ Cross-layer composites (§3h):
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .api.tos_client import TOSClient
 from .api.tos_writer import TOSWriter
@@ -912,6 +912,67 @@ def device_sessions(
 
     sessions.sort(key=lambda s: s["device"]["date_from"])
     return sessions
+
+
+def coalesce_render_sessions(
+    sessions: List[Dict[str, Any]],
+    signature: Callable[[Dict[str, Any]], Any],
+) -> List[Dict[str, Any]]:
+    """Merge adjacent flat device-sessions that render identically.
+
+    The site-log §3/§4 render loops consume the flat
+    :func:`device_sessions` list — one row per atomic attribute
+    sub-window. A TOS data-entry artifact (an attribute period whose
+    ``date_from``/``date_to`` is misaligned by a day or two from the real
+    equipment change) splits a single physical configuration into two
+    adjacent sub-windows that render byte-identically. The canonical case
+    is NYLA: the receiver's ``GPS`` constellation toggle was entered with
+    ``date_from`` one day *after* the receiver install (2006-07-28 vs
+    2006-07-27), producing a one-day sub-window `2006-07-27 → 2006-07-28`
+    where the toggle is unset and a second window where it is set — two
+    §3 blocks identical in receiver type, serial, firmware, and (after the
+    ``"GPS"`` fallback) satellite system.
+
+    ``signature`` returns the tuple of render-distinguishing fields for a
+    device slice row (model, serial, firmware, and — for §3 — the
+    fallback-resolved satellite system). Adjacent **contiguous** rows
+    (``prev.date_to == cur.date_from``) with equal signatures are merged
+    by extending the earlier row's ``date_to`` to the later row's; a real
+    gap or any signature difference (serial / firmware / constellation /
+    antenna geometry change) breaks the run and is preserved as a
+    distinct block.
+
+    Passing the satellite system through ``signature`` — rather than the
+    raw toggle values — is what makes the NYLA merge work: the unset-GPS
+    sub-window and the set-GPS sub-window both resolve to ``"GPS"`` via
+    :func:`satellite_system_from_toggles`, so they coalesce, while the
+    genuine ``GPS+GLO`` → ``GPS+GLO+GAL`` transition does not.
+
+    Stations without the artifact are unaffected — nothing merges, so the
+    §9 M3G byte-equality oracle (RHOF/AKUR/VMEY/SKRO) stays green. The
+    input list is not mutated; a shallow copy of each surviving row (and
+    its ``device`` dict) is returned.
+    """
+    if not sessions:
+        return sessions
+
+    def _clone(s: Dict[str, Any]) -> Dict[str, Any]:
+        new = dict(s)
+        new["device"] = dict(s["device"])
+        return new
+
+    out: List[Dict[str, Any]] = [_clone(sessions[0])]
+    for cur in sessions[1:]:
+        prev = out[-1]
+        pdev, cdev = prev["device"], cur["device"]
+        contiguous = pdev.get("date_to") is not None and pdev["date_to"] == cdev.get(
+            "date_from"
+        )
+        if contiguous and signature(pdev) == signature(cdev):
+            pdev["date_to"] = cdev.get("date_to")
+        else:
+            out.append(_clone(cur))
+    return out
 
 
 def _device_structure(row: Dict[str, Any]) -> Dict[str, Any]:
