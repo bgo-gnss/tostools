@@ -667,6 +667,76 @@ def test_audit_multi_session_anchors_per_window(catalog_path: Path):
     assert serial_violations[0].earliest_known == "2015-01-01"
 
 
+def test_cli_attribute_dates_triage_resolves_under_corrections_repo(
+    catalog_path: Path, tmp_path: Path, monkeypatch
+):
+    """Regression: a *relative* ``--triage`` path resolves under the
+    gps-tos-corrections repo (``TOS_TRIAGE_DIR`` here) and its parent dir is
+    created — not written silently under the current directory. Mirrors the
+    path handling `tos device --triage` and `tos audit apply` already use;
+    the attribute-dates / fleet contact-dates emitters previously skipped it,
+    so `--triage nyla/x.txt` from an unrelated cwd raised FileNotFoundError.
+    """
+    from unittest.mock import patch
+
+    from tostools.api.tos_client import TOSClient
+    from tostools.tos import main as tos_main
+
+    station = _station(4366, "Nýlenda", [_conn(4849, "2006-07-27", "2022-07-22")])
+    device = _device(
+        4849,
+        "gnss_receiver",
+        [
+            _attr("serial_number", "4539258413", "2006-07-27"),
+            _attr("model", "TRIMBLE NETRS", "2006-07-27"),
+            _attr("GPS", "true", "2006-07-28"),
+        ],
+    )
+    history = {4366: station, 4849: device}
+
+    corrections = tmp_path / "corrections"
+    monkeypatch.setenv("TOS_TRIAGE_DIR", str(corrections))
+    marker_hit = [
+        {
+            "code": "marker",
+            "distance": 0,
+            "value_varchar": "nyla",
+            "type_lvl_two": "stöð",
+            "id_entity": 4366,
+        }
+    ]
+
+    with (
+        patch.object(TOSClient, "basic_search", return_value=marker_hit),
+        patch.object(
+            TOSClient,
+            "get_entity_history",
+            side_effect=lambda i: history.get(int(i)),
+        ),
+    ):
+        rc = tos_main(
+            [
+                "audit",
+                "attribute-dates",
+                "NYLA",
+                "--include",
+                "GPS",
+                "--catalog",
+                str(catalog_path),
+                "--triage",
+                "nyla/nyla_gps_date.txt",  # relative → must land under repo
+            ]
+        )
+
+    assert rc == 1  # one violation
+    written = corrections / "nyla" / "nyla_gps_date.txt"
+    assert written.is_file()  # resolved under repo + parent dir created
+    assert (
+        "ACTION 4849 patch-attribute-date GPS 2006-07-28 2006-07-27"
+        in written.read_text()
+    )
+
+
 def test_audit_skips_mutable_codes_by_default(catalog_path: Path):
     """firmware_version is mutable; firmware bumps should not trip rule 3
     in the default inherent-only mode."""
