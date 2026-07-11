@@ -297,6 +297,36 @@ single row. Locked by `test_device_sessions_sitelog_codes_split_constellation_su
 `test_station_sessions_does_not_split_on_constellation` in
 `tests/test_devices.py`.
 
+### §3 phantom-sliver coalesce (2026-07-11)
+
+Carrying the constellation toggles into the site-log slicer exposed a
+second-order artifact: an attribute period whose `date_from` is misaligned
+by a day or two from the real equipment change splits one physical receiver
+into adjacent §3 blocks that render **byte-identically**. NYLA's TRIMBLE
+NETRS 4539258413 is the canonical case — the `GPS` constellation toggle was
+entered with `date_from = 2006-07-28`, one day after the receiver install
+(`model` / `serial_number` / `firmware_version` / `date_start` all start
+2006-07-27). The slicer partitions on that stray boundary, producing a
+one-day sub-window `2006-07-27 → 2006-07-28` (GPS toggle unset → `"GPS"`
+fallback) and the real window (GPS toggle set → `"GPS"`) — two identical
+§3.1/§3.2 blocks differing only in dates.
+
+`site_log` now runs the receiver list through
+`devices.coalesce_render_sessions` before numbering the blocks. It merges
+adjacent **contiguous** sub-windows (`prev.date_to == cur.date_from`) whose
+render signature — `(id_entity, model, satellite_system_from_toggles,
+serial_number, firmware_version)` — is equal, extending the earlier block's
+`date_to`. Passing the fallback-resolved satellite system (not the raw
+toggle values) through the signature is what lets the unset-GPS sliver and
+the set-GPS window coalesce while the genuine `GPS+GLO` → `GPS+GLO+GAL`
+transition (different signature component) is preserved. The pass is a
+no-op for stations without the artifact, so the oracle byte-diff stays
+empty. Scoped to §3 (receivers); §4 antenna blocks pull radome/monument via
+per-window lookups and are left for a follow-up. Locked by
+`test_coalesce_render_sessions_merges_late_toggle_sliver`,
+`test_coalesce_render_sessions_preserves_constellation_split`, and
+`test_coalesce_render_sessions_does_not_mutate_input`.
+
 ## References
 
 * Vault note `1778713245-tostools-devices-design` — design proposal.

@@ -164,6 +164,105 @@ class TestCoordinateFormat:
         assert "Latitude (N is +)      : +662740.04" in log
 
 
+def _rcv(model, serial, fw, date_from, date_to, **toggles):
+    """A gnss_receiver device-session for the §3 render loop."""
+    dev = {
+        "id_entity": 999,
+        "code_entity_subtype": "gnss_receiver",
+        "model": model,
+        "serial_number": serial,
+        "firmware_version": fw,
+        "date_from": date_from,
+        "date_to": date_to,
+    }
+    dev.update(toggles)
+    return {"time_to": date_to, "device": dev}
+
+
+class TestSection3PhantomSliverCoalesce:
+    """site_log-level wiring: the §3 coalesce runs on the render path.
+
+    Mirrors NYLA — a receiver whose GPS constellation toggle was entered a
+    day after install produces a one-day sub-window that renders identically
+    to the following block. The coalesce (devices.coalesce_render_sessions,
+    wired into site_log's §3 loop) must merge it while preserving the real
+    firmware and constellation splits. NYLA is not in the byte-equality
+    oracle set, so this is the regression guard for the wiring itself.
+    """
+
+    SESSIONS = [
+        # One-day sliver: GPS toggle unset → "GPS" fallback.
+        _rcv(
+            "TRIMBLE NETRS", "N1", "1.1-5", "2006-07-27T00:00:00", "2006-07-28T00:00:00"
+        ),
+        # Same config, GPS toggle now set → merges with the sliver.
+        _rcv(
+            "TRIMBLE NETRS",
+            "N1",
+            "1.1-5",
+            "2006-07-28T00:00:00",
+            "2019-04-06T00:00:00",
+            GPS="true",
+        ),
+        # Real firmware change → stays a separate block.
+        _rcv(
+            "TRIMBLE NETRS",
+            "N1",
+            "1.3-2",
+            "2019-04-06T00:00:00",
+            "2022-07-22T00:00:00",
+            GPS="true",
+        ),
+        # Real constellation change → stays a separate block.
+        _rcv(
+            "SEPT POLARX5",
+            "P2",
+            "5.5.0",
+            "2022-07-22T00:00:00",
+            "2022-12-16T00:00:00",
+            GPS="true",
+            GLO="true",
+        ),
+        _rcv(
+            "SEPT POLARX5",
+            "P2",
+            "5.5.0",
+            "2022-12-16T00:00:00",
+            None,
+            GPS="true",
+            GLO="true",
+            GAL="true",
+        ),
+    ]
+
+    def _section3(self):
+        log = _render(device_sessions=[dict(s) for s in self.SESSIONS])
+        return log.split("3.   GNSS Receiver Information")[1].split(
+            "4.   GNSS Antenna Information"
+        )[0]
+
+    def test_sliver_merged_into_first_block(self):
+        sec3 = self._section3()
+        # Five input sub-windows collapse to four real blocks (+ the 3.x
+        # template): the sliver merges into 3.1, so 3.4 is the last block.
+        assert "3.4  Receiver Type" in sec3
+        assert "3.5  Receiver Type" not in sec3
+        # 3.1 spans the merged window: install 2006-07-27, removed at the
+        # firmware change 2019-04-06 — the 2006-07-28 boundary is absorbed.
+        block1 = sec3.split("3.1  Receiver Type")[1].split("3.2  Receiver Type")[0]
+        assert "Firmware Version         : 1.1-5" in block1
+        assert "Date Installed           : 2006-07-27T00:00Z" in block1
+        assert "Date Removed             : 2019-04-06T00:00Z" in block1
+        # The phantom one-day boundary must not appear as any §3 install date.
+        assert "Date Installed           : 2006-07-28T00:00Z" not in sec3
+
+    def test_firmware_and_constellation_splits_preserved(self):
+        sec3 = self._section3()
+        assert "Firmware Version         : 1.3-2" in sec3  # 3.2 firmware split
+        assert "Satellite System         : GPS+GLO\n" in sec3  # 3.3
+        assert "Satellite System         : GPS+GLO+GAL\n" in sec3  # 3.4
+
+
 class TestFmtIgsDate:
     def test_formats(self):
         assert _fmt_igs_date("2012-08-28T00:00:00") == "2012-08-28T00:00Z"

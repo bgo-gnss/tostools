@@ -1012,6 +1012,27 @@ def site_log(
         if session["device"]["code_entity_subtype"] == "gnss_receiver"
     )
     receiver_list.sort(key=lambda x: x["device"]["date_from"])
+    # Coalesce phantom sub-windows: a TOS attribute period misaligned by a
+    # day or two from the real equipment change (e.g. NYLA's GPS constellation
+    # toggle entered with date_from one day after the receiver install) splits
+    # one physical receiver into adjacent §3 blocks that render identically.
+    # Merge adjacent contiguous rows whose render signature — receiver type,
+    # serial, firmware, and the fallback-resolved satellite system — is equal.
+    # Real constellation changes (GPS+GLO → GPS+GLO+GAL) differ in the
+    # satellite-system component and are preserved. See
+    # devices.coalesce_render_sessions.
+    from ..devices import coalesce_render_sessions
+
+    receiver_list = coalesce_render_sessions(
+        receiver_list,
+        lambda d: (
+            d.get("id_entity"),
+            d.get("model"),
+            satellite_system_from_toggles(d),
+            d.get("serial_number"),
+            d.get("firmware_version"),
+        ),
+    )
     receiver_info = "\n3.   GNSS Receiver Information\n\n"
     for session_nr, session in enumerate(receiver_list):
         device = session["device"]
