@@ -87,7 +87,8 @@ def _client_for(history_by_id):
 # Minimal in-memory catalog covering everything the test suite exercises.
 # Keeping this small + explicit beats parsing the full repo catalog in tests
 # (the repo catalog is the integration-test contract; this is unit-level).
-_CATALOG_YAML = dedent("""
+_CATALOG_YAML = dedent(
+    """
     devices:
       serial_number:
         icelandic_label: Raðnúmer
@@ -110,6 +111,14 @@ _CATALOG_YAML = dedent("""
         icelandic_label: Útgáfa fastbúnaðar
         description: Firmware
         classification: mutable
+        applies_to: [gnss_receiver]
+        gps_relevance: "yes"
+
+      GPS:
+        icelandic_label: GPS
+        description: GPS constellation enabled
+        classification: mutable
+        gps_required_for: [gnss_receiver]
         applies_to: [gnss_receiver]
         gps_relevance: "yes"
 
@@ -151,7 +160,8 @@ _CATALOG_YAML = dedent("""
         classification: inherent
         applies_to: [station]
         gps_relevance: "no"
-    """).strip()
+    """
+).strip()
 
 
 @pytest.fixture
@@ -240,7 +250,8 @@ def test_load_catalog_devices_wins_on_collision(tmp_path: Path):
     """If the same code appears in two scopes, devices wins (declared first
     in the scope iteration order). Documents the contract for future YAML
     authors so they know which scope is canonical."""
-    yaml_text = dedent("""
+    yaml_text = dedent(
+        """
         devices:
           duplicate_code:
             classification: inherent
@@ -253,7 +264,8 @@ def test_load_catalog_devices_wins_on_collision(tmp_path: Path):
             applies_to: [station]
             gps_relevance: "no"
             why: "from locations"
-        """).strip()
+        """
+    ).strip()
     p = tmp_path / "cat.yaml"
     p.write_text(yaml_text, encoding="utf-8")
     catalog = load_catalog(p)
@@ -286,7 +298,8 @@ def test_load_catalog_scoped_keeps_cross_scope_collisions_distinct(tmp_path: Pat
     """When the same code appears in two scopes, each entry survives under
     its own scope key — the regression the rename + scoped view exists to
     fix (TOS uses ``subtype`` on both stations and devices)."""
-    yaml_text = dedent("""
+    yaml_text = dedent(
+        """
         devices:
           subtype:
             classification: TODO
@@ -302,7 +315,8 @@ def test_load_catalog_scoped_keeps_cross_scope_collisions_distinct(tmp_path: Pat
             applies_to: [geophysical]
             gps_relevance: "yes"
             why: "from stations"
-        """).strip()
+        """
+    ).strip()
     p = tmp_path / "cat.yaml"
     p.write_text(yaml_text, encoding="utf-8")
     scoped = load_catalog_scoped(p)
@@ -395,12 +409,14 @@ def test_load_suppressions_missing_file_silent(tmp_path: Path):
 def test_load_suppressions_parses_multiple_lines(tmp_path: Path):
     p = tmp_path / "supp.txt"
     p.write_text(
-        dedent("""
+        dedent(
+            """
             # comment
             SUPPRESS 4773 serial_number 2014-10-17  # ARHO Ashtech
 
             SUPPRESS 4501 serial_number 2014-10-17
-            """),
+            """
+        ),
         encoding="utf-8",
     )
     suppressions, errors, _ = load_suppressions(p)
@@ -467,12 +483,14 @@ def test_load_suppressions_collects_all_errors_at_once(tmp_path: Path):
     ``_parse_action_file`` collect-and-report-all behaviour."""
     p = tmp_path / "supp.txt"
     p.write_text(
-        dedent("""
+        dedent(
+            """
             SUPPRESS NOTANID serial_number 2014-10-17
             SUPPRESS 4501 serial_number not-a-date
             LOL hello world
             SUPPRESS 4773 serial_number 2014-10-17
-            """),
+            """
+        ),
         encoding="utf-8",
     )
     suppressions, errors, _ = load_suppressions(p)
@@ -487,10 +505,13 @@ def test_load_suppressions_collects_all_errors_at_once(tmp_path: Path):
 
 
 def test_audit_flags_inherent_period_later_than_attribute_anchor(catalog_path: Path):
-    """Worked example pattern: serial_number stamped at data-entry date is
-    later than the device's own date_start. The earliest_known anchor is
-    the attribute (model dated 2002-01-01), and anchor_source reflects
-    'attribute'."""
+    """Worked example pattern (ARHO): serial_number stamped at the data-entry
+    date (2014-10-17) is later than the device's real install. Rule 3 is
+    session-anchored, so the reference is the join window's time_from
+    (2002-01-01) — which here coincides with the device's date_start. The
+    serial is still flagged and still corrected to 2002-01-01;
+    ``anchor_source`` is always ``'join'`` now (we never anchor to an
+    attribute date)."""
     device = _device(
         4773,
         "gnss_receiver",
@@ -518,7 +539,7 @@ def test_audit_flags_inherent_period_later_than_attribute_anchor(catalog_path: P
     assert v.code == "serial_number"
     assert v.date_from == "2014-10-17"
     assert v.earliest_known == "2002-01-01"
-    assert v.anchor_source == "attribute"
+    assert v.anchor_source == "join"
 
 
 def test_audit_anchor_source_join_when_join_predates_attributes(
@@ -547,6 +568,103 @@ def test_audit_anchor_source_join_when_join_predates_attributes(
     for v in report.violations:
         assert v.earliest_known == "2010-05-01"
         assert v.anchor_source == "join"
+
+
+def test_audit_moved_device_at_join_attribute_not_flagged(catalog_path: Path):
+    """Session anchor: a device whose attributes predate its join to THIS
+    station must not have its at-join attribute flagged.
+
+    The 3075127/NYLA pattern — the device carries identity attributes stamped
+    at its creation / prior life (2021-10-01), but joins this station only on
+    2023-02-09. A GPS toggle correctly dated at the 2023-02-09 install must
+    NOT be flagged (and certainly not 'corrected' back to 2021-10-01, before
+    the device ever arrived). The old min(earliest_attr, earliest_join) anchor
+    did exactly that; the session anchor fixes it.
+    """
+    device = _device(
+        3075127,
+        "gnss_receiver",
+        [
+            # Device identity, stamped at creation / previous station.
+            _attr("serial_number", "3075127", "2021-10-01"),
+            _attr("model", "SEPT POLARX5", "2021-10-01"),
+            # Constellation toggle, correctly dated at the THIS-station join.
+            _attr("GPS", "true", "2023-02-09"),
+        ],
+    )
+    station = _station(4366, "Nýlenda", [_conn(3075127, "2023-02-09")])
+    client = _client_for({4366: station, 3075127: device})
+
+    # --include GPS so the mutable toggle is in scope; the fix must still
+    # produce zero violations because the toggle sits at the join time_from.
+    report = audit_station_attribute_dates(
+        client, id_entity=4366, catalog_path=catalog_path, include_codes=["GPS"]
+    )
+    assert report.has_violations is False
+
+
+def test_audit_late_toggle_within_session_flagged(catalog_path: Path):
+    """The NYLA/4849 artifact: a GPS toggle stamped one day after the join
+    install IS flagged and corrected to the join time_from — the real fix
+    this whole change enables. Distinct from the moved-device case above:
+    here the toggle date is *later* than its own session's start."""
+    device = _device(
+        4849,
+        "gnss_receiver",
+        [
+            _attr("serial_number", "4539258413", "2006-07-27"),
+            _attr("model", "TRIMBLE NETRS", "2006-07-27"),
+            _attr("GPS", "true", "2006-07-28"),  # one day past install
+        ],
+    )
+    station = _station(4366, "Nýlenda", [_conn(4849, "2006-07-27", "2022-07-22")])
+    client = _client_for({4366: station, 4849: device})
+
+    report = audit_station_attribute_dates(
+        client, id_entity=4366, catalog_path=catalog_path, include_codes=["GPS"]
+    )
+    assert len(report.violations) == 1
+    v = report.violations[0]
+    assert v.code == "GPS"
+    assert v.date_from == "2006-07-28"
+    assert v.earliest_known == "2006-07-27"  # aligned to the join session start
+    assert v.anchor_source == "join"
+
+
+def test_audit_multi_session_anchors_per_window(catalog_path: Path):
+    """Per-session anchoring: a device that leaves and returns is measured
+    against the correct window. NYLA has no such device, so this is synthetic.
+
+    Serial re-stamped inside the SECOND occupation (after a gap) is flagged
+    against that window's start, not the first join.
+    """
+    device = _device(
+        7000,
+        "gnss_receiver",
+        [
+            _attr("model", "TRIMBLE NETR9", "2010-01-01"),
+            # serial re-entered during the second stint, later than its start.
+            _attr("serial_number", "SN7000", "2016-03-01"),
+        ],
+    )
+    # Two occupations: 2010–2012, then 2015–open. serial's 2016-03-01 falls in
+    # the second window (start 2015-01-01).
+    station = _station(
+        200,
+        "TWICE",
+        [
+            _conn(7000, "2010-01-01", "2012-01-01"),
+            _conn(7000, "2015-01-01"),
+        ],
+    )
+    client = _client_for({200: station, 7000: device})
+
+    report = audit_station_attribute_dates(
+        client, id_entity=200, catalog_path=catalog_path
+    )
+    serial_violations = [v for v in report.violations if v.code == "serial_number"]
+    assert len(serial_violations) == 1
+    assert serial_violations[0].earliest_known == "2015-01-01"
 
 
 def test_audit_skips_mutable_codes_by_default(catalog_path: Path):
