@@ -7,20 +7,36 @@ Worked example: ARHO Ashtech has ``serial_number='13831'`` with
 2002-01-01. The new synthesis chain renders TOS faithfully, so the phantom
 date propagates into PrintTOS / sitelog / GAMIT.
 
-Rule 3 — per ``.interrogate-tos-attribute-dates-audit.md``::
+Rule 3 (session-anchored) — per ``.interrogate-tos-attribute-dates-audit.md``::
 
-    For each inherent attribute period on a device joined to the audited
-    station, flag the period when its ``date_from`` is later than
-    ``earliest_known``, where::
+    For each attribute period on a device joined to the audited station,
+    find the JOIN WINDOW (session) the period's ``date_from`` falls in and
+    flag the period when ``date_from`` is later than that session's
+    ``time_from``. The correction aligns ``date_from`` to the session start.
 
-        earliest_known = min(
-            earliest attribute period date_from on the device,
-            earliest station-side join time_from for the device,
-        )
+The station-side join is the anchor — the physical "device present here"
+date. When an attribute is stamped at the data-entry date but the station's
+join carries an earlier ``time_from``, the contradiction surfaces the bug.
 
-The station-side join is the discriminator. When every attribute on a device
-is stamped at the data-entry date but the station's join to that device
-carries a much earlier ``time_from``, the contradiction surfaces the bug.
+**Why the join, not the device's earliest attribute.** An earlier design
+anchored to ``min(earliest attribute date_from, earliest join time_from)``.
+That mis-fired on devices whose identity attributes predate their join to
+*this* station — a receiver manufactured (or living at another station)
+before it arrived. Its correctly-dated at-join attributes then read as
+"later than the global-earliest" and were "corrected" to a date before the
+device ever arrived. Anchoring each period to *its own* join window fixes
+this; periods that fall before the first join or inside a gap between joins
+are off-station history and are not flagged. Trade-off: a join record that
+is itself stamped late (device truly present before its join was recorded)
+hides artifacts between the true arrival and the join — that is a
+join-date problem for a different audit, not rule 3.
+
+Note constellation toggles (``GPS``/``GLO``/``GAL``…) are ``mutable``: a
+gap at a session's start can be a genuine mid-tenure enablement (Galileo
+added later) rather than a misdate, and that is undecidable from TOS
+metadata alone — cross-check the RINEX archive (``tos audit
+constellations``). So constellations stay out of the default (inherent-only)
+run; reach them surgically with ``--include GPS`` and review each hit.
 
 All four layers of the DoD now land: detection (2), suppression file (3),
 and ``--triage`` emission (4) producing draft ACTION files for the
@@ -353,6 +369,54 @@ def _station_joins_by_device(
     return out
 
 
+def _sorted_sessions(
+    joins: Sequence[Dict[str, Any]],
+) -> List[Tuple[str, Optional[str]]]:
+    """Join windows as ``[(time_from, time_to|None), ...]``, ascending.
+
+    Each tuple is a device↔station occupation window, date-only normalised
+    (``YYYY-MM-DD``); ``time_to`` is ``None`` for the currently-open join.
+    Joins without a ``time_from`` are dropped (nothing to anchor to). The
+    :func:`_session_anchor_for` lookup relies on the ascending sort.
+    """
+    out: List[Tuple[str, Optional[str]]] = []
+    for j in joins:
+        tf_raw = j.get("time_from")
+        if not tf_raw:
+            continue
+        tf = _date_only(str(tf_raw))
+        tt_raw = j.get("time_to")
+        tt = _date_only(str(tt_raw)) if tt_raw else None
+        out.append((tf, tt))
+    out.sort(key=lambda s: s[0])
+    return out
+
+
+def _session_anchor_for(
+    df: str, sessions: Sequence[Tuple[str, Optional[str]]]
+) -> Optional[str]:
+    """The ``time_from`` of the join session that contains ``df``.
+
+    Rule 3 is *session-scoped*: an attribute period is only measured
+    against the window the device was actually at this station. Returns the
+    containing session's ``time_from`` when ``tf <= df < tt`` (or
+    ``tf <= df`` for an open session). Returns ``None`` when ``df`` falls
+    **before** the device's first join or **inside a gap** between two
+    joins — that is off-station / pre-join history (e.g. a manufacture-
+    dated serial, or the device's tenure at a previous station) which must
+    NOT be flagged against this station. ``sessions`` must be ascending by
+    ``time_from`` (see :func:`_sorted_sessions`).
+    """
+    for tf, tt in sessions:
+        if df < tf:
+            # Ascending sort: df precedes this session and every later one.
+            return None
+        if tt is None or df < tt:
+            return tf
+        # df >= tt: this closed session ended before df; try the next one.
+    return None
+
+
 def _open_attribute_value(history: Dict[str, Any], code: str) -> Optional[str]:
     """Mirror of :func:`tostools.devices.open_attribute` (avoids the import)."""
     for a in history.get("attributes") or []:
@@ -633,25 +697,20 @@ def audit_station_attribute_dates(
             continue
         report.audited_devices += 1
 
-        earliest_attr = _earliest_attribute_date(history)
-        join_dates = [
-            _date_only(str(j["time_from"])) for j in joins if j.get("time_from")
-        ]
-        earliest_join = min(join_dates) if join_dates else None
-
-        candidates = [d for d in (earliest_attr, earliest_join) if d]
-        if not candidates:
+        # Session anchor (rule 3 is session-scoped): each attribute period is
+        # measured against the join window it falls in — NOT the device's
+        # global-earliest attribute date. A device that lived at another
+        # station, or carries a manufacture-dated identity attribute, before
+        # joining THIS station must not have its at-join attributes measured
+        # against that pre-join history. That old ``min(earliest_attr,
+        # earliest_join)`` anchor produced false positives: a correctly-dated
+        # at-join toggle (e.g. a moved receiver's GPS period stamped at the
+        # real install) was flagged and "corrected" to a date before the
+        # device ever arrived. The station-side join ``time_from`` is the
+        # physical "device present here" date and the only sound anchor.
+        sessions = _sorted_sessions(joins)
+        if not sessions:
             continue
-        earliest_known = min(candidates)
-
-        # Anchor source — "join" when the join is the sole/earlier signal,
-        # "attribute" when an attribute date matches or precedes the join.
-        if earliest_attr is None:
-            anchor_source = "join"
-        elif earliest_join is None or earliest_attr <= earliest_join:
-            anchor_source = "attribute"
-        else:
-            anchor_source = "join"
 
         open_serial = _open_attribute_value(history, "serial_number")
 
@@ -693,7 +752,13 @@ def audit_station_attribute_dates(
             if not df_raw:
                 continue
             df = _date_only(str(df_raw))
-            if df <= earliest_known:
+            anchor = _session_anchor_for(df, sessions)
+            if anchor is None:
+                # df precedes the device's first join to this station, or
+                # falls inside a gap between joins — off-station / pre-join
+                # history, not a rule-3 artifact for this station.
+                continue
+            if df <= anchor:
                 continue
 
             value_raw = attr.get("value")
@@ -706,8 +771,10 @@ def audit_station_attribute_dates(
                 code=code,
                 date_from=df,
                 value=value,
-                earliest_known=earliest_known,
-                anchor_source=anchor_source,
+                earliest_known=anchor,
+                # Session-anchored: the join window's time_from is always the
+                # reference now (never a device attribute date).
+                anchor_source="join",
             )
             supp_line = suppressions.get((device_id, code, df))
             if supp_line is not None:
