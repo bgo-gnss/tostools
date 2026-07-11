@@ -8928,7 +8928,13 @@ def _audit_main(argv):
             from .archive import resolve_triage_path
 
             audit_cmd = "tos audit " + " ".join(argv)
-            content = add_mod.format_triage_file(report, audit_command=audit_cmd)
+            # The path as the operator typed it — a relative path resolves
+            # under the corrections repo on apply too, so echo it verbatim in
+            # the header + next-step hint below.
+            apply_ref = str(args.triage_path)
+            content = add_mod.format_triage_file(
+                report, audit_command=audit_cmd, apply_path=apply_ref
+            )
             # cwd-safe: a relative path resolves under the gps-tos-corrections
             # repo (matching `tos device --triage` / `tos audit apply`), so
             # `--triage nyla/nyla_x.txt` lands in the corrections repo no matter
@@ -8941,6 +8947,15 @@ def _audit_main(argv):
                 f"({len(report.violations)} violation(s))",
                 file=sys.stderr,
             )
+            if report.violations:
+                print(
+                    "next: review + uncomment the ACTION line(s), then:\n"
+                    f"  tos audit apply {apply_ref}                  "
+                    "# dry-run preview\n"
+                    f"  tos audit apply {apply_ref} --apply --commit  "
+                    "# write to TOS + record in gps-tos-corrections",
+                    file=sys.stderr,
+                )
         if args.json:
             print(
                 _json.dumps(

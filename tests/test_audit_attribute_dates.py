@@ -1193,6 +1193,24 @@ def test_triage_includes_audit_command_in_header():
     assert "Audit cmd:  tos audit attribute-dates ARHO" in out
 
 
+def test_triage_header_renders_concrete_apply_command():
+    """apply_path is echoed into the header's apply commands (with --commit)."""
+    report = _report_with([])
+    out = format_triage_file(
+        report,
+        apply_path="nyla/nyla_gps_date.txt",
+        generated_at="2026-05-19T00:00:00+00:00",
+    )
+    assert "tos audit apply nyla/nyla_gps_date.txt --apply --commit" in out
+    assert "<file>" not in out
+
+
+def test_triage_header_falls_back_to_placeholder_without_apply_path():
+    report = _report_with([])
+    out = format_triage_file(report, generated_at="2026-05-19T00:00:00+00:00")
+    assert "tos audit apply <file>" in out
+
+
 def test_triage_includes_suppress_hint_per_violation():
     """The triage block must also offer the SUPPRESS alternative — closes
     the loop with Layer 3 for known-good entries."""

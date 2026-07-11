@@ -810,6 +810,7 @@ def format_triage_file(
     *,
     audit_command: Optional[str] = None,
     generated_at: Optional[str] = None,
+    apply_path: Optional[str] = None,
 ) -> str:
     """Render *report* as an operator-editable triage file.
 
@@ -839,6 +840,11 @@ def format_triage_file(
         Optional ISO timestamp. Defaults to ``datetime.utcnow().isoformat()``
         at call time. Pass an explicit value in tests to keep output
         byte-deterministic.
+    apply_path
+        Optional path string (as the operator would type it — a relative
+        path resolves under the gps-tos-corrections repo) rendered into the
+        header's concrete ``tos audit apply`` commands. When None the header
+        shows a ``<file>`` placeholder.
 
     Returns
     -------
@@ -873,12 +879,17 @@ def format_triage_file(
     lines.append("#   ACTION <id_entity> patch-attribute-date \\")
     lines.append("#          <code> <old_date_from> <new_date_from>")
     lines.append("#")
+    ref = apply_path or "<file>"
     lines.append("# Workflow:")
     lines.append("#   1. Review each block below — verify the suggested")
     lines.append("#      new_date_from is correct. Edit if needed.")
     lines.append("#   2. Uncomment the ACTION line(s) you want to fire.")
-    lines.append("#   3. tos audit apply <file>          # dry-run preview")
-    lines.append("#   4. tos audit apply <file> --apply  # commit writes")
+    lines.append(f"#   3. tos audit apply {ref}                  # dry-run preview")
+    lines.append(
+        f"#   4. tos audit apply {ref} --apply --commit  # write to TOS + record"
+    )
+    lines.append("#      the applied file in the gps-tos-corrections repo (--commit;")
+    lines.append("#      best-effort, never pushes — `git push` it yourself).")
     lines.append("#")
     lines.append("# Alternative for known-good entries: copy the SUPPRESS hint into")
     lines.append("# data/audit_suppressions/attribute_dates.txt instead.")
