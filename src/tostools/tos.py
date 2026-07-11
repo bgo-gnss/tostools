@@ -7032,10 +7032,17 @@ def _fleet_main(argv):
             return 2
 
         if args.triage_path:
+            from .archive import resolve_triage_path
+
             content = format_fleet_contact_dates_triage(cd_summary)
-            args.triage_path.write_text(content, encoding="utf-8")
+            # cwd-safe: relative path resolves under gps-tos-corrections (see
+            # the attribute-dates --triage note); avoids a silent write under
+            # the current directory.
+            triage_path = resolve_triage_path(args.triage_path)
+            triage_path.parent.mkdir(parents=True, exist_ok=True)
+            triage_path.write_text(content, encoding="utf-8")
             print(
-                f"wrote combined triage file: {args.triage_path} "
+                f"wrote combined triage file: {triage_path} "
                 f"({cd_summary.total_violations} violation(s))",
                 file=_sys.stderr,
             )
@@ -8918,11 +8925,19 @@ def _audit_main(argv):
                     file=sys.stderr,
                 )
         if args.triage_path:
+            from .archive import resolve_triage_path
+
             audit_cmd = "tos audit " + " ".join(argv)
             content = add_mod.format_triage_file(report, audit_command=audit_cmd)
-            args.triage_path.write_text(content, encoding="utf-8")
+            # cwd-safe: a relative path resolves under the gps-tos-corrections
+            # repo (matching `tos device --triage` / `tos audit apply`), so
+            # `--triage nyla/nyla_x.txt` lands in the corrections repo no matter
+            # where tos is run from — not silently under the current directory.
+            triage_path = resolve_triage_path(args.triage_path)
+            triage_path.parent.mkdir(parents=True, exist_ok=True)
+            triage_path.write_text(content, encoding="utf-8")
             print(
-                f"wrote triage file: {args.triage_path} "
+                f"wrote triage file: {triage_path} "
                 f"({len(report.violations)} violation(s))",
                 file=sys.stderr,
             )
