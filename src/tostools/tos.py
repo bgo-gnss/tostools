@@ -6075,7 +6075,9 @@ def _visit_main(argv):
         required=True,
         help=(
             "Visit start. ISO datetime or YYYY-MM-DD (promoted to "
-            "midnight). Example: --start 2026-05-30."
+            "midnight), or a token: 'now' (today, UTC) / 'start' "
+            "(entity earliest_known). Example: --start 2026-05-30 or "
+            "--start now."
         ),
     )
     p_add.add_argument(
@@ -6083,7 +6085,8 @@ def _visit_main(argv):
         default=None,
         help=(
             "Visit end. Defaults to --start (instantaneous visit). "
-            "Same date / datetime format as --start."
+            "Same date / datetime format or token ('now' / 'start') "
+            "as --start."
         ),
     )
     p_add.add_argument(
@@ -6265,6 +6268,22 @@ def _visit_main(argv):
         # repeatable --participants for ergonomics.
         participants_str = ",".join(args.participants) if args.participants else ""
 
+        # Resolve symbolic date tokens the same way the apply ACTION
+        # verbs do — `now` → today (UTC), `start` → the entity's
+        # earliest_known. Non-token strings pass through unchanged, so
+        # `--start 2026-07-14` and full ISO datetimes are unaffected.
+        # Without this, `--start now` reaches TOS raw → 422 (too short).
+        start_resolved, err = _resolve_date_token(args.start, id_entity, writer)
+        if err is not None:
+            print(f"--start: {err}", file=sys.stderr)
+            return 1
+        end_resolved = args.end
+        if args.end is not None:
+            end_resolved, err = _resolve_date_token(args.end, id_entity, writer)
+            if err is not None:
+                print(f"--end: {err}", file=sys.stderr)
+                return 1
+
         # Dry-run preview before invoking the writer — surfaces what
         # would be POSTed even when the writer's own log is muted.
         if dry_run and not args.json:
@@ -6272,8 +6291,8 @@ def _visit_main(argv):
                 f"DRY RUN: would add vitjun on {target_label} "
                 f"(id_entity={id_entity})"
             )
-            print(f"         start_time      = {args.start}")
-            print(f"         end_time        = {args.end or args.start}")
+            print(f"         start_time      = {start_resolved}")
+            print(f"         end_time        = {end_resolved or start_resolved}")
             print(f"         maintenance_type= {args.visit_type}")
             print(
                 f"         reasons         = "
@@ -6291,8 +6310,8 @@ def _visit_main(argv):
         try:
             result = writer.add_maintenance_visit(
                 id_entity,
-                start_time=args.start,
-                end_time=args.end,
+                start_time=start_resolved,
+                end_time=end_resolved,
                 maintenance_type=args.visit_type,
                 participants=participants_str,
                 reasons=args.reasons,
@@ -6313,8 +6332,8 @@ def _visit_main(argv):
                 "dry_run": dry_run,
                 "id_maintenance": new_id,
                 "params": {
-                    "start_time": args.start,
-                    "end_time": args.end or args.start,
+                    "start_time": start_resolved,
+                    "end_time": end_resolved or start_resolved,
                     "maintenance_type": args.visit_type,
                     "participants": participants_str,
                     "reasons": args.reasons or [],
