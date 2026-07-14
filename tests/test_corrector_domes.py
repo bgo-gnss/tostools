@@ -2,7 +2,8 @@
 
 ``_get_corrections_from_tos`` must emit a ``MARKER NUMBER`` correction from the
 station's IERS DOMES number so a ``--fix-headers`` run can actually rewrite it.
-Only when TOS carries a DOMES — never blank an existing value. No network: the
+When TOS carries no DOMES the policy is to STRIP the line (``STRIP_LINE``
+sentinel) — never fall back to the 4-char marker/id. No network: the
 ``gps_metadata`` call is patched.
 """
 
@@ -50,22 +51,30 @@ def test_marker_number_emitted_from_domes(monkeypatch):
     assert "ANTENNA: DELTA H/E/N" in corr
 
 
-def test_marker_number_falls_back_to_marker_when_no_domes(monkeypatch):
-    # No DOMES → MARKER NUMBER falls back to the 4-char marker (station_id here,
-    # since _station_data carries no explicit marker key).
+def test_marker_number_stripped_when_no_domes(monkeypatch):
+    # No DOMES → MARKER NUMBER is stripped, never the 4-char marker/id.
     monkeypatch.setattr(
         corrector, "gps_metadata", lambda *a, **k: _station_data(domes=None)
     )
     corr = corrector._get_corrections_from_tos("RHOF", datetime(2010, 4, 1), 40)
-    assert corr["MARKER NUMBER"] == ["RHOF"]
+    assert corr["MARKER NUMBER"] is corrector.STRIP_LINE
 
 
-def test_marker_number_falls_back_when_domes_blank(monkeypatch):
+def test_marker_number_stripped_when_domes_blank(monkeypatch):
     monkeypatch.setattr(
         corrector, "gps_metadata", lambda *a, **k: _station_data(domes="   ")
     )
     corr = corrector._get_corrections_from_tos("RHOF", datetime(2010, 4, 1), 40)
-    assert corr["MARKER NUMBER"] == ["RHOF"]
+    assert corr["MARKER NUMBER"] is corrector.STRIP_LINE
+
+
+def test_marker_number_stripped_when_value_is_4char_not_domes(monkeypatch):
+    # A 4-char id sitting in iers_domes_number is not a real DOMES → strip.
+    monkeypatch.setattr(
+        corrector, "gps_metadata", lambda *a, **k: _station_data(domes="RHOF")
+    )
+    corr = corrector._get_corrections_from_tos("RHOF", datetime(2010, 4, 1), 40)
+    assert corr["MARKER NUMBER"] is corrector.STRIP_LINE
 
 
 # ---------------------------------------------------------------------------
@@ -111,3 +120,34 @@ def test_insert_no_anchor_leaves_header_unchanged():
     junk = "no anchors here at all\n"
     out = corrector._insert_header_record(junk, "MARKER NUMBER", "whatever", _LOG)
     assert out == junk
+
+
+# ---------------------------------------------------------------------------
+# STRIP_LINE sentinel — _apply_corrections removes an existing MARKER NUMBER
+# line and inserts nothing (no-DOMES policy).
+# ---------------------------------------------------------------------------
+
+_HDR_ONLY_WITH_MNUM = (
+    "     2.10           OBSERVATION DATA    G (GPS)             RINEX VERSION / TYPE\n"
+    "RHOF                                                        MARKER NAME\n"
+    "RHOF                                                        MARKER NUMBER\n"
+    "SOME AGENCY                                                 OBSERVER / AGENCY\n"
+    "                                                            END OF HEADER"
+)
+
+
+def test_strip_line_removes_existing_marker_number(tmp_path, monkeypatch):
+    src = tmp_path / "rhof0010.10o"
+    # On-disk file: real header (through END OF HEADER) + a data line.
+    src.write_text(_HDR_ONLY_WITH_MNUM + "\n  DATA LINE THAT MUST SURVIVE\n")
+    # read_rinex_header returns only the header portion (no data section).
+    monkeypatch.setattr(
+        corrector, "read_rinex_header", lambda p: {"header": _HDR_ONLY_WITH_MNUM}
+    )
+    out = corrector._apply_corrections(
+        src, {"MARKER NUMBER": corrector.STRIP_LINE}, src, _LOG
+    )
+    text = out.read_text()
+    assert "MARKER NUMBER" not in text
+    assert "MARKER NAME" in text  # the similarly-named line is untouched
+    assert "DATA LINE THAT MUST SURVIVE" in text

@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 
 from .. import gps_metadata_qc as gpsqc
 from ..utils.logging import get_logger
+from .domes import domes_or_skip
 
 
 def _parse_time_of_first_obs(value: Any) -> Any:
@@ -74,26 +75,34 @@ def compare_rinex_to_tos(
                 }
                 comparison_result["corrections"]["MARKER NAME"] = tos_marker
 
-    # Compare marker number. TOS is authoritative: MARKER NUMBER carries the
-    # IERS DOMES number when the station has one, else it falls back to the
-    # 4-char marker — the same ``(domes or marker)`` rule as finalize_epos_header
-    # and the legacy compare_tos_to_rinex. A blank header value, or the wrong id,
-    # is a discrepancy. ``tos_session["domes"]`` / ``["marker"]`` are station-level
-    # fields the session providers add (TOSSesionCache / make_session_provider).
-    tos_domes = str(tos_session.get("domes") or "").strip()
-    tos_marker_number = (
-        tos_domes or str(tos_session.get("marker") or "").strip().upper()
-    )
-    if tos_marker_number:
-        rinex_number = str(rinex_info.get("MARKER NUMBER") or "").strip()
-        if rinex_number.upper() == tos_marker_number.upper():
-            comparison_result["matches"]["domes"] = tos_marker_number
+    # Compare marker number. Policy: MARKER NUMBER carries the IERS DOMES number
+    # and nothing else. When the station has no DOMES the line must be absent —
+    # a leftover 4-char id (MARKER NAME already carries that) is a discrepancy to
+    # STRIP, not something to re-inject. ``tos_session["domes"]`` is a station-
+    # level field the session providers add (TOSSesionCache / make_session_provider).
+    tos_domes = domes_or_skip(tos_session.get("domes"))
+    rinex_number = str(rinex_info.get("MARKER NUMBER") or "").strip()
+    if tos_domes:
+        if rinex_number.upper() == tos_domes:
+            comparison_result["matches"]["domes"] = tos_domes
         else:
             comparison_result["discrepancies"]["domes"] = {
                 "rinex": rinex_number.upper(),
-                "tos": tos_marker_number,
+                "tos": tos_domes,
             }
-            comparison_result["corrections"]["MARKER NUMBER"] = tos_marker_number
+            comparison_result["corrections"]["MARKER NUMBER"] = tos_domes
+    elif rinex_number:
+        # No real DOMES but the header still carries a MARKER NUMBER (legacy id):
+        # flag it so --fix-headers removes the line. The corrector recomputes the
+        # strip (it never re-injects an id); the empty "tos" value is display-only.
+        comparison_result["discrepancies"]["domes"] = {
+            "rinex": rinex_number.upper(),
+            "tos": "",
+        }
+        # NB: "" here is a display-only strip flag — header_fix keys off the label
+        # and lets the corrector recompute the real STRIP_LINE sentinel. Never wire
+        # this "" straight into a writer (it would be a no-op, leaving the stale id).
+        comparison_result["corrections"]["MARKER NUMBER"] = ""
 
     # Compare receiver by NORMALIZED IDENTITY, not raw string. The header stores
     # fixed-width A20,A20,A20 (serial/type/firmware) columns; TOS stores single-

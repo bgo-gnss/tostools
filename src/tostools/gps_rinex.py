@@ -25,6 +25,7 @@ from gtimes.timefunc import datefRinex
 # Import legacy modules (transitioning)
 from . import gps_metadata_functions as gpsf
 from . import gps_metadata_qc as gpsqc
+from .rinex.domes import domes_or_skip
 from .rinex.reader import get_rinex_labels
 from .rinex.reader import read_rinex_file as modular_read_rinex_file
 from .rinex.reader import read_rinex_header as modular_read_rinex_header
@@ -300,12 +301,18 @@ def compare_tos_to_rinex(rinex_dict, session, loglevel=logging.WARNING):
         elif label == "MARKER NUMBER":
             rinex_number = rinex_dict[label][0]
             module_logger.info('"Marker number" in Rinex file: {}'.format(rinex_number))
-            if "iers_domes_number" in session.keys():
-                TOS_number = session["iers_domes_number"]
-            else:
-                TOS_number = session["marker"].upper()
+            # Policy: MARKER NUMBER is the IERS DOMES only. With no real DOMES we
+            # do not re-inject the 4-char marker/id (that was the contamination) —
+            # the modern corrector/validator path actively strips the line.
+            TOS_number = domes_or_skip(session.get("iers_domes_number"))
 
-            if rinex_number == TOS_number:
+            if not TOS_number:
+                module_logger.info(
+                    'No IERS DOMES for "{}" — leaving MARKER NUMBER untouched'.format(
+                        rinex_dict["rinex file"]
+                    )
+                )
+            elif rinex_number == TOS_number:
                 module_logger.debug(
                     'Label "{0}" is "{1}" in file "{2}", matches database marker "{3}"'.format(
                         label, rinex_number, rinex_dict["rinex file"], TOS_number
@@ -663,15 +670,14 @@ def compare_tos_to_rinex(rinex_dict, session, loglevel=logging.WARNING):
         )
 
         if "MARKER NUMBER" in searchlist:
-            if "iers_domes_number" in session.keys():
-                TOS_number = session["iers_domes_number"]
-            else:
-                TOS_number = session["marker"].upper()
-
-            module_logger.info(
-                '"MARKER NUMBER" is not in Rinex file adding {}'.format(TOS_number)
-            )
-            rinex_correction_dict["MARKER NUMBER"] = [TOS_number, ""]
+            # Only insert a MARKER NUMBER when the station has a real IERS DOMES;
+            # otherwise the line stays absent (no 4-char id fallback).
+            TOS_number = domes_or_skip(session.get("iers_domes_number"))
+            if TOS_number:
+                module_logger.info(
+                    '"MARKER NUMBER" is not in Rinex file adding {}'.format(TOS_number)
+                )
+                rinex_correction_dict["MARKER NUMBER"] = [TOS_number, ""]
 
     module_logger.debug("rinex_correction_dict: {}".format(rinex_correction_dict))
 

@@ -273,19 +273,29 @@ def test_domes_discrepancy_when_header_record_absent():
     assert r["discrepancies"]["domes"] == {"rinex": "", "tos": "10216M001"}
 
 
-def test_falls_back_to_marker_when_no_domes_and_header_matches():
-    # Station without a DOMES: MARKER NUMBER should be the 4-char marker. Header
-    # already carries it → a match, no correction.
+def test_no_domes_with_legacy_id_flags_strip():
+    # Station without a DOMES but the header still carries a legacy 4-char id:
+    # policy is to STRIP the line, so it's flagged with an empty target (the
+    # corrector recomputes the strip; it never re-injects the id).
     r = _domes_result("RHOF", "")
-    assert r["matches"].get("domes") == "RHOF"
-    assert "domes" not in r["discrepancies"]
+    assert r["discrepancies"]["domes"] == {"rinex": "RHOF", "tos": ""}
+    assert r["corrections"]["MARKER NUMBER"] == ""
+    assert "domes" not in r["matches"]
 
 
-def test_falls_back_to_marker_when_no_domes_and_header_wrong():
-    # No DOMES + blank/other MARKER NUMBER → correct it to the 4-char marker.
+def test_no_domes_and_no_header_is_clean():
+    # No DOMES + no MARKER NUMBER line → already correct, nothing flagged.
     r = _domes_result("", "")
-    assert r["discrepancies"]["domes"] == {"rinex": "", "tos": "RHOF"}
-    assert r["corrections"]["MARKER NUMBER"] == "RHOF"
+    assert "domes" not in r["discrepancies"]
+    assert "MARKER NUMBER" not in r["corrections"]
+
+
+def test_tos_domes_that_is_not_a_real_domes_is_ignored():
+    # A 4-char id sitting in TOS domes is not a real DOMES → treated as no-DOMES;
+    # a header that already lacks the line stays clean.
+    r = _domes_result(None, "RHOF")
+    assert "domes" not in r["discrepancies"]
+    assert "MARKER NUMBER" not in r["corrections"]
 
 
 # ---------------------------------------------------------------------------

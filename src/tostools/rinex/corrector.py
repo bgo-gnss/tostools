@@ -21,7 +21,13 @@ from typing import Any, Dict, Optional
 
 from ..gps_metadata_qc import URL_REST_TOS, gps_metadata
 from ..utils.logging import get_logger
+from .domes import domes_or_skip
 from .reader import get_rinex_labels, read_rinex_header
+
+# Sentinel correction value meaning "remove this header line if present, and do
+# not insert one". Used for MARKER NUMBER when the station has no IERS DOMES: the
+# policy is to strip the field, not fall back to the 4-char station id.
+STRIP_LINE = None
 
 
 def _is_placeholder_serial(serial: str) -> bool:
@@ -200,10 +206,14 @@ def _get_corrections_from_config(
     if marker_name:
         corrections["MARKER NAME"] = [marker_name]
 
-    # MARKER NUMBER
-    marker_number = rinex_cfg.get("marker_number", "")
+    # MARKER NUMBER ← IERS DOMES only. cfg's rinex_marker_number holds a real
+    # DOMES for registered stations and the 4-char id for the rest; the guard
+    # keeps only a real DOMES and strips the line otherwise (no id fallback).
+    marker_number = domes_or_skip(rinex_cfg.get("marker_number", ""))
     if marker_number:
         corrections["MARKER NUMBER"] = [marker_number]
+    else:
+        corrections["MARKER NUMBER"] = STRIP_LINE
 
     # OBSERVER / AGENCY
     observer = rinex_cfg.get("observer", "")
@@ -336,17 +346,15 @@ def _get_corrections_from_tos(
         # MARKER NAME
         corrections["MARKER NAME"] = [station_id.upper()]
 
-        # MARKER NUMBER ← IERS DOMES, falling back to the 4-char marker when the
-        # station has no DOMES (same (domes or marker) rule as finalize_epos_header
-        # and the legacy compare_tos_to_rinex). Matches the domes discrepancy check
-        # in compare_rinex_to_tos, so a --fix-headers run that flags MARKER NUMBER
-        # can actually correct it.
-        domes = str(station_data.get("iers_domes_number") or "").strip()
-        marker_number = (
-            domes or str(station_data.get("marker") or station_id).strip().upper()
-        )
-        if marker_number:
-            corrections["MARKER NUMBER"] = [marker_number]
+        # MARKER NUMBER ← IERS DOMES only. When the station has no DOMES the line
+        # is stripped, never filled with the 4-char marker/id (MARKER NAME already
+        # carries that). Matches the domes check in compare_rinex_to_tos, so a
+        # --fix-headers run removes a stale id instead of re-injecting one.
+        domes = domes_or_skip(station_data.get("iers_domes_number"))
+        if domes:
+            corrections["MARKER NUMBER"] = [domes]
+        else:
+            corrections["MARKER NUMBER"] = STRIP_LINE
 
         # REC # / TYPE / VERS - from gnss_receiver
         receiver = session.get("gnss_receiver", {})
@@ -523,6 +531,15 @@ def _apply_corrections(
     for label, values in corrections.items():
         if label not in rinex_labels:
             logger.debug(f"Unknown label {label}, skipping")
+            continue
+
+        # STRIP_LINE sentinel: remove the label's line if present, insert nothing.
+        # Used for MARKER NUMBER on a station with no IERS DOMES (skip the field).
+        if values is STRIP_LINE:
+            strip_re = re.compile(rf"^.*{re.escape(label)}.*$\n?", re.M)
+            if strip_re.search(header_content):
+                header_content = strip_re.sub("", header_content)
+                logger.debug(f"Stripped {label} line (no value under policy)")
             continue
 
         # Create the corrected line using proper RINEX formatting
