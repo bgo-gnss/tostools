@@ -236,6 +236,32 @@ def read_station_markers(cfg_path: str) -> List[str]:
     return [s for s in cfg.sections() if s and s.isupper()]
 
 
+def read_station_roles(cfg_path: str) -> Dict[str, str]:
+    """Map marker → ``station_role`` (``active``/``passive``) from stations.cfg.
+
+    ``station_role = passive`` marks data-source-only stations (GLOBK
+    reference-frame ties / regional context) that IMO does not operate and
+    that have no TOS counterpart — fleet enumeration must skip them BEFORE
+    marker→TOS resolution, or every fleet run burns one futile TOS HTTP call
+    per passive marker (GLOBAL_SITES_investigation.md §4.4).
+
+    Missing key, empty or unknown values → ``active`` (fail-open: a typo
+    must never hide an operated station from the fleet audits). A missing
+    or unreadable cfg yields an empty map — callers treat absent markers
+    as active.
+    """
+    cfg = configparser.ConfigParser()
+    cfg.read(cfg_path)
+    roles: Dict[str, str] = {}
+    for s in cfg.sections():
+        if not (s and s.isupper()):
+            continue
+        raw = cfg.get(s, "station_role", fallback="") or ""
+        role = raw.split("#")[0].strip().lower()
+        roles[s.upper()] = role if role in ("active", "passive") else "active"
+    return roles
+
+
 def resolve_marker_to_entity_id(client: TOSClient, marker: str) -> Optional[int]:
     """Resolve a 4-letter station marker to its TOS ``id_entity``.
 

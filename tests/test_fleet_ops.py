@@ -213,6 +213,63 @@ def test_enumerate_limit_caps_post_filter():
     assert [p.name for p in out] == ["BBB", "CCC"]
 
 
+def test_enumerate_skips_passive_stations_before_resolution(tmp_path):
+    """``station_role = passive`` markers (data-source-only reference
+    stations, no TOS counterpart) are dropped BEFORE marker→id
+    resolution — zero TOS HTTP calls spent on them."""
+    cfg = tmp_path / "stations.cfg"
+    cfg.write_text(
+        "[RHOF]\nstation_name=Raufarhöfn\n"
+        "[ZIMM]\nstation_role=passive\nis_reference_site=true\n"
+        "[KELY]\nstation_role = passive # former IGS\n"
+        "[HEDI]\nstation_role=active\n"
+    )
+    parents = [_station(1, "RHOF"), _station(2, "HEDI")]
+    by_id = {p.id_entity: p for p in parents}
+    resolved = []
+
+    def _resolve(_client, marker):
+        resolved.append(marker.upper())
+        return {"RHOF": 1, "HEDI": 2}.get(marker.upper())
+
+    fake = _FakeClient(by_id)
+    with patch(
+        "tostools.fleet_ops.resolve_marker_to_entity_id",
+        side_effect=_resolve,
+    ):
+        out = enumerate_fleet_stations(
+            fake,  # type: ignore[arg-type]
+            station_cfg_path=str(cfg),
+        )
+
+    assert [p.name for p in out] == ["RHOF", "HEDI"]
+    # The passive markers never reached the resolver:
+    assert "ZIMM" not in resolved
+    assert "KELY" not in resolved
+
+
+def test_read_station_roles_defaults_and_comments(tmp_path):
+    from tostools.history import read_station_roles
+
+    cfg = tmp_path / "stations.cfg"
+    cfg.write_text(
+        "[AAAA]\nstation_name=no role key\n"
+        "[BBBB]\nstation_role=passive\n"
+        "[CCCC]\nstation_role = passive # inline comment\n"
+        "[DDDD]\nstation_role=pasive\n"  # typo → fail-open active
+        "[eeee]\nstation_role=passive\n"  # lowercase section ignored
+    )
+    roles = read_station_roles(str(cfg))
+    assert roles == {
+        "AAAA": "active",
+        "BBBB": "passive",
+        "CCCC": "passive",
+        "DDDD": "active",
+    }
+    # Missing file → empty map (callers default to active)
+    assert read_station_roles(str(tmp_path / "nope.cfg")) == {}
+
+
 def test_enumerate_raises_when_zero_stations_resolve():
     """The infrastructure-only fallback silently leaves zero
     geophysical stations — that's a footgun in fleet ops, so we

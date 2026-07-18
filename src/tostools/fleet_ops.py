@@ -42,6 +42,7 @@ from tostools.history import (
     ParentEntity,
     default_station_cfg_path,
     read_station_markers,
+    read_station_roles,
     resolve_marker_to_entity_id,
 )
 from tostools.station_triage import (
@@ -200,14 +201,28 @@ def enumerate_fleet_stations(
         )
 
     markers = read_station_markers(cfg_path)
+    # Passive (data-source-only) stations have no TOS counterpart — drop
+    # them BEFORE marker→id resolution so they cost zero HTTP calls
+    # (same pre-resolution rationale as include/exclude).
+    roles = read_station_roles(cfg_path)
     candidates: List[str] = []
+    passive_skipped = 0
     for m in markers:
         upper = m.upper()
+        if roles.get(upper, "active") == "passive":
+            passive_skipped += 1
+            continue
         if include_set is not None and upper not in include_set:
             continue
         if upper in exclude_set:
             continue
         candidates.append(m)
+    if passive_skipped:
+        logger.info(
+            "enumerate_fleet_stations: skipped %d passive "
+            "(data-source-only) stations",
+            passive_skipped,
+        )
     if limit is not None:
         candidates = candidates[:limit]
 
