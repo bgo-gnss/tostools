@@ -245,21 +245,23 @@ def read_station_roles(cfg_path: str) -> Dict[str, str]:
     marker→TOS resolution, or every fleet run burns one futile TOS HTTP call
     per passive marker (GLOBAL_SITES_investigation.md §4.4).
 
-    Missing key, empty or unknown values → ``active`` (fail-open: a typo
-    must never hide an operated station from the fleet audits). A missing
-    or unreadable cfg yields an empty map — callers treat absent markers
-    as active.
+    Role parsing delegates to :func:`gps_parser.parse_station_role` — the
+    CANONICAL fail-open parser (missing/empty/unknown → ``active``; a typo
+    must never hide an operated station from the fleet audits). Do not
+    re-implement the parse locally. A missing or unreadable cfg yields an
+    empty map — callers treat absent markers as active.
     """
+    # Lazy import, mirroring archive.py's optional gps_parser usage —
+    # only fleet enumeration needs it, not all of tostools.
+    from gps_parser import parse_station_role
+
     cfg = configparser.ConfigParser()
     cfg.read(cfg_path)
-    roles: Dict[str, str] = {}
-    for s in cfg.sections():
-        if not (s and s.isupper()):
-            continue
-        raw = cfg.get(s, "station_role", fallback="") or ""
-        role = raw.split("#")[0].strip().lower()
-        roles[s.upper()] = role if role in ("active", "passive") else "active"
-    return roles
+    return {
+        s.upper(): parse_station_role(cfg.get(s, "station_role", fallback=""))
+        for s in cfg.sections()
+        if s and s.isupper()
+    }
 
 
 def resolve_marker_to_entity_id(client: TOSClient, marker: str) -> Optional[int]:

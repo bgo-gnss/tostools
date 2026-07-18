@@ -34,6 +34,11 @@ dependencies = [
     "colorama>=0.4.6",
     "pika>=1.3.0",
     "PyYAML>=6.0",
+    # Canonical stations.cfg schema helpers (parse_station_role) — see
+    # history.read_station_roles. TODO(passive-schema): pin to the commit
+    # that includes parse_station_role once gps_parser's
+    # feat/passive-station-schema merges.
+    "gps-parser @ git+https://github.com/bgo-gnss/gps_parser",
 ]
 
 [project.scripts]
