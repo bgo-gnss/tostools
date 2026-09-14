@@ -105,3 +105,28 @@ SUPPRESS 4971 GLO  # TRIMBLE NETR9 5223K85834 — GPS-only era at HUSM
 # better than accumulating per-device lines (see todo #145).
 
 SUPPRESS 4862 GLO  # TRIMBLE NETRS 4539258376 — GPS-only for its whole HVEL tenure
+
+# --- HVOL: three consecutive GPS-only Trimble eras ---------------------
+#
+# HVOL (Láguhvolar) has run four receivers since 1999 and the first THREE
+# tracked GPS only — the archived RINEX is type `G` in 2000, 2005, 2014 and
+# 2016, and `tos audit constellations HVOL --history` reads each era as a
+# RELIABLE `R2/confirm` (raw SBF decoded) result:
+#
+#   TRIMBLE 4000SSI  26094       1999-10-19 → 2002-01-24   GPS   (hardware: no GLONASS)
+#   TRIMBLE 4700     219340      2002-01-24 → 2013-01-01   GPS   (hardware: no GLONASS)
+#   TRIMBLE NETR9    5211K83139  2013-01-01 → 2017-07-13   GPS   (capable; GLO was off)
+#
+# Only the SEPT POLARX5 3018451 (2017-07-13 →) carries GPS+GLO. The 4000SSI and
+# 4700 cases are the same hardware argument as the VMEY/HEID suppressions above;
+# the NetR9 one is the HRIC/HUSM 'capable but switched off' case.
+#
+# This makes SIX stations' worth of the same shape (VMEY ×2, HEID, HRIC, HUSM,
+# HVEL, HVOL ×3). A fleet-level rule — "the catalog's GLO default does not
+# apply to known GPS-only Trimble models (4000SSI/4700/5700), or to an era
+# whose R2/confirm decode shows GPS alone" — would replace all of them. Filed
+# for todo #145; the per-device lines are the interim.
+
+SUPPRESS 4825 GLO  # TRIMBLE 4000SSI 26094   — GPS-only hardware
+SUPPRESS 4803 GLO  # TRIMBLE 4700 219340     — GPS-only hardware
+SUPPRESS 4920 GLO  # TRIMBLE NETR9 5211K83139 — GLO not tracked during this era
