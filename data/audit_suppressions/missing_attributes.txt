@@ -130,3 +130,24 @@ SUPPRESS 4862 GLO  # TRIMBLE NETRS 4539258376 — GPS-only for its whole HVEL te
 SUPPRESS 4825 GLO  # TRIMBLE 4000SSI 26094   — GPS-only hardware
 SUPPRESS 4803 GLO  # TRIMBLE 4700 219340     — GPS-only hardware
 SUPPRESS 4920 GLO  # TRIMBLE NETR9 5211K83139 — GLO not tracked during this era
+
+# --- ISAF: 2004 campaign hardware + monuments --------------------------
+#
+# ISAF (Ísafjörður) was a 2004 CAMPAIGN before the permanent site. Three gaps
+# in that campaign are correct as gaps:
+#
+#   · 4777 GLO — TRIMBLE 4000SSI 14629 (2004-08-12 → 08-15). GPS-only hardware,
+#     no GLONASS to track. The era has NO archived files, so the archive cannot
+#     contradict it either way; the hardware is the evidence.
+#   · 5129 model / 5130 model — the two one-day monuments of that campaign
+#     (monument-ISAF-20040812, monument-ISAF-20040813). Their construction type
+#     was never recorded anywhere (TOS has no model, station.info carries no
+#     monument field, and there are no RINEX headers to read — the era has zero
+#     archived files). They are CLOSED devices that never appear in site-log §1,
+#     which renders from the OPEN monument (5131, 'GPS stál-fjórfótur'). Filling
+#     a guess here would publish a fabricated §3.1-style mark type, which is the
+#     exact reason the audit refuses a catalog default for this code.
+
+SUPPRESS 4777 GLO    # TRIMBLE 4000SSI 14629 — GPS-only hardware
+SUPPRESS 5129 model  # 2004 campaign monument — type never recorded, no §1 impact
+SUPPRESS 5130 model  # 2004 campaign monument — type never recorded, no §1 impact
