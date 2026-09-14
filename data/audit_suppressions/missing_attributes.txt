@@ -86,3 +86,22 @@ SUPPRESS 4926 GLO  # TRIMBLE NETR9 5230K51042 — GLO not tracked during this er
 # explicit false. The next PolaRX5 at the mark tracks GLO from 2017-05-29.
 
 SUPPRESS 4971 GLO  # TRIMBLE NETR9 5223K85834 — GPS-only era at HUSM
+
+# --- GLONASS on a GPS-only TRIMBLE NETRS (HVEL 2006-2025) -------------
+#
+# Same case again. HVEL's first receiver, TRIMBLE NETRS 4539258376
+# (device 4862, HVEL 2006-08-10→2025-05-07 — a 19-year tenure), ran GPS-only
+# the whole time: the archived RINEX is `2.1x ... G (GPS)` in 2007, 2010,
+# 2014, 2018, 2021 and 2024, and `tos audit constellations HVEL --history`
+# reports the era as a RELIABLE `R2/confirm` (raw SBF decoded) reading. The
+# NetRS does not track GLONASS at all, so the catalog's GLO=true default would
+# fabricate a capability. The SEPT POLARX5 3013386 that replaced it (from
+# 2025-05-07, ex-HUSM) carries GPS+GLO.
+#
+# NOTE: this is now the FOURTH such suppression (VMEY 4000SSIs, HEID 5700,
+# HUSM 4971/HRIC 4926 NetR9s). The fleet has many genuinely GPS-only Trimble
+# eras and every one trips the same catalog default — a fleet-level rule
+# ('GLO not required when the model is a known GPS-only Trimble') would be
+# better than accumulating per-device lines (see todo #145).
+
+SUPPRESS 4862 GLO  # TRIMBLE NETRS 4539258376 — GPS-only for its whole HVEL tenure
