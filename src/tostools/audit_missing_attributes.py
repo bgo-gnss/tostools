@@ -441,10 +441,27 @@ def _occupation_for(occupations, serial: Optional[str], date_from: Optional[str]
     """Best occupation for a device, matched on serial then install date.
 
     Serial is the strong key — a campaign antenna appears at many markers, but
-    within one marker its serial identifies it. Date breaks ties when the same
-    unit was installed more than once (ISAK antenna 190269 has two occupations
-    with DIFFERENT heights, 1.0047 then 1.0358, so picking the wrong one would
-    record a real measurement against the wrong period).
+    within one marker its serial identifies it. Date picks the right OCCUPATION
+    of that unit, which matters because the same antenna can be re-installed
+    with a different height (ISAK antenna 190269 has two occupations, 1.0047
+    then 1.0358, so picking the wrong one records a real measurement against
+    the wrong period).
+
+    Selection, given a date *inside* some occupation's span:
+
+      1. the occupation whose ``[time_from, time_to)`` **covers** the date
+         (latest such, in case spans ever nest);
+      2. else the latest occupation **starting on or before** the date;
+      3. else (no date, or the date precedes every occupation) the earliest.
+
+    Step 2 is the one that used to be missing. The previous implementation
+    matched on an EXACT ``time_from`` and otherwise fell back to
+    ``candidates[0]`` — the earliest occupation — so any window beginning
+    part-way through an occupation silently got the wrong era's height. On a
+    long-history station, where every receiver era adds an occupation and the
+    TOS join windows rarely land exactly on one, that is the common case, not
+    the edge case: HVOL's 2019/2021/2026 windows all resolved to the 1999
+    occupation (1.0443) instead of the covering one (0.9780).
     """
     if not occupations:
         return None
@@ -454,11 +471,25 @@ def _occupation_for(occupations, serial: Optional[str], date_from: Optional[str]
     ]
     if not candidates:
         return None
-    if date_from:
-        exact = [o for o in candidates if str(o.time_from)[:10] == date_from]
-        if exact:
-            return exact[0]
-    return candidates[0]
+
+    def _start(o):
+        return _date_only(str(o.time_from)) if o.time_from else None
+
+    want = _date_only(str(date_from)) if date_from else None
+    if want:
+        covering = [
+            o
+            for o in candidates
+            if _start(o)
+            and _start(o) <= want
+            and (o.time_to is None or want < _date_only(str(o.time_to)))
+        ]
+        if covering:
+            return max(covering, key=_start)
+        earlier = [o for o in candidates if _start(o) and _start(o) <= want]
+        if earlier:
+            return max(earlier, key=_start)
+    return min(candidates, key=lambda o: _start(o) or "9999-99-99")
 
 
 #: Catalog codes whose ``default_value`` asserts a CURRENT operational state,

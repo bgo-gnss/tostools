@@ -7,6 +7,7 @@ focused per-rule coverage of the walker, not a full integration test.
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
 from unittest.mock import MagicMock
@@ -1124,3 +1125,170 @@ def test_audit_does_not_flag_a_valid_file_without_the_marker(
 
     assert report.station_info_note is None
     assert report.station_info_path == si
+
+
+# ---------------------------------------------------------------------------
+# _occupation_for — serial + DATE selection
+#
+# The same antenna can be re-installed with a DIFFERENT height (ISAK 190269:
+# 1.0047 then 1.0358), and on a long-history station every receiver era adds
+# another occupation. The old implementation matched an EXACT `time_from` and
+# otherwise returned candidates[0] — the EARLIEST occupation — so any TOS
+# window beginning part-way through an occupation silently got the wrong era's
+# height. That is the common case, not the edge case: HVOL's 2019/2021/2026
+# windows all resolved to its 1999 occupation (1.0443) instead of the covering
+# 0.9780 one.
+# ---------------------------------------------------------------------------
+
+
+def _occ(sn, height, start, end=None):
+    from tostools.standards.gamit_station_info import Occupation
+
+    return Occupation(
+        marker="TST1",
+        station_name="Somewhere",
+        time_from=datetime.fromisoformat(start),
+        time_to=datetime.fromisoformat(end) if end else None,
+        receiver_type="TRIMBLE 4700",
+        receiver_sn="1",
+        vers="1",
+        swver="1",
+        antenna_type="TRM29659.00",
+        dome="SCIS",
+        antenna_sn=sn,
+        antenna_height=height,
+        htcod="DHARP",
+        antenna_north="0.0000",
+        antenna_east="0.0000",
+    )
+
+
+# The ISAK shape: one antenna, two occupations, DIFFERENT heights.
+_TWO = [
+    _occ("190269", "1.0047", "2002-01-24", "2005-01-18"),
+    _occ("190269", "1.0358", "2005-01-18", None),
+]
+
+
+def test_occupation_for_picks_the_covering_occupation():
+    from tostools.audit_missing_attributes import _occupation_for
+
+    assert _occupation_for(_TWO, "190269", "2003-06-01").antenna_height == "1.0047"
+    assert _occupation_for(_TWO, "190269", "2010-06-01").antenna_height == "1.0358"
+
+
+def test_occupation_for_does_not_flip_to_the_earliest_after_the_last_start():
+    """The regression: a window INSIDE the final (open) occupation — the old
+    code returned candidates[0] and produced the 1999-era height."""
+    from tostools.audit_missing_attributes import _occupation_for
+
+    for probe in ("2005-01-18", "2019-10-16", "2021-04-15", "2026-09-01"):
+        assert (
+            _occupation_for(_TWO, "190269", probe).antenna_height == "1.0358"
+        ), probe
+
+
+def test_occupation_for_exact_start_wins():
+    from tostools.audit_missing_attributes import _occupation_for
+
+    assert _occupation_for(_TWO, "190269", "2005-01-18").antenna_height == "1.0358"
+
+
+def test_occupation_for_date_before_every_occupation_returns_the_earliest():
+    from tostools.audit_missing_attributes import _occupation_for
+
+    assert _occupation_for(_TWO, "190269", "1990-01-01").antenna_height == "1.0047"
+
+
+def test_occupation_for_no_date_returns_the_earliest():
+    """Back-compat: callers that pass no date keep the old first-match answer."""
+    from tostools.audit_missing_attributes import _occupation_for
+
+    assert _occupation_for(_TWO, "190269", None).antenna_height == "1.0047"
+
+
+def test_occupation_for_unknown_or_missing_serial_returns_none():
+    from tostools.audit_missing_attributes import _occupation_for
+
+    assert _occupation_for(_TWO, "999999", "2010-06-01") is None
+    assert _occupation_for(_TWO, None, "2010-06-01") is None
+    assert _occupation_for(_TWO, "", "2010-06-01") is None
+
+
+def test_occupation_for_accepts_date_only_and_iso_datetime_probes():
+    """TOS mixes '2002-01-01' and '2002-01-01 00:00:00' in the same payloads."""
+    from tostools.audit_missing_attributes import _occupation_for
+
+    assert _occupation_for(_TWO, "190269", "2010-06-01").antenna_height == "1.0358"
+    assert (
+        _occupation_for(_TWO, "190269", "2010-06-01 00:00:00").antenna_height
+        == "1.0358"
+    )
+    assert (
+        _occupation_for(_TWO, "190269", "2010-06-01T12:34:56").antenna_height
+        == "1.0358"
+    )
+
+
+def test_occupation_for_nested_spans_pick_the_most_specific():
+    """If spans ever nest, the latest-starting covering occupation wins."""
+    from tostools.audit_missing_attributes import _occupation_for
+
+    nested = [
+        _occ("1", "1.0", "2000-01-01", "2020-01-01"),
+        _occ("1", "2.0", "2010-01-01", "2012-01-01"),
+    ]
+    assert _occupation_for(nested, "1", "2011-01-01").antenna_height == "2.0"
+    assert _occupation_for(nested, "1", "2015-01-01").antenna_height == "1.0"
+
+
+def test_occupation_for_matches_serial_exactly_not_by_prefix():
+    from tostools.audit_missing_attributes import _occupation_for
+
+    occs = [_occ("17042", "1.0", "2000-01-01"), _occ("170423", "2.0", "2000-01-01")]
+    assert _occupation_for(occs, "170423", "2010-01-01").antenna_height == "2.0"
+
+
+def test_occupation_for_is_order_independent():
+    """`min()` must be chronological, not 'first in the list'. TOS payloads and
+    station.info files are not guaranteed to arrive oldest-first, so a plain
+    candidates[0] fallback would depend on file ordering."""
+    from tostools.audit_missing_attributes import _occupation_for
+
+    reversed_two = list(reversed(_TWO))
+    assert _occupation_for(reversed_two, "190269", "1990-01-01").antenna_height == "1.0047"
+    assert _occupation_for(reversed_two, "190269", None).antenna_height == "1.0047"
+    # and the dated paths must not care about order either
+    assert _occupation_for(reversed_two, "190269", "2003-06-01").antenna_height == "1.0047"
+    assert _occupation_for(reversed_two, "190269", "2020-06-01").antenna_height == "1.0358"
+
+
+def test_occupation_for_date_in_a_gap_after_the_last_end_picks_the_latest():
+    """After every occupation has ENDED there is no covering span, so the
+    'latest starting on or before' branch is the only correct answer -- the
+    earliest-fallback would reach back to the first era instead."""
+    from tostools.audit_missing_attributes import _occupation_for
+
+    ended = [
+        _occ("7", "1.0", "2000-01-01", "2005-01-01"),
+        _occ("7", "2.0", "2005-01-01", "2010-01-01"),
+    ]
+    assert _occupation_for(ended, "7", "2015-01-01").antenna_height == "2.0"
+    # and exactly ON the exclusive end date of the last one
+    assert _occupation_for(ended, "7", "2010-01-01").antenna_height == "2.0"
+
+
+def test_occupation_for_treats_time_to_as_exclusive():
+    """Spans are ``[time_from, time_to)`` -- a date exactly ON an occupation's
+    end belongs to the NEXT one, not to it. Nested spans make that observable
+    (with adjacent spans both conventions pick the same answer)."""
+    from tostools.audit_missing_attributes import _occupation_for
+
+    nested = [
+        _occ("1", "1.0", "2000-01-01", "2020-01-01"),
+        _occ("1", "2.0", "2010-01-01", "2012-01-01"),
+    ]
+    # 2012-01-01 is the inner occupation's EXCLUSIVE end -> it no longer covers
+    assert _occupation_for(nested, "1", "2012-01-01").antenna_height == "1.0"
+    # the day before is still the inner one
+    assert _occupation_for(nested, "1", "2011-12-31").antenna_height == "2.0"
