@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -201,6 +202,8 @@ def generate_station_triage(
     coverage_since: Optional[str] = None,
     coverage_window_days: int = 7,
     include_closed: bool = False,
+    station_info_path: Optional[Path] = None,
+    station_info_note: Optional[str] = None,
 ) -> StationTriageReport:
     """Run all audits on ``station`` and aggregate into a single report.
 
@@ -256,8 +259,18 @@ def generate_station_triage(
     # === Section: missing attributes ===
     missing_report: Optional[StationMissingAttributesReport]
     try:
+        # station_info_path is passed EXPLICITLY and not via audit_kwargs: the
+        # attribute-dates audit below shares audit_kwargs and does not accept it.
+        # Before this, the combined triage never consulted station.info at all —
+        # the oracle silently never fired on ANY host (not a rek-d01-only
+        # problem), so every suggested antenna height came out as <FILL_VALUE>.
         missing_report = audit_station_missing_attributes(
-            client, name=station, include_closed=include_closed, **audit_kwargs
+            client,
+            name=station,
+            include_closed=include_closed,
+            station_info_path=station_info_path,
+            station_info_note=station_info_note,
+            **audit_kwargs,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("missing-attributes audit failed on %s: %s", station, exc)
@@ -430,6 +443,38 @@ def format_station_triage(report: StationTriageReport) -> str:
     return "\n\n".join(parts) + "\n"
 
 
+def _missing_station_info_banner(report: StationTriageReport) -> List[str]:
+    """Warning lines for the combined header when the field-record oracle was
+    missing for the missing-attributes audit.
+
+    It belongs in the HEADER, not only in the missing-attributes section: that
+    section is emitted only when there ARE violations, so a degraded audit that
+    happened to find nothing would render a completely clean-looking triage —
+    the exact case where an operator most needs to know the oracle never ran.
+    """
+    miss = report.missing
+    if miss is None:
+        return []
+    out: List[str] = []
+    if miss.station_info_path is not None:
+        out.append(f"# station.info: {miss.station_info_path}")
+    if miss.station_info_degraded:
+        out.append("#")
+        out.append("# " + "!" * 66)
+        out.append(
+            "# !! WARNING — DEGRADED AUDIT: station.info UNAVAILABLE "
+            "(field record NOT read)."
+        )
+        for chunk in textwrap.wrap(str(miss.station_info_note), width=62) or [""]:
+            out.append(f"# !! {chunk}")
+        out.append(
+            "# !! Suggested heights/eccentricities are CATALOG DEFAULTS, not "
+            "field-record values."
+        )
+        out.append("# " + "!" * 66)
+    return out
+
+
 def _build_header(report: StationTriageReport) -> str:
     summary_lines = [
         f"#   missing-attributes:  "
@@ -465,13 +510,21 @@ def _build_header(report: StationTriageReport) -> str:
         f"#   device-conflicts:    {len(report.device_conflicts)} "
         "duplicate open singular device(s)"
     )
-    return (
+    header = (
         f"# === {report.station} station triage — auto-generated "
         f"{report.generated_at} ===\n"
         f"#\n"
         f"# Station id_entity={report.station_id}  ({report.total_findings} "
-        f"total finding(s))\n"
-        f"# Audit summary:\n" + "\n".join(summary_lines) + "\n#\n"
+        "total finding(s))\n"
+    )
+    banner = _missing_station_info_banner(report)
+    if banner:
+        header += "\n".join(banner) + "\n#\n"
+    return (
+        header
+        + "# Audit summary:\n"
+        + "\n".join(summary_lines)
+        + "\n#\n"
         "# Run:\n"
         "#   tos audit apply <this_file>          # dry-run (safe default)\n"
         "#   tos audit apply <this_file> --apply  # commit\n"

@@ -3758,6 +3758,12 @@ def _station_triage_main(args) -> int:
     )
 
     client = TOSClient()
+    # Resolve station.info HERE so the combined triage gets the same field-record
+    # oracle as `tos audit missing-attributes`. Without this the station triage
+    # never consulted it and every suggested antenna height became <FILL_VALUE>.
+    from .standards.gamit_station_info import resolve_for_audit
+
+    _si, _si_note = resolve_for_audit(getattr(args, "station_info", None))
     report = generate_station_triage(
         args.station,
         client=client,
@@ -3768,7 +3774,16 @@ def _station_triage_main(args) -> int:
         coverage_since=getattr(args, "coverage_since", None),
         coverage_window_days=getattr(args, "coverage_window_days", 7),
         include_closed=getattr(args, "include_closed", False),
+        station_info_path=(_si.path if _si is not None else None),
+        station_info_note=_si_note,
     )
+    if _si is None and _si_note:
+        print(f"⚠️  {_si_note}", file=sys.stderr)
+    elif _si is not None:
+        print(
+            f"{'⚠️  ' if _si.is_snapshot else ''}station.info: {_si.describe()}",
+            file=sys.stderr,
+        )
     rendered = format_station_triage(report)
 
     if args.stdout:

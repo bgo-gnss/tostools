@@ -351,6 +351,59 @@ def test_generate_forwards_use_suppressions_to_both_audits():
     assert m_dates.call_args.kwargs["use_suppressions"] is False
 
 
+def test_generate_forwards_station_info_to_the_missing_audit():
+    """The combined triage must hand station.info to the missing-attributes
+    audit — and ONLY to that one (the attribute-dates audit does not accept it).
+
+    It never did, so `tos station triage` ran without the field-record oracle on
+    EVERY host (not merely where the GAMIT mount is absent) and every suggested
+    antenna height came out as <FILL_VALUE>.
+    """
+    missing = StationMissingAttributesReport(station_id=1, station_name="X")
+    dates = StationAttributeDateReport(station_id=1, station_name="X")
+    si = Path("/somewhere/station.info")
+    note = "no station.info resolved (tried: ...)"
+    with (
+        patch(
+            "tostools.station_triage.audit_station_missing_attributes",
+            return_value=missing,
+        ) as m_missing,
+        patch(
+            "tostools.station_triage.audit_station_attribute_dates",
+            return_value=dates,
+        ) as m_dates,
+    ):
+        generate_station_triage(
+            "X",
+            client=object(),
+            generated_at=FROZEN_TS,
+            station_info_path=si,
+            station_info_note=note,
+        )
+
+    assert m_missing.call_args.kwargs["station_info_path"] == si
+    assert m_missing.call_args.kwargs["station_info_note"] == note
+    assert "station_info_path" not in m_dates.call_args.kwargs
+    assert "station_info_note" not in m_dates.call_args.kwargs
+
+
+def test_station_triage_renders_the_degraded_banner():
+    """A degraded missing-attributes report must show up in the COMBINED triage
+    file, not only in the standalone `audit missing-attributes` output."""
+    missing = StationMissingAttributesReport(
+        station_id=1, station_name="X", station_info_note="oracle UNAVAILABLE here"
+    )
+    report = StationTriageReport(
+        station="X",
+        station_id=1,
+        generated_at=FROZEN_TS,
+        missing=missing,
+    )
+    out = format_station_triage(report)
+    assert "DEGRADED AUDIT" in out
+    assert "oracle UNAVAILABLE here" in out
+
+
 def test_generate_skips_rinex_audit_by_default():
     """`with_archive=False` (the default) keeps the rinex slot None
     AND must NOT call the rinex audit — saves the archive-mount probe
