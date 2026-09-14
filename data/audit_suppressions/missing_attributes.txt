@@ -44,3 +44,15 @@
 
 SUPPRESS 4824 GLO   # TRIMBLE 4000SSI 26093 — GPS-only hardware
 SUPPRESS 4828 GLO   # TRIMBLE 4000SSI 28516 — GPS-only hardware
+
+# --- GLONASS on a GPS-only TRIMBLE 5700 --------------------------------
+#
+# Same case one receiver generation later, at HEID. The TRIMBLE 5700
+# (0220353761, HEID 2006-03-18→2009-09-21) is GPS-only hardware. The archive
+# agrees: `tos audit constellations HEID --history` reads GPS and nothing else
+# across the 121 archived 5700-era files (first sighting 2006-08-08), and the
+# era's RINEX carries type 'G' (GPS), never 'M'. 'false' is still not the
+# answer — the fleet records constellations POSITIVELY and absence means
+# "not supported". The device left HEID in 2009-09-21 and is now elsewhere.
+
+SUPPRESS 19233 GLO  # TRIMBLE 5700 0220353761 — GPS-only hardware
