@@ -199,6 +199,60 @@ def resolve_station_info(
     return None
 
 
+#: The resolution chain, in order, spelled out for the unavailability note.
+#: Kept beside :func:`resolve_station_info` so the two cannot drift.
+RESOLUTION_CHAIN = (
+    "--station-info override",
+    "TOSTOOLS_STATION_INFO env",
+    "receivers.cfg [paths] gamit_station_info",
+    "/D/DATABASE mount",
+    "packaged snapshot",
+)
+
+
+def resolve_for_audit(
+    override: Optional[Union[str, Path]] = None,
+) -> tuple[Optional[StationInfoSource], Optional[str]]:
+    """Resolve ``station.info`` for the required-attribute audits.
+
+    Returns ``(source, note)`` — **exactly one of them is None**:
+
+    * resolved      -> ``(StationInfoSource, None)``
+    * nothing found -> ``(None, note)`` explaining what was tried and what is lost
+
+    Why a note and not just ``None``: an absent ``station.info`` used to be
+    SILENT. With no oracle every suggestion in the missing-attributes audit falls
+    back to the catalog default, and ``antenna_height`` — which has no catalog
+    default — degrades to ``<FILL_VALUE>``. An operator reading the triage file
+    cannot then tell "the field record genuinely has no value here" from "the
+    oracle was never found". Observed 2026-09-14: the HEID/HRIC/HS02/HUSM/HVEL
+    triages were generated on rek-d01, which has no GAMIT mount, so no height
+    was suggested for any of them while the audit still reported success.
+    """
+    src = resolve_station_info(override)
+    if src is not None:
+        # The override/env/cfg branches of resolve_station_info return a path
+        # WITHOUT checking it exists (only the mount/packaged probes do), and
+        # load_station_info_occupations swallows OSError -> []. So a typo'd
+        # --station-info would degrade exactly as silently as no file at all.
+        if Path(src.path).is_file():
+            return src, None
+        return None, (
+            f"station.info resolved to {src.path} (via {src.origin}) but that "
+            "path is not a readable file — the field-record oracle is "
+            "UNAVAILABLE, so suggested antenna_height/offsets fall back to the "
+            "catalog default and antenna_height becomes <FILL_VALUE>."
+        )
+    tried = ", ".join(RESOLUTION_CHAIN)
+    return None, (
+        f"no station.info resolved (tried: {tried}) — the field-record oracle "
+        "is UNAVAILABLE, so suggested antenna_height/offsets fall back to the "
+        "catalog default and antenna_height becomes <FILL_VALUE>. Run this "
+        "where station.info is reachable (e.g. the GAMIT mount) or pass "
+        "--station-info."
+    )
+
+
 def _slice(line: str, start: int, end: int) -> str:
     if end == -1:
         return line[start:].strip()

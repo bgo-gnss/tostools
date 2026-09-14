@@ -7941,9 +7941,9 @@ def _audit_reconstruct_main(args, client) -> int:
     # glob over the repo root and cwd that took the last sorted hit and reported
     # nothing, so "which station.info did this audit read?" was unanswerable —
     # and it could never reach okada's live copy at all.
-    from .standards.gamit_station_info import resolve_station_info
+    from .standards.gamit_station_info import resolve_for_audit
 
-    _si = resolve_station_info(args.station_info)
+    _si, _si_note = resolve_for_audit(args.station_info)
     si_path = str(_si.path) if _si else None
     if _si:
         # Always say which copy was used. A packaged SNAPSHOT can be silently
@@ -7954,6 +7954,10 @@ def _audit_reconstruct_main(args, client) -> int:
             f"{'⚠️  ' if _si.is_snapshot else ''}station.info: {_si.describe()}",
             file=sys.stderr,
         )
+    elif _si_note:
+        # No field record: every suggested height/offset below is a catalog
+        # default. Say so up front rather than letting the file look checked.
+        print(f"⚠️  {_si_note}", file=sys.stderr)
     station_info_eras = None
     if si_path:
         try:
@@ -10165,6 +10169,7 @@ def _audit_main(argv):
         if getattr(args, "all", False):
             return _run_missing_attributes_fleet(client, args)
 
+        si_path, si_note = _resolved_station_info_path(args)
         try:
             report = ama_mod.audit_station_missing_attributes(
                 client,
@@ -10175,7 +10180,8 @@ def _audit_main(argv):
                 suppressions_path=args.suppressions,
                 use_suppressions=not args.no_suppressions,
                 include_closed=getattr(args, "history", False),
-                station_info_path=_resolved_station_info_path(args),
+                station_info_path=si_path,
+                station_info_note=si_note,
             )
         except (LookupError, ValueError, FileNotFoundError) as e:
             print(str(e), file=sys.stderr)
@@ -13824,20 +13830,27 @@ def _resolved_station_info_path(args):
 
     Announces the chosen copy ONCE per process — the fleet loop calls this per
     station and repeating it 173 times would bury it.
+
+    Returns ``(path_or_None, note_or_None)``. When nothing resolves we do NOT
+    stay silent: every suggested height/eccentricity then degrades to the
+    catalog default and ``antenna_height`` becomes ``<FILL_VALUE>``, which reads
+    as "checked, nothing known". The note is threaded into the report so the
+    triage file and the JSON say so too.
     """
     global _STATION_INFO_ANNOUNCED
-    from .standards.gamit_station_info import resolve_station_info
+    from .standards.gamit_station_info import resolve_for_audit
 
-    src = resolve_station_info(getattr(args, "station_info", None))
-    if src is None:
-        return None
+    src, note = resolve_for_audit(getattr(args, "station_info", None))
     if not _STATION_INFO_ANNOUNCED:
         _STATION_INFO_ANNOUNCED = True
-        print(
-            f"{'⚠️  ' if src.is_snapshot else ''}station.info: {src.describe()}",
-            file=sys.stderr,
-        )
-    return str(src.path)
+        if src is None:
+            print(f"⚠️  {note}", file=sys.stderr)
+        else:
+            print(
+                f"{'⚠️  ' if src.is_snapshot else ''}station.info: {src.describe()}",
+                file=sys.stderr,
+            )
+    return (str(src.path), None) if src is not None else (None, note)
 
 
 def _run_missing_attributes_fleet(client, args) -> int:
@@ -13898,6 +13911,7 @@ def _run_missing_attributes_fleet(client, args) -> int:
     by_code: Dict[str, int] = {}
     stale_by_code: Dict[str, int] = {}
     for i, marker in enumerate(markers, 1):
+        si_path, si_note = _resolved_station_info_path(args)
         try:
             report = ama_mod.audit_station_missing_attributes(
                 client,
@@ -13908,7 +13922,8 @@ def _run_missing_attributes_fleet(client, args) -> int:
                 suppressions_path=args.suppressions,
                 use_suppressions=not args.no_suppressions,
                 include_closed=getattr(args, "history", False),
-                station_info_path=_resolved_station_info_path(args),
+                station_info_path=si_path,
+                station_info_note=si_note,
             )
         except Exception as e:  # noqa: BLE001 — isolate per-station failures
             rows.append({"marker": marker, "error": str(e)[:120]})

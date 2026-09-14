@@ -155,6 +155,17 @@ class StationMissingAttributesReport:
     suppressions_path: Optional[Path] = None
     suppressions_errors: List[SuppressionParseError] = field(default_factory=list)
     suppressions_disabled: bool = False
+    #: Which station.info backed this audit, and — when the field-record oracle
+    #: could not be resolved — why. A non-None ``station_info_note`` means every
+    #: suggested height/eccentricity degraded to the catalog default, so the
+    #: triage file must say so instead of silently looking authoritative.
+    station_info_path: Optional[Path] = None
+    station_info_note: Optional[str] = None
+
+    @property
+    def station_info_degraded(self) -> bool:
+        """True when the station.info oracle was unavailable for this audit."""
+        return self.station_info_note is not None
 
     @property
     def hard_violations(self) -> List[MissingAttributeViolation]:
@@ -829,6 +840,7 @@ def audit_station_missing_attributes(
     use_suppressions: bool = True,
     include_closed: bool = False,
     station_info_path: Optional[Path] = None,
+    station_info_note: Optional[str] = None,
 ) -> StationMissingAttributesReport:
     """Walk a station + its child devices and flag missing required attributes.
 
@@ -906,6 +918,8 @@ def audit_station_missing_attributes(
         suppressions_path=supp_path,
         suppressions_errors=supp_errors,
         suppressions_disabled=not use_suppressions,
+        station_info_path=station_info_path,
+        station_info_note=station_info_note,
     )
 
     # 1. Station entity itself — iterate stations scope.
@@ -929,6 +943,20 @@ def audit_station_missing_attributes(
         if station_info_path
         else []
     )
+    # Defence in depth for library callers: the CLI resolves station.info and
+    # passes a note, but a direct caller handing over a path that does not exist
+    # would otherwise get the same silent degradation (the loader swallows
+    # OSError -> []). NB this fires only on "the oracle is not there" — a valid
+    # station.info that simply has no occupation for this marker is a legitimate
+    # result, not a degraded audit.
+    if station_info_path is not None:
+        report.station_info_path = Path(station_info_path)
+        if not Path(station_info_path).is_file() and report.station_info_note is None:
+            report.station_info_note = (
+                f"station.info {station_info_path} is not a readable file — the "
+                "field-record oracle is UNAVAILABLE, so suggested "
+                "heights/offsets are catalog defaults."
+            )
 
     joins_by_device = _station_joins_by_device(station_history)
     for device_id, joins in joins_by_device.items():
@@ -1088,6 +1116,13 @@ def _quote_value(value: Optional[str]) -> str:
     return shlex.quote(value)
 
 
+def _wrap_note(note: str, width: int = 62) -> List[str]:
+    """Wrap an unavailability note for the triage file's warning banner."""
+    import textwrap
+
+    return textwrap.wrap(note, width=width) or [""]
+
+
 def format_triage_file(
     report: StationMissingAttributesReport,
     *,
@@ -1145,6 +1180,23 @@ def format_triage_file(
     lines.append(f"# Violations: {len(report.violations)}")
     if report.stale_open:
         lines.append(f"# Open-after-removal: {len(report.stale_open)}")
+    if report.station_info_path is not None:
+        lines.append(f"# station.info: {report.station_info_path}")
+    if report.station_info_degraded:
+        # Loud on purpose: without the oracle every suggested height/offset in
+        # this file is a catalog default, and antenna_height is a bare
+        # <FILL_VALUE>. Silently emitting that read as "checked, nothing known".
+        lines.append("#")
+        lines.append("# " + "!" * 66)
+        lines.append(
+            "# !! WARNING — DEGRADED AUDIT: station.info UNAVAILABLE "
+            "(field record NOT read)."
+        )
+        for _chunk in _wrap_note(str(report.station_info_note)):
+            lines.append(f"# !! {_chunk}")
+        lines.append("# !! Suggested heights/eccentricities are CATALOG DEFAULTS, not")
+        lines.append("# !! field-record values. Re-generate before trusting them.")
+        lines.append("# " + "!" * 66)
     lines.append("#")
     lines.append("# Format: one ACTION per line, '#' for comments.")
     lines.append("#")

@@ -16,6 +16,7 @@ import pytest
 from tostools.audit_missing_attributes import (
     FILL_DATE_PLACEHOLDER,
     FILL_VALUE_PLACEHOLDER,
+    MissingAttributeViolation,
     audit_station_missing_attributes,
     format_triage_file,
     load_missing_suppressions,
@@ -929,3 +930,197 @@ def test_audit_windows_use_midday_bump():
 
     j = {"time_from": "1995-09-01T00:00:00", "time_to": "1995-09-01T16:30:00"}
     assert f(j) == "1995-09-02"
+
+
+# ---------------------------------------------------------------------------
+# station.info unavailability guard
+#
+# An absent station.info is not benign: with no field-record oracle every
+# suggestion degrades to the catalog default, and antenna_height — which has NO
+# catalog default — becomes <FILL_VALUE>. That used to be silent, so a triage
+# generated where the GAMIT mount is missing (rek-d01, 2026-09-14: HEID, HRIC,
+# HS02, HUSM, HVEL) looked exactly like one where the field record was consulted
+# and had nothing to say.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_for_audit_returns_note_when_nothing_resolves(monkeypatch):
+    """No station.info anywhere -> (None, note) naming the chain that was tried."""
+    from tostools.standards import gamit_station_info as gsi
+
+    monkeypatch.setattr(gsi, "resolve_station_info", lambda override=None: None)
+    src, note = gsi.resolve_for_audit()
+
+    assert src is None
+    assert note is not None
+    # the note must be actionable: what was tried, what is lost, what to do
+    for token in ("UNAVAILABLE", "antenna_height", "<FILL_VALUE>", "--station-info"):
+        assert token in note
+
+
+def test_resolve_for_audit_note_is_none_on_success(monkeypatch, tmp_path):
+    """A resolved, READABLE copy yields no note — the guard must not cry wolf."""
+    from tostools.standards import gamit_station_info as gsi
+
+    real = tmp_path / "station.info"
+    real.write_text("")
+    fake = gsi.StationInfoSource(real, "mount")
+    monkeypatch.setattr(gsi, "resolve_station_info", lambda override=None: fake)
+    src, note = gsi.resolve_for_audit()
+
+    assert src is fake
+    assert note is None
+
+
+def test_resolve_for_audit_flags_a_resolved_but_missing_path(monkeypatch, tmp_path):
+    """resolve_station_info returns override/env/cfg paths WITHOUT checking they
+    exist, and the occupation loader swallows OSError -> []. A typo'd
+    --station-info must therefore be caught here, not degrade silently."""
+    from tostools.standards import gamit_station_info as gsi
+
+    fake = gsi.StationInfoSource(tmp_path / "nope.info", "override")
+    monkeypatch.setattr(gsi, "resolve_station_info", lambda override=None: fake)
+    src, note = gsi.resolve_for_audit()
+
+    assert src is None
+    assert note is not None and "not a readable file" in note
+
+
+def test_report_carries_station_info_path_and_note(catalog_path: Path):
+    """The audit records which station.info backed it, and the degradation."""
+    station = _station(
+        100,
+        "Test Station",
+        connections=[],
+        extra_attrs=[_attr("marker", "tst1"), _attr("subtype", "GPS stöð")],
+    )
+    client = _client_for({100: station})
+    report = audit_station_missing_attributes(
+        client,
+        id_entity=100,
+        catalog_path=catalog_path,
+        station_info_path=None,
+        station_info_note="no station.info resolved (tried: ...)",
+    )
+
+    assert report.station_info_note == "no station.info resolved (tried: ...)"
+    assert report.station_info_degraded is True
+
+
+def test_report_is_not_degraded_without_a_note(catalog_path: Path):
+    """Default (no note) = healthy; ``degraded`` must stay False."""
+    station = _station(
+        100,
+        "Test Station",
+        connections=[],
+        extra_attrs=[_attr("marker", "tst1"), _attr("subtype", "GPS stöð")],
+    )
+    client = _client_for({100: station})
+    report = audit_station_missing_attributes(client, id_entity=100, catalog_path=catalog_path)
+
+    assert report.station_info_note is None
+    assert report.station_info_degraded is False
+
+
+def test_triage_file_warns_when_station_info_degraded(catalog_path: Path):
+    """The triage file itself must carry the warning — that is the artifact an
+    operator reads, and a bare <FILL_VALUE> is indistinguishable from a
+    checked-but-empty field record."""
+    station = _station(
+        100,
+        "Test Station",
+        connections=[],
+        extra_attrs=[_attr("marker", "tst1"), _attr("subtype", "GPS stöð")],
+    )
+    client = _client_for({100: station})
+    report = audit_station_missing_attributes(
+        client,
+        id_entity=100,
+        catalog_path=catalog_path,
+        station_info_note="no station.info resolved (tried: mount, packaged)",
+    )
+    report.violations.append(
+        MissingAttributeViolation(
+            id_entity=100,
+            subtype="geophysical",
+            name="Test Station",
+            code="altitude",
+            scope="stations",
+            suggested_value=None,
+            suggested_date_from=None,
+            suggested_date_to=None,
+            value_basis=None,
+            severity="required",
+        )
+    )
+
+    out = format_triage_file(report, generated_at="2026-09-14T00:00:00Z")
+
+    assert "DEGRADED AUDIT" in out
+    assert "UNAVAILABLE" in out
+    assert "CATALOG DEFAULTS" in out
+
+
+def test_triage_file_names_the_station_info_when_present(catalog_path: Path, tmp_path: Path):
+    """A healthy run names the copy it used, and emits no warning."""
+    station = _station(
+        100,
+        "Test Station",
+        connections=[],
+        extra_attrs=[_attr("marker", "tst1"), _attr("subtype", "GPS stöð")],
+    )
+    client = _client_for({100: station})
+    si = tmp_path / "station.info"
+    si.write_text("")
+    report = audit_station_missing_attributes(
+        client,
+        id_entity=100,
+        catalog_path=catalog_path,
+        station_info_path=si,
+    )
+    out = format_triage_file(report, generated_at="2026-09-14T00:00:00Z")
+
+    assert "DEGRADED AUDIT" not in out
+    assert f"# station.info: {si}" in out
+
+
+def test_audit_flags_a_station_info_path_that_is_not_a_file(catalog_path: Path):
+    """A direct caller passing a missing path must not get a silent pass."""
+    station = _station(
+        100,
+        "Test Station",
+        connections=[],
+        extra_attrs=[_attr("marker", "tst1"), _attr("subtype", "GPS stöð")],
+    )
+    client = _client_for({100: station})
+    report = audit_station_missing_attributes(
+        client,
+        id_entity=100,
+        catalog_path=catalog_path,
+        station_info_path=Path("/nonexistent/station.info"),
+    )
+
+    assert report.station_info_degraded is True
+    assert "not a readable file" in report.station_info_note
+
+
+def test_audit_does_not_flag_a_valid_file_without_the_marker(
+    catalog_path: Path, tmp_path: Path
+):
+    """A valid station.info with no occupation for this marker is legitimate —
+    absence of an occupation is not absence of the oracle."""
+    station = _station(
+        100,
+        "Test Station",
+        connections=[],
+        extra_attrs=[_attr("marker", "tst1"), _attr("subtype", "GPS stöð")],
+    )
+    client = _client_for({100: station})
+    si = tmp_path / "station.info"
+    si.write_text(" TST1  Somewhere  2006 222 00 00 00  9999 999 00 00 00  1.0000\n")
+    report = audit_station_missing_attributes(
+        client, id_entity=100, catalog_path=catalog_path, station_info_path=si
+    )
+
+    assert report.station_info_note is None
+    assert report.station_info_path == si

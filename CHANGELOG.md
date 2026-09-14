@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ⚠️ `tos audit missing-attributes` — an absent `station.info` is now LOUD (2026-09-14)
+
+#### Fixed
+
+- **A missing `station.info` silently degraded every suggestion.** With no field-record
+  oracle, `antenna_height` — which has no catalog default — falls back to
+  `<FILL_VALUE>` and the eccentricities to the catalog's `0.0`, which reads in the
+  triage file exactly like "checked, the field record has nothing". Observed
+  2026-09-14 on the EPOS onboarding queue: the HEID/HRIC/HS02/HUSM/HVEL triages were
+  generated on `rek-d01`, which has no GAMIT mount, so no antenna height was suggested
+  for any of them while the audit still reported success.
+- **New `resolve_for_audit()`** (`standards/gamit_station_info.py`) returns
+  `(source, note)`; the note names the resolution chain that was tried and what is
+  lost. It also catches a *resolved-but-missing* path: the `--station-info` / env / cfg
+  branches return a path WITHOUT checking it exists, and
+  `load_station_info_occupations` swallows `OSError`, so a typo'd flag degraded as
+  silently as no file at all.
+- **The report and the triage file now carry it**: `StationMissingAttributesReport`
+  gains `station_info_path` / `station_info_note` / `station_info_degraded`, the CLI
+  warns once per process on stderr, and `format_triage_file` emits a `DEGRADED AUDIT`
+  banner. The audit itself also flags a `station_info_path` that is not a readable
+  file, so library callers get the guard too — while a valid file that merely has no
+  occupation for that marker stays unflagged (a legitimate result, not a degradation).
+
 ### ✨ `tos search` — visit and contact selectors (2026-08-24)
 
 #### Added
