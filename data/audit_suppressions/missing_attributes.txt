@@ -73,3 +73,16 @@ SUPPRESS 19233 GLO  # TRIMBLE 5700 0220353761 — GPS-only hardware
 # Effect: sitelog §3.1 for this era renders `Satellite System : GPS`.
 
 SUPPRESS 4926 GLO  # TRIMBLE NETR9 5230K51042 — GLO not tracked during this era
+
+# --- GLONASS on a GPS-only TRIMBLE NETR9 (HUSM 2012-2016) --------------
+#
+# Same case at HUSM. Its second receiver, TRIMBLE NETR9 5223K85834
+# (device 4971, HUSM 2012-08-17→2016-07-26), ran GPS-only: the archived
+# RINEX is `2.11 ... G (GPS)` (e.g. HUSM1520.13D.Z) and
+# `tos audit constellations HUSM --history` reports the era as a RELIABLE
+# `R2/confirm` reading (raw SBF decoded), so the GLO absence is evidence.
+# A NetR9 does support GLONASS, so this is a config that was off, not absent
+# hardware — but the same convention applies: absence = not tracked, never an
+# explicit false. The next PolaRX5 at the mark tracks GLO from 2017-05-29.
+
+SUPPRESS 4971 GLO  # TRIMBLE NETR9 5223K85834 — GPS-only era at HUSM
