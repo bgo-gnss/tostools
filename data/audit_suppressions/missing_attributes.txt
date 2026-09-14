@@ -56,3 +56,20 @@ SUPPRESS 4828 GLO   # TRIMBLE 4000SSI 28516 — GPS-only hardware
 # "not supported". The device left HEID in 2009-09-21 and is now elsewhere.
 
 SUPPRESS 19233 GLO  # TRIMBLE 5700 0220353761 — GPS-only hardware
+
+# --- GLONASS switched off (not absent hardware) ------------------------
+#
+# HRIC's FIRST receiver, TRIMBLE NETR9 5230K51042 (device 4926,
+# 2014-08-23→2014-11-05, ~2.5 months / 32 files), ran genuinely GPS-only.
+# This one is NOT a hardware limit — a NetR9 does support GLONASS, and the
+# next receiver at the same mark (5424R48889, from 2014-11-26) tracks GLO.
+# The archived RINEX for the era is `2.11 ... G (GPS)` with no GLO
+# observations, and `tos audit constellations HRIC --history` reports the era
+# as a RELIABLE `R2/confirm` reading — it decodes the day's raw SBF, so the
+# absence is evidence, not R2 under-reporting. 'false' would be defensible
+# here (the capability existed, the toggle was off), but the fleet records
+# constellations POSITIVELY and no row carries an explicit false, so absence
+# stays the convention and this line records that the gap is intended.
+# Effect: sitelog §3.1 for this era renders `Satellite System : GPS`.
+
+SUPPRESS 4926 GLO  # TRIMBLE NETR9 5230K51042 — GLO not tracked during this era
