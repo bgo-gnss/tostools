@@ -9,6 +9,7 @@
 
 import json
 import logging
+import os
 from datetime import datetime as dt
 from datetime import timedelta
 from operator import itemgetter
@@ -27,6 +28,7 @@ from tabulate import tabulate
 # unaffected. See docs/architecture/legacy-fork-unification-plan.md.
 from .. import gps_metadata_qc as gpsqc
 from ..device import PUBLISHED_UNKNOWN_ANTENNA_SERIAL, is_synthetic_serial
+from ..exceptions import IdenticalRenderSessionsError
 from ..utils.data_quality import IssueSeverity, IssueType, data_quality_manager
 
 
@@ -939,6 +941,26 @@ def site_log(
         if session["device"]["code_entity_subtype"] == "gnss_receiver"
     )
     receiver_list.sort(key=lambda x: x["device"]["date_from"])
+    from ..devices import (
+        absorb_short_boundary_sessions,
+        coalesce_render_sessions,
+        find_identical_render_sessions,
+    )
+
+    # Record — but do NOT yet refuse — identical adjacent slices in the RAW list.
+    # The coalescer below legitimately absorbs these (NYLA's GPS-toggle day,
+    # ISAK's firmware/QZSS day), so they are not fatal here; they are still a TOS
+    # date misalignment the operator should learn about. The FINAL list is
+    # re-checked after the repairs and that check IS fatal — see below.
+    _check_identical_render_sessions(
+        find_identical_render_sessions(
+            receiver_list, _receiver_render_signature, section="3"
+        ),
+        station_identifier=station_identifier,
+        section="3",
+        logger=module_logger,
+        strict=False,
+    )
     # Coalesce phantom sub-windows: a TOS attribute period misaligned by a
     # day or two from the real equipment change (e.g. NYLA's GPS constellation
     # toggle entered with date_from one day after the receiver install) splits
@@ -948,7 +970,6 @@ def site_log(
     # Real constellation changes (GPS+GLO → GPS+GLO+GAL) differ in the
     # satellite-system component and are preserved. See
     # devices.coalesce_render_sessions.
-    from ..devices import absorb_short_boundary_sessions, coalesce_render_sessions
 
     receiver_list = coalesce_render_sessions(
         receiver_list,
@@ -975,6 +996,17 @@ def site_log(
             d.get("serial_number"),
             d.get("firmware_version"),
         ),
+    )
+    # The list that will actually be rendered. Anything still identical here is a
+    # phantom era in the site log itself, so refuse to emit it.
+    _check_identical_render_sessions(
+        find_identical_render_sessions(
+            receiver_list, _receiver_render_signature, section="3"
+        ),
+        station_identifier=station_identifier,
+        section="3",
+        logger=module_logger,
+        strict=True,
     )
     receiver_info = "\n3.   GNSS Receiver Information\n\n"
     for session_nr, session in enumerate(receiver_list):
@@ -1034,6 +1066,18 @@ def site_log(
     )
     antenna_list.sort(key=lambda x: x["device"]["date_from"])
     module_logger.debug("antenna_list: \n%s", json_print(antenna_list))
+    # §4 has NO coalescing repair (that asymmetry is exactly how HRIC's 16-hour
+    # duplicate reached M3G), so this is the only thing between a misaligned TOS
+    # attribute period and a published phantom antenna era.
+    _check_identical_render_sessions(
+        find_identical_render_sessions(
+            antenna_list, _antenna_render_signature, section="4"
+        ),
+        station_identifier=station_identifier,
+        section="4",
+        logger=module_logger,
+        strict=True,
+    )
     antenna_info = "\n4.   GNSS Antenna Information\n\n"
     for session_nr, session in enumerate(antenna_list):
         # antenna_height = 0.0
@@ -1742,6 +1786,113 @@ def main():
     # marker = "TREE"
     # platefile = "./station-plate"
     # print(grep_line_aslist(platefile, marker))
+
+
+#: Set to a truthy value to render a site log that contains identical adjacent
+#: sections anyway. Only for the case where an operator has investigated the
+#: reported pair and concluded the duplicate is intentional or unavoidable —
+#: publishing a phantom era to M3G/EPOS is otherwise worse than stopping, since
+#: M3G's own subsection-count guard means it cannot be removed through the API.
+_IDENTICAL_SESSIONS_ENV = "TOSTOOLS_ALLOW_IDENTICAL_SESSIONS"
+
+
+#: Fields that distinguish two §3 receiver blocks. Deliberately the SAME tuple
+#: ``coalesce_render_sessions`` merges on, so the detector sees exactly what the
+#: repair would otherwise have hidden.
+_RECEIVER_RENDER_SIGNATURE_KEYS = (
+    "id_entity",
+    "model",
+    "serial_number",
+    "firmware_version",
+)
+
+
+#: Fields that distinguish two §4 antenna blocks. The monument terms are included
+#: because the renderer folds ``monument_height``/offsets into the Marker->ARP
+#: values, so a monument change is a real difference and must not be flagged.
+_ANTENNA_RENDER_SIGNATURE_KEYS = (
+    "id_entity",
+    "model",
+    "serial_number",
+    "antenna_reference_point",
+    "monument_height",
+    "antenna_height",
+    "antenna_offset_north",
+    "antenna_offset_east",
+    "azimuth",
+)
+
+
+def _receiver_render_signature(device):
+    """§3 render-distinguishing fields, including the resolved satellite system.
+
+    The satellite system is resolved through ``satellite_system_from_toggles``
+    rather than read raw, matching the coalescer: an unset-GPS sub-window and a
+    set-GPS one both resolve to ``"GPS"`` and must therefore count as
+    identical, while a genuine ``GPS`` -> ``GPS+GLO`` change must not.
+    """
+    return tuple(device.get(k) for k in _RECEIVER_RENDER_SIGNATURE_KEYS) + (
+        satellite_system_from_toggles(device),
+    )
+
+
+def _antenna_render_signature(device):
+    """§4 render-distinguishing fields."""
+    return tuple(device.get(k) for k in _ANTENNA_RENDER_SIGNATURE_KEYS)
+
+
+def _identical_sessions_allowed():
+    return (os.environ.get(_IDENTICAL_SESSIONS_ENV) or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _check_identical_render_sessions(
+    pairs, *, station_identifier, section, logger, strict
+):
+    """Stop — or shout — when adjacent slices in a section render identically.
+
+    ``strict=False`` is for the pre-repair §3 list: the coalescer/absorber
+    legitimately smooths those, but the operator should still learn that TOS is
+    misaligned. ``strict=True`` is for the list that will actually be rendered:
+    if two entries are still identical there, the site log itself is wrong and
+    we refuse to produce it.
+    """
+    if not pairs:
+        return
+    detail = "\n".join(f"     - {p.describe()}" for p in pairs)
+    body = (
+        f"{station_identifier} §{section}: {len(pairs)} pair(s) of adjacent "
+        f"device slices render identically — a phantom era.\n{detail}\n"
+        "     This is a TOS DATE MISALIGNMENT, not an equipment change: an\n"
+        "     attribute period whose date_to lands at midnight (or whose\n"
+        "     date_from lands off the real change) against a join that ended at\n"
+        "     a different time partitions one configuration into two eras.\n"
+        "     Fix the TOS rows so the boundaries agree. Use\n"
+        "     tostools.api.tos_writer.TOSWriter.patch_attribute_value with a\n"
+        "     FULL TIMESTAMP — the audited verb 'patch-attribute-date-to'\n"
+        "     truncates to YYYY-MM-DD and would recreate the midnight boundary."
+    )
+    if not strict:
+        logger.warning(
+            "%s\n     (§%s repairs absorb this — recorded, not fatal)", body, section
+        )
+        return
+    if _identical_sessions_allowed():
+        logger.warning(
+            "%s\n     (%s is set — rendering anyway)",
+            body,
+            _IDENTICAL_SESSIONS_ENV,
+        )
+        return
+    raise IdenticalRenderSessionsError(
+        body
+        + f"\n     Refusing to render. Fix the TOS rows, or set "
+        f"{_IDENTICAL_SESSIONS_ENV}=1 to render anyway once you have investigated."
+    )
 
 
 if __name__ == "__main__":

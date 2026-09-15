@@ -98,6 +98,7 @@ Cross-layer composites (§3h):
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -915,6 +916,74 @@ def device_sessions(
 
     sessions.sort(key=lambda s: s["device"]["date_from"])
     return sessions
+
+
+@dataclass(frozen=True)
+class IdenticalRenderPair:
+    """Two adjacent, contiguous device slices that would render identically.
+
+    Returned by :func:`find_identical_render_sessions`. See
+    :class:`tostools.exceptions.IdenticalRenderSessionsError` for why this is a
+    stop-and-investigate signal rather than something to merge silently away.
+    """
+
+    section: str
+    first: Dict[str, Any]
+    second: Dict[str, Any]
+
+    @property
+    def device(self) -> Dict[str, Any]:
+        return self.first["device"]
+
+    @property
+    def boundary(self) -> Any:
+        """The instant the two slices meet — where the phantom era was born."""
+        return self.first["device"].get("date_to")
+
+    def describe(self) -> str:
+        d1 = self.first["device"]
+        d2 = self.second["device"]
+        subtype = d1.get("code_entity_subtype") or "?"
+        label = d1.get("name") or d1.get("serial_number") or "?"
+        model = d1.get("model") or "?"
+        return (
+            f"{subtype} id_entity={d1.get('id_entity')} ({label}, {model}) "
+            f"renders the same twice:\n"
+            f"       {d1.get('date_from')} -> {d1.get('date_to')}\n"
+            f"       {d2.get('date_from')} -> {d2.get('date_to')}"
+        )
+
+
+def find_identical_render_sessions(
+    sessions: List[Dict[str, Any]],
+    signature: Callable[[Dict[str, Any]], Any],
+    *,
+    section: str = "?",
+) -> List[IdenticalRenderPair]:
+    """Adjacent **contiguous** slices whose render signature is equal.
+
+    Exactly the predicate :func:`coalesce_render_sessions` merges on, exposed as
+    a *finding* rather than a repair. The two differ in intent, not in
+    detection: coalescing silently smooths the artifact away, which is right
+    when the generator is the only consumer, and wrong when the artifact is a
+    symptom of misaligned TOS dates that ought to be corrected at source — and
+    which M3G will eventually ask us about.
+
+    Contiguity (``prev.date_to == cur.date_from``) is required, so two identical
+    blocks separated by a real gap are two real installations and are not
+    reported. See :class:`IdenticalRenderPair`.
+
+    The input list is not mutated.
+    """
+    found: List[IdenticalRenderPair] = []
+    for prev, cur in zip(sessions, sessions[1:]):
+        pdev, cdev = prev["device"], cur["device"]
+        contiguous = pdev.get("date_to") is not None and pdev["date_to"] == cdev.get(
+            "date_from"
+        )
+        if contiguous and signature(pdev) == signature(cdev):
+            found.append(IdenticalRenderPair(section, prev, cur))
+    return found
 
 
 def coalesce_render_sessions(
