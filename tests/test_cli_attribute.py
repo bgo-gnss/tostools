@@ -240,3 +240,150 @@ class TestWiring:
 
         _print_top_level_help()
         assert "attribute" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# The entity label is resolved AS OF the row, not as of today
+# ---------------------------------------------------------------------------
+
+# V159's name chain as the entity-history endpoint returns it.
+V159_HISTORY = {
+    "code_entity_subtype": "hydrological",
+    "attributes": [
+        {
+            "code": "marker",
+            "value": "V159",
+            "date_from": "1900-01-01T00:00:00",
+            "date_to": None,
+        },
+        {
+            "code": "name",
+            "value": "Sandgígjukvísl",
+            "date_from": "2009-05-09T00:00:00",
+            "date_to": "2009-05-09T10:00:00",
+        },
+        {
+            "code": "name",
+            "value": "Gígjukvísl",
+            "date_from": "2009-05-09T10:00:00",
+            "date_to": None,
+        },
+    ],
+}
+
+
+class TestTheLabelIsAsOfTheRow:
+    """Captioning a 2009 assertion with today's name is the same time-blind
+    mistake as truncating the boundary to a day — and it is worse here,
+    because the caption then contradicts the value printed directly above it.
+    """
+
+    def test_the_closed_period_is_labelled_with_its_own_name(self):
+        text = _render_to_text([ROW_OLD], FakeClient(entity=V159_HISTORY))
+        assert "V159/Sandgígjukvísl" in text
+        assert "V159/Gígjukvísl" not in text
+
+    def test_the_open_period_is_labelled_with_the_current_name(self):
+        text = _render_to_text([ROW_OPEN], FakeClient(entity=V159_HISTORY))
+        assert "V159/Gígjukvísl" in text
+
+    def test_the_boundary_is_compared_at_full_precision(self):
+        """Both periods fall on 2009-05-09; only the TIME separates them, so a
+        day-truncating comparison would label them identically."""
+        old = _render_to_text([ROW_OLD], FakeClient(entity=V159_HISTORY))
+        new = _render_to_text([ROW_OPEN], FakeClient(entity=V159_HISTORY))
+        assert old.count("Sandgígjukvísl") and "Sandgígjukvísl" not in new
+
+    def test_an_instant_before_any_name_existed_falls_back_to_marker(self):
+        row = dict(ROW_OLD, date_from="1990-01-01T00:00:00")
+        text = _render_to_text([row], FakeClient(entity=V159_HISTORY))
+        assert "V159" in text
+        assert "Sandgígjukvísl" not in text.split("entity")[-1]
+
+
+class TestCoveringPeriodSelection:
+    def test_end_is_exclusive_and_start_inclusive(self):
+        from tostools.cli_attribute import _covering
+
+        periods = [
+            {
+                "value": "a",
+                "date_from": "2009-05-09T00:00:00",
+                "date_to": "2009-05-09T10:00:00",
+            },
+            {"value": "b", "date_from": "2009-05-09T10:00:00", "date_to": None},
+        ]
+        assert _covering(periods, "2009-05-09T00:00:00") == "a"
+        assert _covering(periods, "2009-05-09T09:59:59") == "a"
+        # The hand-off instant belongs to the SUCCESSOR, matching TOS's own
+        # half-open convention — otherwise both periods claim it.
+        assert _covering(periods, "2009-05-09T10:00:00") == "b"
+
+    def test_at_none_selects_the_open_period(self):
+        from tostools.cli_attribute import _covering
+
+        periods = [
+            {"value": "a", "date_from": "2000-01-01", "date_to": "2005-01-01"},
+            {"value": "b", "date_from": "2005-01-01", "date_to": None},
+        ]
+        assert _covering(periods, None) == "b"
+        # REVERSED too: "take the last row" happens to be right when the open
+        # period sorts last, which let a mutation doing exactly that survive.
+        assert _covering(list(reversed(periods)), None) == "b"
+
+    def test_selection_does_not_depend_on_input_order(self):
+        """Same reason: an inclusive-end bug makes TWO periods match the
+        hand-off instant, and a last-wins loop hides it on sorted input."""
+        from tostools.cli_attribute import _covering
+
+        periods = [
+            {
+                "value": "a",
+                "date_from": "2009-05-09T00:00:00",
+                "date_to": "2009-05-09T10:00:00",
+            },
+            {"value": "b", "date_from": "2009-05-09T10:00:00", "date_to": None},
+        ]
+        for order in (periods, list(reversed(periods))):
+            assert _covering(order, "2009-05-09T09:59:59") == "a"
+            assert _covering(order, "2009-05-09T10:00:00") == "b"
+
+    def test_no_covering_period_yields_none(self):
+        from tostools.cli_attribute import _covering
+
+        periods = [{"value": "a", "date_from": "2009-01-01", "date_to": "2010-01-01"}]
+        assert _covering(periods, "2008-01-01") is None
+
+
+class TestTheEntityNamespace:
+    """`8934` is V159 as an ENTITY and a Dalatangi altitude as an ATTRIBUTE.
+
+    The namespaces overlap numerically, so a bare id typed into the wrong one
+    resolves silently to an unrelated row — in that real case a meteorological
+    station in the east instead of a hydrological one on Skeiðarársandur.
+    `--entity` gives the other namespace its own door.
+    """
+
+    def test_entity_lists_every_attribute_row(self, patched, capsys):
+        rc = patched(["show", "--entity", "8934", "--json"], entity=V159_HISTORY)
+        assert rc == 0
+        out = json.loads(capsys.readouterr().out)
+        assert [r["code"] for r in out] == ["marker", "name", "name"]
+        assert [r["value"] for r in out] == [
+            "V159",
+            "Sandgígjukvísl",
+            "Gígjukvísl",
+        ]
+
+    def test_rows_are_stamped_with_the_requested_entity(self, patched, capsys):
+        patched(["show", "--entity", "8934", "--json"], entity=V159_HISTORY)
+        out = json.loads(capsys.readouterr().out)
+        assert {r["id_entity"] for r in out} == {8934}
+
+    def test_an_entity_with_no_attributes_exits_1(self, patched):
+        assert patched(["show", "--entity", "1", "--json"], entity={}) == 1
+
+    def test_neither_ids_nor_entity_is_a_usage_error(self, patched):
+        with pytest.raises(SystemExit) as exc:
+            patched(["show"])
+        assert exc.value.code == 2

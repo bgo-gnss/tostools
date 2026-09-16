@@ -36,8 +36,52 @@ from typing import Any, Dict, List, Optional
 _NAME_CODES = ("name", "marker", "serial_number", "model")
 
 
-def _entity_label(client, id_entity: Optional[int]) -> str:
+def _covering(periods: List[Dict[str, Any]], at: Optional[str]) -> Optional[str]:
+    """Value of the period covering ``at``; the open period when ``at`` is None.
+
+    ISO-8601 strings compare correctly with ``<``/``>=`` at any shared
+    precision, so no parsing is needed — but the comparison MUST be done on
+    the full timestamps. Truncating to days here would reintroduce exactly the
+    ambiguity this module exists to remove: V159 has two ``name`` periods that
+    start and end on the same day.
+    """
+    if at is None:
+        # The open period, whatever position it holds in the input.
+        open_periods = [p for p in periods if p.get("date_to") in (None, "")]
+        covering = open_periods[0] if open_periods else None
+    else:
+        # Sorted, then FIRST match — deliberately not "last one wins". Order
+        # independence is what makes the half-open test observable: with a
+        # buggy inclusive end two periods both match the hand-off instant, and
+        # a last-wins loop would silently return the right answer anyway
+        # whenever the input happened to be sorted ascending.
+        covering = None
+        for period in sorted(periods, key=lambda p: str(p.get("date_from") or "")):
+            start, end = period.get("date_from"), period.get("date_to")
+            if start and str(start) > str(at):
+                continue
+            # Half-open [start, end): the hand-off instant belongs to the
+            # SUCCESSOR, matching TOS's own convention. V159's two `name`
+            # periods abut at 2009-05-09T10:00:00 and exactly one owns it.
+            if end not in (None, "") and str(at) >= str(end):
+                continue
+            covering = period
+            break
+    if covering is None:
+        return None
+    value = covering.get("value")
+    return None if value is None else str(value)
+
+
+def _entity_label(client, id_entity: Optional[int], at: Optional[str] = None) -> str:
     """A human label for ``id_entity`` — ``marker/name (subtype)``.
+
+    ``at`` resolves the label AS OF that instant, normally the row's own
+    ``date_from``. Without it the caption is anachronistic: attribute 109880
+    asserts V159 was called *Sandgígjukvísl*, and labelling it with the name
+    the station acquired ten hours later is the same time-blind mistake as
+    truncating the boundary to a day. Pass ``None`` only when 'today' is
+    genuinely what is wanted.
 
     Best-effort: a row is worth showing even when its owner cannot be
     resolved, so every failure degrades to the bare id.
@@ -51,15 +95,16 @@ def _entity_label(client, id_entity: Optional[int]) -> str:
     if not isinstance(hist, dict):
         return f"id_entity={id_entity}"
 
-    open_vals: Dict[str, str] = {}
+    by_code: Dict[str, List[Dict[str, Any]]] = {}
     for attr in hist.get("attributes") or []:
-        code = attr.get("code")
-        if code in _NAME_CODES and attr.get("date_to") in (None, ""):
-            open_vals.setdefault(str(code), str(attr.get("value") or ""))
+        code = str(attr.get("code") or "")
+        if code in _NAME_CODES:
+            by_code.setdefault(code, []).append(attr)
 
-    label = next((open_vals[c] for c in _NAME_CODES if open_vals.get(c)), "")
-    subtype = hist.get("subtype") or ""
-    marker = open_vals.get("marker")
+    resolved = {c: _covering(by_code.get(c, []), at) for c in _NAME_CODES}
+    label = next((resolved[c] for c in _NAME_CODES if resolved.get(c)), "")
+    subtype = hist.get("code_entity_subtype") or hist.get("subtype") or ""
+    marker = resolved.get("marker")
     if marker and label and marker != label:
         label = f"{marker}/{label}"
     bits = [b for b in (label, f"({subtype})" if subtype else "") if b]
@@ -80,7 +125,8 @@ def _render(console, rows: List[Dict[str, Any]], client, *, resolve: bool) -> No
         date_to = row.get("date_to")
         value = row.get("value")
         entity = (
-            _entity_label(client, row.get("id_entity"))
+            # AS OF the row's own date_from, not today — see _entity_label.
+            _entity_label(client, row.get("id_entity"), row.get("date_from"))
             if resolve
             else str(row.get("id_entity") or "—")
         )
@@ -128,10 +174,28 @@ def main(argv: List[str]) -> int:
     )
     p_show.add_argument(
         "ids",
-        nargs="+",
+        nargs="*",
         type=int,
         metavar="ID",
-        help="One or more id_attribute_value values.",
+        help=(
+            "One or more id_attribute_value values. NOTE these are NOT entity "
+            "ids — the namespaces overlap numerically, so a station's "
+            "id_entity passed here silently resolves to an unrelated row "
+            "(8934 is V159 as an entity and a Dalatangi altitude as an "
+            "attribute). Use --entity for the entity namespace."
+        ),
+    )
+    p_show.add_argument(
+        "--entity",
+        dest="id_entity",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Show EVERY attribute_value row of this id_entity instead of "
+            "looking ids up one by one — the entity namespace, as printed "
+            "in the `entity` line below each row."
+        ),
     )
     p_show.add_argument(
         "--json",
@@ -164,12 +228,38 @@ def main(argv: List[str]) -> int:
 
     rows: List[Dict[str, Any]] = []
     missing: List[int] = []
+
+    if args.id_entity is not None:
+        # The entity namespace. `get_entity_history` already returns every
+        # period of every attribute; reshape each into the same row shape the
+        # single-id path renders, so one renderer serves both.
+        hist = client.get_entity_history(args.id_entity)
+        for attr in (hist or {}).get("attributes") or []:
+            rows.append(
+                {
+                    "id_attribute_value": attr.get("id_attribute_value"),
+                    "code": attr.get("code"),
+                    "id_entity": args.id_entity,
+                    "date_from": attr.get("date_from"),
+                    "date_to": attr.get("date_to"),
+                    "value": attr.get("value"),
+                }
+            )
+        rows.sort(
+            key=lambda r: (str(r.get("code") or ""), str(r.get("date_from") or ""))
+        )
+        if not rows:
+            missing.append(args.id_entity)
+
     for id_av in args.ids:
         row = client.get_attribute_value(id_av)
         if row is None:
             missing.append(id_av)
         else:
             rows.append(row)
+
+    if not args.ids and args.id_entity is None:
+        p_show.error("give at least one ID, or --entity N")
 
     if args.json:
         print(json.dumps(rows, ensure_ascii=False, indent=2))
