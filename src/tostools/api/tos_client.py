@@ -524,6 +524,33 @@ class TOSClient:
         """
         return self._make_request(f"/history/entity/{id_entity}/")
 
+    def get_attribute_value(self, id_attribute_value: int) -> Optional[Dict[str, Any]]:
+        """Return one attribute_value row by its id (read-only, no auth).
+
+        Wraps ``GET /attribute_value/{id}``. The row is the atom every other
+        view is assembled from::
+
+            {"id_attribute_value": 109880, "code": "name", "id_entity": 8934,
+             "date_from": "2009-05-09T00:00:00",
+             "date_to":   "2009-05-09T10:00:00",
+             "value": "Sandgígjukvísl"}
+
+        This is the ONLY read that returns a period boundary at full
+        precision and unfiltered — ``tos station show`` and ``tos device
+        show`` render the id in their tables but had no drill-down, and
+        ``tos search --history`` groups by code. When two periods of one
+        attribute begin and end inside the same day, this is what settles
+        what actually happened.
+
+        The endpoint was already exercised by ``TOSWriter.patch_attribute_value``
+        as its post-PATCH read-back; this exposes it to readers.
+
+        Returns ``None`` when the id does not exist or the request fails —
+        inspection callers treat both as "nothing to show".
+        """
+        row = self._make_request(f"/attribute_value/{id_attribute_value}")
+        return row if isinstance(row, dict) else None
+
     def get_parent_history(self, id_child: int) -> List[Dict[str, Any]]:
         """Return every parent connection of an entity, open + closed.
 

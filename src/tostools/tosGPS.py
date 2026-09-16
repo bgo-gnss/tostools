@@ -328,6 +328,11 @@ _PLAIN_ALIASES = {
     "device": "_device_main",  # exactly the subtypes the GPS profile curates
     "location": "_location_main",  # the required `land` parent of a station
     "contact": "_contact_main",  # reached from `station show`'s Contacts table
+    # id_attribute_value drill-down. Entity-agnostic by design, so there is
+    # nothing for a GPS profile to narrow: it resolves ONE row by its id, and
+    # the ids come from `station show` / `device show` tables a GPS operator
+    # is already reading.
+    "attribute": "_attribute_main",
     "owners": "_owners_main",  # the allow-list backing `device add`
 }
 
