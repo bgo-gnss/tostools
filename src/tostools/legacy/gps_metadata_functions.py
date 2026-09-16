@@ -811,12 +811,17 @@ def site_log(
                 monument_offset_east_fl = float(monument_offset_east)
 
             monument_height = f"{monument_height_fl} m"
-            monument_inscription = device.get("inscription", "")
+            monument_inscription = device.get("inscription") or ""
             monument_description, foundation = MONUMENT_MODEL_TO_IGS.get(
                 device.get("model") or "", ("STEEL MAST", "STEEL RODS")
             )
-            foundation_depth = device.get("foundation_depth", "(m)")
-            if not foundation_depth == "(m)":
+            # `or`, not `.get(code, default)`: the composer now REQUESTs these
+            # codes (devices.SITELOG_GPS_ATTRIBUTE_CODES), so an absent attribute
+            # arrives as an explicit None value rather than a missing key. The
+            # default-form returned that None and then did `None + " m"`
+            # (TypeError) / rendered the literal string "None".
+            foundation_depth = device.get("foundation_depth") or "(m)"
+            if foundation_depth != "(m)":
                 foundation_depth = foundation_depth + " m"
 
     marker_description = (

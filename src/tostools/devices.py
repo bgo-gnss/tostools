@@ -670,6 +670,17 @@ SITELOG_GPS_ATTRIBUTE_CODES: List[str] = [
     "software_version",
     "antenna_height",
     "monument_height",
+    # §1 monument fields the renderer reads off the OPEN monument session
+    # (legacy/gps_metadata_functions.py:776-824). Both were missing from this
+    # list, so §1 always fell back to its format placeholders —
+    # "Foundation Depth : (m)" and an empty "Monument Inscription" — even when
+    # TOS held the value. foundation_depth is inherent + applies_to:[monument]
+    # in data/attribute_codes.yaml (n_devices 6, sample 0.7); the catalog itself
+    # already notes that `inscription` "is read by sitelog renderer ... with
+    # empty-string fallback". Both are inherent, so neither can split a
+    # monument session mid-tenure — this only affects §1.
+    "foundation_depth",
+    "inscription",
     "antenna_offset_north",
     "antenna_offset_east",
     "antenna_reference_point",
