@@ -19,6 +19,7 @@ KNOWN_SUBCOMMANDS = {
     "station",
     "location",
     "contact",
+    "attribute",
     "fleet",
     "visit",
     "search",
@@ -5318,6 +5319,19 @@ def _location_triage_handoff(args, id_entity) -> None:
             f"Updated {args.triage}: {result['token']} → {id_entity} "
             f"({n} replacement{'s' if n != 1 else ''})"
         )
+
+
+def _attribute_main(argv):
+    """Handle ``tos attribute <verb>`` — see :mod:`tostools.cli_attribute`.
+
+    A module-level thunk rather than an inline import at the dispatch site:
+    ``tosGPS``'s ``_PLAIN_ALIASES`` resolves handlers with
+    ``getattr(tos, name)``, so a verb that exists only inside ``main()`` is
+    unreachable from ``tosGPS`` — which ``test_gps_profile`` catches.
+    """
+    from .cli_attribute import main as _main
+
+    return _main(argv)
 
 
 def _contact_main(argv):
@@ -16103,6 +16117,13 @@ def _print_top_level_help() -> None:
         "               contact create --name … Create a new contact entity.\n"
         "               contact patch-entity <id> …  Edit a contact (FLEET-GLOBAL).\n"
         "\n"
+        "  attribute  Drill down on an id_attribute_value — the cyan id every\n"
+        "             station / device table prints. Entity-agnostic (GPS,\n"
+        "             hydrological, SIM, warehouse) and the only read that\n"
+        "             returns period boundaries at FULL precision.\n"
+        "               attribute show ID [ID …]   One or more rows.\n"
+        "                                          --json / --no-resolve.\n"
+        "\n"
         "  visit      Inspect or create TOS vitjun (visit / maintenance) records.\n"
         "               visit list --station S         Vitjanir for a station.\n"
         "               visit list --device <id>       Vitjanir for a device.\n"
@@ -16194,6 +16215,8 @@ def _dispatch(argv=None):
             return _location_main(rest)
         if subcmd == "contact":
             return _contact_main(rest)
+        if subcmd == "attribute":
+            return _attribute_main(rest)
         if subcmd == "fleet":
             return _fleet_main(rest)
         if subcmd == "visit":
