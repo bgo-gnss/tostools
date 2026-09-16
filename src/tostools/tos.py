@@ -4345,6 +4345,7 @@ def _station_show_main(args) -> int:
         station=args.station,
         open_rows=open_rows,
         contacts=contacts,
+        history=history,
     )
 
     return 0
@@ -4536,12 +4537,44 @@ def _render_device_attribute_history(
     console.print(table)
 
 
+def _pick_example_attribute(history: Optional[Dict[str, Any]]):
+    """One representative ``attribute_value`` row to advertise, or ``None``.
+
+    Prefers a CLOSED period, newest first. That is where ``tos attribute
+    show`` earns its keep: the open-attributes table above already shows
+    today's value, while a closed period is the one whose boundaries the
+    summary views round to days — and two periods of one attribute inside a
+    single day are indistinguishable until you read them at full precision.
+    Falls back to an open period so the hint still appears on a station that
+    has never been edited.
+    """
+    if not history:
+        return None
+    from .devices import attribute_periods as _periods
+
+    try:
+        by_code = _periods(history)
+    except Exception:  # noqa: BLE001 - a hint must never sink the render
+        return None
+
+    closed, open_ = [], []
+    for code, periods in by_code.items():
+        for period in periods:
+            if not period.get("id_attribute_value"):
+                continue
+            (closed if period.get("date_to") else open_).append((code, period))
+    if closed:
+        return max(closed, key=lambda cp: cp[1].get("date_from") or "")
+    return open_[0] if open_ else None
+
+
 def _render_show_drill_hint(
     console,
     *,
     station: str,
     open_rows: List[Dict[str, Any]],
     contacts: Optional[List[Dict[str, Any]]] = None,
+    history: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Print a tail block suggesting how to drill into a child device.
 
@@ -4598,6 +4631,13 @@ def _render_show_drill_hint(
                 f"  tos contact show --id {first_id_contact}"
                 "             # contact entity (different namespace from id_entity)"
             )
+    example_attr = _pick_example_attribute(history)
+    if example_attr is not None:
+        code, period = example_attr
+        console.print(
+            f"  tos attribute show {period['id_attribute_value']}"
+            f"             # one '{code}' period, boundaries at FULL precision"
+        )
     console.print(
         f"  tos station verify {station}"
         "                # re-run audits as pass/fail oracle"

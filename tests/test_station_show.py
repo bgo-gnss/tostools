@@ -1033,3 +1033,154 @@ def test_show_json_includes_visits(capsys):
     assert payload["visits"][0]["id"] == 5490
     assert payload["visits"][0]["__source_label"] == "station HEDI"
     assert payload["visits"][0]["__source_kind"] == "station"
+
+
+# ---------------------------------------------------------------------------
+# `tos attribute show` hint — the drill-down for an id_attribute_value
+# ---------------------------------------------------------------------------
+
+
+def test_drill_hint_offers_an_attribute_id(capsys):
+    """The footer advertises `tos attribute show <id>`.
+
+    Without it the verb is undiscoverable: ids appear in the attribute
+    tables above but nothing tells the reader they can be looked up.
+    """
+    with (
+        patch("tostools.tos._resolve_parent_id", return_value=4257),
+        patch.object(
+            TOSClient,
+            "get_entity_history",
+            side_effect=_fake_get_entity_history_factory(4257),
+        ),
+    ):
+        rc = _station_show_main(_show_args())
+
+    assert rc == 0
+    assert "tos attribute show " in capsys.readouterr().out
+
+
+class TestTheAdvertisedAttributeIsWorthDrilling:
+    """A CLOSED period is preferred, newest first.
+
+    The open-attributes table already shows today's value, so pointing at an
+    open period teaches nothing. A closed one is exactly the case the summary
+    views round to days — and where two periods inside a single day become
+    indistinguishable (V159's `name`: 00:00->10:00 then 10:00->open).
+    """
+
+    @staticmethod
+    def _history(periods):
+        return {"attributes": periods}
+
+    def test_closed_beats_open(self):
+        from tostools.tos import _pick_example_attribute
+
+        picked = _pick_example_attribute(
+            self._history(
+                [
+                    {
+                        "code": "name",
+                        "value": "now",
+                        "date_from": "2020-01-01",
+                        "date_to": None,
+                        "id_attribute_value": 1,
+                    },
+                    {
+                        "code": "name",
+                        "value": "before",
+                        "date_from": "2009-05-09T00:00:00",
+                        "date_to": "2009-05-09T10:00:00",
+                        "id_attribute_value": 2,
+                    },
+                ]
+            )
+        )
+        assert picked is not None and picked[1]["id_attribute_value"] == 2
+
+    def test_newest_closed_period_wins(self):
+        from tostools.tos import _pick_example_attribute
+
+        picked = _pick_example_attribute(
+            self._history(
+                [
+                    {
+                        "code": "name",
+                        "value": "old",
+                        "date_from": "2001-01-01",
+                        "date_to": "2005-01-01",
+                        "id_attribute_value": 10,
+                    },
+                    {
+                        "code": "name",
+                        "value": "newer",
+                        "date_from": "2015-01-01",
+                        "date_to": "2019-01-01",
+                        "id_attribute_value": 11,
+                    },
+                ]
+            )
+        )
+        assert picked[1]["id_attribute_value"] == 11
+
+    def test_falls_back_to_an_open_period(self):
+        """A never-edited station must still get the hint."""
+        from tostools.tos import _pick_example_attribute
+
+        picked = _pick_example_attribute(
+            self._history(
+                [
+                    {
+                        "code": "marker",
+                        "value": "AAAA",
+                        "date_from": "1900-01-01",
+                        "date_to": None,
+                        "id_attribute_value": 7,
+                    }
+                ]
+            )
+        )
+        assert picked[1]["id_attribute_value"] == 7
+
+    def test_rows_without_an_id_are_skipped(self):
+        from tostools.tos import _pick_example_attribute
+
+        assert (
+            _pick_example_attribute(
+                self._history(
+                    [{"code": "name", "value": "x", "date_from": "2020-01-01"}]
+                )
+            )
+            is None
+        )
+
+    def test_no_history_yields_no_hint(self):
+        """Absent data must produce no line rather than a broken one."""
+        from tostools.tos import _pick_example_attribute
+
+        for history in (None, {}, {"attributes": []}):
+            assert _pick_example_attribute(history) is None
+
+    def test_absent_history_short_circuits_before_any_work(self, monkeypatch):
+        """The early return must actually fire, not be masked by the except.
+
+        Asserting only on the return value cannot tell the guard apart from
+        the `except Exception` below it — both yield None — so a mutation
+        removing the guard went NOT DETECTED. What the guard is FOR is not
+        doing the work at all, so that is what gets pinned.
+        """
+        import tostools.devices as devices_mod
+        from tostools.tos import _pick_example_attribute
+
+        # RECORD the call; do not raise. `except Exception` below the guard
+        # swallows AssertionError too, so a raising probe is invisible to the
+        # test and the mutation stays NOT DETECTED — which it did, twice.
+        calls = []
+
+        def spy(history):
+            calls.append(history)
+            return {}
+
+        monkeypatch.setattr(devices_mod, "attribute_periods", spy)
+        assert _pick_example_attribute(None) is None
+        assert calls == [], "the guard did not short-circuit"
