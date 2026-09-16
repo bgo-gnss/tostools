@@ -563,19 +563,40 @@ def as_day(raw: Optional[str]) -> Optional[str]:
 def attribute_periods(entity: dict, code: str) -> List[dict]:
     """Every period recorded for ``code``, oldest first.
 
-    ``{"value", "date_from", "date_to"}`` with day-granularity strings and
-    ``date_to=None`` for the open period.
+    ``{"value", "date_from", "date_to"}`` carry DAY-granularity strings —
+    every filter in this module compares them as plain strings, which is
+    why they must stay ten characters wide. ``date_to=None`` is the open
+    period.
+
+    ``date_from_ts`` / ``date_to_ts`` carry the value exactly as TOS
+    returned it, timestamp included. They exist because the day form is
+    lossy in the one case the caller most needs precision: two periods of
+    the same attribute that start and end on the SAME DAY. V159's ``name``
+    is the worked example —
+
+        Sandgígjukvísl  2009-05-09T00:00:00 -> 2009-05-09T10:00:00
+        Gígjukvísl      2009-05-09T10:00:00 -> open
+
+    — a normal 10-hour period and a clean hand-off, which the day form
+    renders as ``2009-05-09 -> 2009-05-09`` beside ``2009-05-09 -> null``
+    and makes look like a zero-length, corrupt row. That reading cost a
+    session. Never widen the day keys to fix this: ``value_at`` compares
+    ``start > day`` against a 10-char ``day``, so a timestamp there would
+    sort after its own date and silently break every ``--at`` query.
     """
     out = []
     for attr in entity.get("attributes") or []:
         if attr.get("code") != code:
             continue
         value = attr.get("value")
+        raw_from, raw_to = attr.get("date_from"), attr.get("date_to")
         out.append(
             {
                 "value": None if value is None else str(value),
-                "date_from": as_day(attr.get("date_from")),
-                "date_to": as_day(attr.get("date_to")),
+                "date_from": as_day(raw_from),
+                "date_to": as_day(raw_to),
+                "date_from_ts": None if raw_from is None else str(raw_from),
+                "date_to_ts": None if raw_to is None else str(raw_to),
             }
         )
     return sorted(out, key=lambda p: p["date_from"] or "")
