@@ -45,7 +45,7 @@
 SUPPRESS 4824 GLO   # TRIMBLE 4000SSI 26093 — GPS-only hardware
 SUPPRESS 4828 GLO   # TRIMBLE 4000SSI 28516 — GPS-only hardware
 
-# --- GLONASS on a GPS-only TRIMBLE 5700 --------------------------------
+# --- GLONASS on a GPS-only TRIMBLE R7 -------------------------------
 #
 # Same case one receiver generation later, at HEID. The TRIMBLE 5700
 # (0220353761, HEID 2006-03-18→2009-09-21) is GPS-only hardware. The archive
@@ -54,8 +54,30 @@ SUPPRESS 4828 GLO   # TRIMBLE 4000SSI 28516 — GPS-only hardware
 # era's RINEX carries type 'G' (GPS), never 'M'. 'false' is still not the
 # answer — the fleet records constellations POSITIVELY and absence means
 # "not supported". The device left HEID in 2009-09-21 and is now elsewhere.
+#
+# MODEL CORRECTED 2026-09-19: TOS held this device as `TRIMBLE 5700`, but serial
+# 0220353761 is typed `TRIMBLE R7` in all SIX station.info occupations across six
+# stations (KROK/VALA 2006, NV16/DRAU 2008, HIAK 2011, SKHA 2016), and
+# station.info's firmware for the serial at KROK/VALA is `NP 2.26 / SP 2.26` —
+# byte-identical to the firmware_version TOS held. Corrected to TRIMBLE R7 during
+# the SKHA onboarding. The R7 (non-GNSS, fw 2.2x/2.3x) is GPS-only too, so this
+# suppression stands unchanged — only the name in it was stale.
 
-SUPPRESS 19233 GLO  # TRIMBLE 5700 0220353761 — GPS-only hardware
+SUPPRESS 19233 GLO  # TRIMBLE R7 0220353761 — GPS-only hardware
+
+# --- GLONASS on a GPS-only TRIMBLE 4000SSI (SKHA 2015-2016) ------------
+#
+# The same hardware case as VMEY 4824/4828 and HVOL 4825 above. SKHA's FIRST
+# receiver, TRIMBLE 4000SSI 3511A10135 (device 19213, SKHA 2015-06-01→
+# 2016-04-22), is GPS-only hardware — GLONASS tracking did not exist on it — so
+# the catalog's GLO=true default would fabricate a capability. This era has NO
+# archived files at all (SKHA's archive starts 2017-11-16), so the archive can
+# neither confirm nor contradict it: the HARDWARE is the evidence, exactly as for
+# the ISAF 2004 campaign 4000SSI (4777) below. 'false' is not the answer — no
+# device in the fleet carries an explicit false; absence means "not supported".
+# §3.1 for this era renders `Satellite System : GPS`, which is correct.
+
+SUPPRESS 19213 GLO  # TRIMBLE 4000SSI 3511A10135 — GPS-only hardware
 
 # --- GLONASS switched off (not absent hardware) ------------------------
 #

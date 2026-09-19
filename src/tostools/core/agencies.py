@@ -215,6 +215,22 @@ def agency_dict(info: Any) -> Dict[str, Any]:
     }
 
 
+def _relationship_is_open(row: Dict[str, Any]) -> bool:
+    """True when a contact relationship has no end — i.e. it holds *now*."""
+    return not (row.get("per_time_to") or "").strip()
+
+
+def _relationship_recency(row: Dict[str, Any]) -> tuple:
+    """Sort key placing the relationship that speaks for the station *today* first.
+
+    An OPEN period always outranks a closed one; among closed periods the
+    latest start wins. ISO-8601 timestamps compare correctly as strings, so no
+    parsing (and no date-library import) is needed. A missing ``per_time_from``
+    degrades to the empty string, sorting last within its class.
+    """
+    return (1 if _relationship_is_open(row) else 0, (row.get("per_time_from") or "").strip())
+
+
 def station_role_orgs(client: Any, meta: Dict[str, Any]) -> Dict[str, str]:
     """The station's contact-role → organization map from raw TOS contacts.
 
@@ -223,23 +239,40 @@ def station_role_orgs(client: Any, meta: Dict[str, Any]) -> Dict[str, str]:
     and its 'eigandi' substring match cannot distinguish *Eigandi stöðvar*
     (station owner) from *Eigandi gagna* (data owner). Best-effort: any failure
     → empty map (the IMO defaults then apply).
+
+    A role may carry SEVERAL relationships, because ownership moves: SENG has an
+    IES owner closed 2025-08-19 *and* an IMO owner still open, and the raw rows
+    arrive closed-row-first. Picking the first row per role would therefore name
+    a superseded agency in §12 while an open relationship says otherwise — the
+    stale-owner bug. Resolve by DATE instead: the OPEN period wins, and when no
+    period is open the most recently started one does.
     """
-    roles: Dict[str, str] = {}
     try:
         rows = client.get_contacts(meta.get("id_entity")) or []
     except Exception as exc:  # noqa: BLE001 - roles are enrichment, not required
         logger.warning("site log: contact-role lookup failed: %s", exc)
-        return roles
+        return {}
+
+    # bucket -> (recency key, org); the first row wins a tie, so an unrelated
+    # duplicate relationship cannot displace an equally-recent sibling.
+    best: Dict[str, tuple] = {}
     for row in rows:
         role = f"{row.get('role_is') or ''} {row.get('role') or ''}".lower()
         org = (row.get("organization") or row.get("name") or "").strip()
         if not org:
             continue
+        # 'eigandi gagna' MUST be tested first: the role string carries both the
+        # Icelandic and the English form, so a data owner also matches 'owner'.
         if "eigandi gagna" in role or "data_owner" in role or "data owner" in role:
-            roles.setdefault("data_owner", org)
+            bucket = "data_owner"
         elif "eigandi" in role or "owner" in role:
-            roles.setdefault("owner", org)
-    return roles
+            bucket = "owner"
+        else:
+            continue
+        key = _relationship_recency(row)
+        if bucket not in best or key > best[bucket][0]:
+            best[bucket] = (key, org)
+    return {bucket: org for bucket, (_key, org) in best.items()}
 
 
 def resolve_sitelog_agencies(
