@@ -1409,7 +1409,8 @@ def _occupation_end_date(join: Dict[str, Any]) -> Optional[str]:
     if to[len(day) :].strip() in ("", "T00:00:00", "00:00:00", "00:00"):
         return day  # midnight end: [from, day) is the correct half-open span
     # mid-day end: the occupation occupies part of `day`, so [from, day+1)
-    from datetime import date as _date, timedelta as _td
+    from datetime import date as _date
+    from datetime import timedelta as _td
 
     y, m, d = (int(x) for x in day.split("-"))
     return (_date(y, m, d) + _td(days=1)).isoformat()
