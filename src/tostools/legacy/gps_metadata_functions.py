@@ -1894,8 +1894,7 @@ def _check_identical_render_sessions(
         )
         return
     raise IdenticalRenderSessionsError(
-        body
-        + f"\n     Refusing to render. Fix the TOS rows, or set "
+        body + f"\n     Refusing to render. Fix the TOS rows, or set "
         f"{_IDENTICAL_SESSIONS_ENV}=1 to render anyway once you have investigated."
     )
 

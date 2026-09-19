@@ -521,10 +521,7 @@ def _build_header(report: StationTriageReport) -> str:
     if banner:
         header += "\n".join(banner) + "\n#\n"
     return (
-        header
-        + "# Audit summary:\n"
-        + "\n".join(summary_lines)
-        + "\n#\n"
+        header + "# Audit summary:\n" + "\n".join(summary_lines) + "\n#\n"
         "# Run:\n"
         "#   tos audit apply <this_file>          # dry-run (safe default)\n"
         "#   tos audit apply <this_file> --apply  # commit\n"
