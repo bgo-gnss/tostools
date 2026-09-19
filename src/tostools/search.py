@@ -63,9 +63,7 @@ def coord_frame(name: str) -> Any:
 
         if name not in FRAMES:
             valid = ", ".join(sorted(FRAMES))
-            raise KeyError(
-                f"unknown coordinate frame {name!r}; valid frames: {valid}"
-            )
+            raise KeyError(f"unknown coordinate frame {name!r}; valid frames: {valid}")
         _coord_frame_cache[name] = FRAMES[name]
     return _coord_frame_cache[name]
 
@@ -87,8 +85,9 @@ def parse_coord_selector(raw: str) -> Optional[str]:
     """
     for pfx in (COORD_NAMESPACE + ".", "coord."):
         if raw.startswith(pfx):
-            return raw[len(pfx):].strip().lower()
+            return raw[len(pfx) :].strip().lower()
     return None
+
 
 # ---------------------------------------------------------------------------
 # Value normalization
@@ -1716,7 +1715,9 @@ class SearchResult:
             return f"{desc[1]}.{desc[2]}".upper()
         raise ValueError(f"unknown column kind {kind!r}")
 
-    def column_value(self, station: dict, desc: tuple, *, at: Optional[str] = None) -> str:
+    def column_value(
+        self, station: dict, desc: tuple, *, at: Optional[str] = None
+    ) -> str:
         """Rendered table cell for one column descriptor."""
         kind = desc[0]
         if kind == "marker":
