@@ -182,6 +182,17 @@ def print_station_info(station, loglevel=logging.WARNING, skip_validation=False)
             # receiver sn
             if item["antenna"]["serial_number"] is None:
                 antenna_SN = "---------------"
+            elif is_synthetic_serial(item["antenna"]["serial_number"]):
+                # TOS mints a synthetic serial ("antenna-<station>-<date>") only
+                # because serial_number must be non-empty on every device. Those
+                # are INTERNAL KEYS -- move-device --serial matches units by them
+                # -- and must never be published as equipment data: only the first
+                # 5 characters reach SINEX, so "antenna-eldc-20200129" would be
+                # distributed as "anten". The site-log path already translates
+                # this (see the antenna branch below, bisected against the live
+                # API 2026-08-20); station.info did not, so the raw placeholder
+                # leaked into every GAMIT station.info session.
+                antenna_SN = PUBLISHED_UNKNOWN_ANTENNA_SERIAL
             else:
                 antenna_SN = item["antenna"]["serial_number"]
 
@@ -242,6 +253,10 @@ def print_station_info(station, loglevel=logging.WARNING, skip_validation=False)
         )
         receiver_type = receiver_info["model"]
         receiver_SN = receiver_info["serial_number"]
+        # Same synthetic-serial guard as the antenna above: a placeholder minted
+        # for TOS's non-empty constraint is an internal key, not equipment data.
+        if is_synthetic_serial(receiver_SN):
+            receiver_SN = PUBLISHED_UNKNOWN_ANTENNA_SERIAL
         firmware_version = receiver_info["firmware_version"]
 
         # Software version with fallback
