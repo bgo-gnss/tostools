@@ -206,7 +206,7 @@ class _FakeWriter:
         return {"id_connection": 9000, **rec}
 
 
-def _run_cli(argv: List[str], configure=None) -> int:
+def _run_cli(argv: List[str], configure=None, profile=None) -> int:
     from tostools import location as location_mod
     from tostools import power as power_mod
     from tostools.tos import _station_main
@@ -226,11 +226,23 @@ def _run_cli(argv: List[str], configure=None) -> int:
         ),
         patch.object(power_mod, "summarize_site_power", lambda w, lid, **k: []),
     ):
+        if profile is not None:
+            return _station_main(["add", *argv], profile=profile)
         return _station_main(["add", *argv])
 
 
 def _base_args() -> List[str]:
+    """A complete `tos station add` invocation.
+
+    `--subtype` is explicit because under `tos` it is REQUIRED: the
+    geophysical domain holds 'GPS stöð', 'SIL stöð', 'DOAS' and 'Multigas',
+    and defaulting it silently stamped 'GPS stöð' on whatever was being
+    created. `tosGPS` supplies it from the profile instead — see
+    `test_tosgps_supplies_the_gps_subtype`.
+    """
     return [
+        "--subtype",
+        "GPS stöð",
         "--marker",
         "ZZZZ",
         "--name",
@@ -471,3 +483,80 @@ def test_cli_json_output_shape(capsys) -> None:
     assert payload["dry_run"] is True
     codes = [a["code"] for a in payload["attributes"]]
     assert "marker" in codes and "operational_class" in codes
+
+
+# ---------------------------------------------------------------------------
+# Which domain is being created: `tos` must say, `tosGPS` says it by being
+# tosGPS
+# ---------------------------------------------------------------------------
+
+
+def test_tos_requires_an_explicit_subtype(capsys) -> None:
+    """Defaulting the subtype mislabels every non-GPS geophysical station.
+
+    `geophysical` is not one kind of station — it holds 'GPS stöð',
+    'SIL stöð', 'DOAS' and 'Multigas'. With `--subtype` optional and a
+    catalog default of 'GPS stöð', adding a SIL station with `tos` produced
+    a station labelled GPS, silently and permanently.
+    """
+    argv = [a for a in _base_args() if a not in ("--subtype", "GPS stöð")]
+    rc = _run_cli(argv)
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "--subtype is required" in err
+    # The message must list the real alternatives, or the operator has to go
+    # and find out what a valid subtype even is.
+    assert "SIL stöð" in err and "DOAS" in err
+    assert "tosGPS" in err, "point at the tool that fills it in"
+    assert _FakeWriter.last_instance is None or (
+        _FakeWriter.last_instance.create_calls == []
+    ), "nothing may be created before the domain is known"
+
+
+def test_tosgps_supplies_the_gps_subtype() -> None:
+    """Under a GPS profile the flag is unnecessary, and the value must be the
+    profile's — not a catalog default that happens to agree today."""
+    from tostools.search_selectors import gps_profile
+
+    argv = [a for a in _base_args() if a not in ("--subtype", "GPS stöð")]
+    rc = _run_cli(
+        argv, configure=lambda w: setattr(w, "land_id", 4360), profile=gps_profile()
+    )
+    assert rc == 0
+
+    created = [
+        attrs
+        for subtype, attrs in _FakeWriter.last_instance.create_calls
+        if subtype == "geophysical"
+    ]
+    assert created, "no station was created"
+    subtype_rows = [a for a in created[0] if a.get("code") == "subtype"]
+    assert subtype_rows, "the station carries no subtype attribute"
+    assert subtype_rows[0]["value"] == "GPS stöð"
+
+
+def test_the_clash_check_follows_the_requested_subtype() -> None:
+    """The duplicate guard is scoped by the subtype being created, so adding
+    a SIL station is not blocked by a GPS station on the same marker.
+
+    This is the live SOHO shape: marker `soho` already carries 4416
+    ('GPS stöð'), and `--subtype 'SIL stöð'` must still be allowed through.
+    """
+    argv = ["--subtype", "SIL stöð"] + [
+        a for a in _base_args() if a not in ("--subtype", "GPS stöð")
+    ]
+    _run_cli(argv, configure=lambda w: setattr(w, "marker_id", None))
+    clash = _FakeWriter.last_instance.marker_predicates[0]
+
+    gps = {
+        "id_entity": 4416,
+        "code_entity_subtype": "geophysical",
+        "attributes": [{"code": "subtype", "value": "GPS stöð", "date_to": None}],
+    }
+    sil = {
+        "id_entity": 7777,
+        "code_entity_subtype": "geophysical",
+        "attributes": [{"code": "subtype", "value": "SIL stöð", "date_to": None}],
+    }
+    assert clash(gps) is False, "a GPS station must not block a SIL station"
+    assert clash(sil) is True, "another SIL station on this marker IS a clash"

@@ -3563,9 +3563,11 @@ def _station_main(argv, profile=None):
     if args.verb == "describe":
         return _station_describe_main(args, predicate=predicate)
     if args.verb == "add":
-        # Ungated on purpose — see the duplicate-marker guard in
-        # _station_add_main.
-        return _station_add_main(args)
+        # The PROFILE, not the predicate: `station add` does not resolve an
+        # existing station, it creates one, so what it needs from the profile
+        # is the subtype to stamp — and the domain for its duplicate check
+        # follows from that. See _station_add_main.
+        return _station_add_main(args, profile=profile)
 
     return 2
 
@@ -3829,7 +3831,11 @@ def _add_station_add_parser(sub) -> None:
     p_add.add_argument(
         "--subtype",
         default=None,
-        help="Station kind attribute (catalog default: 'GPS stöð').",
+        help=(
+            "Station kind — REQUIRED under `tos`. The geophysical domain holds "
+            "several: 'GPS stöð', 'SIL stöð', 'DOAS', 'Multigas'. `tosGPS` "
+            "supplies 'GPS stöð' automatically, so pass this only with `tos`."
+        ),
     )
     p_add.add_argument(
         "--operational-class", default=None, help="Operational class (default: 'B')."
@@ -5054,7 +5060,7 @@ def _filter_contacts(
     return out
 
 
-def _station_add_main(args) -> int:
+def _station_add_main(args, *, profile=None) -> int:
     """Create a geophysical station shell + find-or-create its land site + join.
 
     Station-shell only (devices added afterwards via ``tos device add`` +
@@ -5063,6 +5069,34 @@ def _station_add_main(args) -> int:
     from . import location as location_helpers
     from . import station as station_helpers
     from .api.tos_writer import TOSWriter
+
+    # The DOMAIN being created. `tos` must say which; `tosGPS` says it by
+    # being tosGPS.
+    #
+    # The entity type is fixed at `geophysical` because that is the only
+    # domain the attribute catalog describes: `tos_required_for` names
+    # `geophysical` for all nine required codes and nothing for the other
+    # disciplines, so there is no required-attribute set to build a
+    # meteorological or hydrological station from. Making the entity type a
+    # flag before that data exists would offer a choice that cannot work.
+    #
+    # The SUBTYPE is a real choice today, and silently defaulting it was a
+    # bug: `geophysical` holds 'GPS stöð', 'SIL stöð', 'DOAS' and 'Multigas',
+    # so `tos station add` without --subtype stamped 'GPS stöð' on whatever
+    # was being created. A SIL station added with `tos` came out labelled GPS.
+    entity_type = station_helpers.STATION_SUBTYPE
+    effective_subtype = args.subtype or (
+        profile.subtype if profile is not None else None
+    )
+    if not effective_subtype:
+        print(
+            f"tos station add: --subtype is required. The {entity_type} domain "
+            f"holds several station kinds ('GPS stöð', 'SIL stöð', 'DOAS', "
+            f"'Multigas'), and guessing one would mislabel the station. "
+            f"`tosGPS station add` supplies 'GPS stöð' for you.",
+            file=sys.stderr,
+        )
+        return 2
 
     # ---- Validate + shape station attributes -----------------------------
     try:
@@ -5078,7 +5112,9 @@ def _station_add_main(args) -> int:
         "lon": args.lon,
         "altitude": args.altitude,
         "continuity": args.continuity,
-        "subtype": args.subtype,
+        # The resolved value, not the raw flag — under `tosGPS` the flag is
+        # unset and the profile supplies it.
+        "subtype": effective_subtype,
         "operational_class": args.operational_class,
         "geological_characteristic": args.geological_characteristic,
         "is_near_fault_zones": args.is_near_fault_zones,
@@ -5125,15 +5161,6 @@ def _station_add_main(args) -> int:
     # within-domain duplicate is a mistake every time, and the land site this
     # verb creates on the way through is not deletable, so "add it anyway"
     # was an option with no good use and one very bad one.
-    # `--subtype` is optional on the CLI and the catalog default is applied
-    # downstream, so resolve the EFFECTIVE value here. Using args.subtype raw
-    # would leave it None, and a None subtype widens the filter to the whole
-    # entity type — which would block adding a GPS station at a site that
-    # already has a DOAS one, the SOHO shape exactly.
-    entity_type = station_helpers.STATION_SUBTYPE
-    effective_subtype = args.subtype or station_helpers.station_required_codes().get(
-        "subtype"
-    )
     clash_filter = domain_predicate((entity_type,), effective_subtype)
     existing_marker_id = writer.find_station_by_marker(
         args.marker, predicate=clash_filter

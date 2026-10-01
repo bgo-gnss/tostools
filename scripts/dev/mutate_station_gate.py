@@ -180,24 +180,6 @@ MUTATIONS = [
         expect_red="duplicate_check_is_scoped",
     ),
     Mutation(
-        name="station-add-uses-the-raw-subtype-arg",
-        path="tos.py",
-        old=(
-            "    effective_subtype = args.subtype or "
-            "station_helpers.station_required_codes().get(\n"
-            '        "subtype"\n'
-            "    )"
-        ),
-        new="    effective_subtype = args.subtype",
-        why=(
-            "`--subtype` is optional and the catalog default lands downstream, "
-            "so the raw arg is None — which widens the filter to the whole "
-            "entity type and would block adding a GPS station where a DOAS "
-            "one already is. The SOHO shape exactly."
-        ),
-        expect_red="duplicate_check_is_scoped or duplicate_marker_refused",
-    ),
-    Mutation(
         name="metadata-path-takes-the-first-hit",
         path="api/tos_client.py",
         old=(
@@ -211,6 +193,22 @@ MUTATIONS = [
             "DOAS gas station 5356. This path reaches M3G and EPOS."
         ),
         expect_red="metadata_prefers_the_gps_candidate",
+    ),
+    Mutation(
+        name="station-add-defaults-the-subtype",
+        path="tos.py",
+        old=(
+            "    effective_subtype = args.subtype or (\n"
+            "        profile.subtype if profile is not None else None\n"
+            "    )"
+        ),
+        new=("    effective_subtype = args.subtype or " '"GPS stöð"'),
+        why=(
+            "Silently defaulting the subtype stamps 'GPS stöð' on whatever is "
+            "being created — a SIL station added with `tos` came out labelled "
+            "GPS, permanently."
+        ),
+        expect_red="requires_an_explicit_subtype",
     ),
     # ======================= the predicate =======================
     Mutation(
