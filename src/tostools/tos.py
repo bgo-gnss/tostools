@@ -3795,10 +3795,12 @@ def _add_station_add_parser(sub) -> None:
             "Create a new GPS station entity and attach it to its land site.\n\n"
             "Must-provide attributes (no catalog default): --marker, --name, "
             "--lat, --lon, --altitude, --date-start, --continuity.\n"
-            "Catalog-defaulted (override if needed): --subtype, "
-            "--operational-class, --geological-characteristic, "
-            "--is-near-fault-zones, --bedrock-condition, --bedrock-type, "
-            "--in-network-epos.\n\n"
+            "Required under `tos`: --subtype — the geophysical domain holds "
+            "'GPS stöð', 'SIL stöð', 'DOAS' and 'Multigas', so it is not "
+            "guessed. `tosGPS station add` supplies 'GPS stöð' for you.\n"
+            "Catalog-defaulted (override if needed): --operational-class, "
+            "--geological-characteristic, --is-near-fault-zones, "
+            "--bedrock-condition, --bedrock-type, --in-network-epos.\n\n"
             "Location: by default the site is found-or-created by name "
             "(--name); the station's own coordinates seed a new site. Use "
             "--location-id to attach to a specific existing site, or "
@@ -3882,13 +3884,16 @@ def _add_station_add_parser(sub) -> None:
         "already exists (instead of reusing it).",
     )
     # --- common ---
-    # NOTE: there is deliberately no `--force` here. It existed only to
-    # bypass the duplicate-marker guard, and that guard is now scoped to the
-    # domain being created (entity type + `--subtype`), so a hit is a REAL
-    # within-domain duplicate every time. "Add it anyway" had no good use and
-    # one very bad one: the land site this verb creates on the way through is
-    # not deletable. Removing the flag rather than ignoring it means a script
-    # still passing it fails loudly instead of silently changing meaning.
+    p_add.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Create the station even though a station of the SAME domain "
+            "already carries this marker. Rarely right: the result is a real "
+            "within-domain duplicate, which makes every marker lookup "
+            "ambiguous. Warns in detail before proceeding."
+        ),
+    )
     p_add.add_argument(
         "--no-dry-run",
         action="store_true",
@@ -5165,15 +5170,42 @@ def _station_add_main(args, *, profile=None) -> int:
     existing_marker_id = writer.find_station_by_marker(
         args.marker, predicate=clash_filter
     )
-    if existing_marker_id is not None:
+    if existing_marker_id is not None and not args.force:
         print(
             f"A {entity_type} station with marker {args.marker!r} and subtype "
             f"{effective_subtype!r} already exists "
             f"(id_entity={existing_marker_id}). Pick a different marker, or "
-            f"correct the existing station instead of adding a second one.",
+            f"correct the existing station instead of adding a second one. "
+            f"Pass --force to add anyway (see the warning it prints).",
             file=sys.stderr,
         )
         return 1
+    if existing_marker_id is not None:
+        # --force is kept for the case nobody has thought of yet, but it must
+        # not be quiet. The consequence is specific and worth spelling out:
+        # with TWO stations admitted on one marker, every marker lookup
+        # becomes ambiguous — `select_station` raises AmbiguousStation rather
+        # than guess, so `tosGPS station verify`, `device list --station` and
+        # `receivers cfg` all REFUSE on this marker afterwards, not just this
+        # verb.
+        print(
+            f"⚠️  --force: a {entity_type} station with marker "
+            f"{args.marker!r} and subtype {effective_subtype!r} ALREADY "
+            f"EXISTS (id_entity={existing_marker_id}). Adding a second one.",
+            file=sys.stderr,
+        )
+        print(
+            "    Consequence: two stations of the same domain on one marker. "
+            "Every marker-based lookup then refuses as AMBIGUOUS — "
+            "`tosGPS station verify/triage`, `device list --station`, and the "
+            "`receivers cfg` verbs — until one of them is corrected.",
+            file=sys.stderr,
+        )
+        print(
+            "    The `land` site this verb may create on the way through is "
+            "NOT deletable in TOS.",
+            file=sys.stderr,
+        )
 
     # ---- Resolve the land site (find-or-create) --------------------------
     site_id, site_reused, rc = _resolve_station_site(

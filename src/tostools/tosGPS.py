@@ -320,8 +320,11 @@ def _configure_logging(args):
 #: The split replaces an earlier claim that none of them needed one because
 #: they were "already GPS-only BY CONSTRUCTION … a profile would be redundant
 #: machinery pretending to add a constraint that is already welded in." That
-#: was true of `station add`, which defaults subtype to 'GPS stöð', and false
-#: of every verb that RESOLVES a marker instead of creating one. The GPS
+#: was half-true of `station add`, which used to default the subtype to
+#: 'GPS stöð' — itself a bug, since `geophysical` also holds 'SIL stöð',
+#: 'DOAS' and 'Multigas'; `tos` now requires --subtype and `tosGPS` supplies
+#: it. And it was simply false for every verb that RESOLVES a marker instead
+#: of creating one. The GPS
 #: audits narrow which ATTRIBUTES they grade — `audit_missing_attributes`
 #: skips every code whose `gps_relevance != 'yes'` — so aiming them at a
 #: non-GPS station leaves nothing to fail and they pass VACUOUSLY. The
@@ -402,13 +405,15 @@ def _dispatch():
     #           reject SOHO, whose GPS station is real but is the second
     #           candidate on its marker.
     #
-    #           `station add` remains ungated — it CREATES the station and
-    #           already defaults subtype to 'GPS stöð', so there is no
-    #           candidate to choose among. Every OTHER verb that resolves an
-    #           existing marker is gated, writes included (`station set`,
-    #           `station describe`, `contact add`, `visit add`): writing the
-    #           right value to the wrong station is the worst outcome here,
-    #           not the most tolerable one.
+    #           `station add` takes the PROFILE rather than the predicate:
+    #           it CREATES a station instead of resolving one, so what it
+    #           needs is the subtype to stamp ('GPS stöð'), and the domain
+    #           for its duplicate-marker check then follows from that. Every
+    #           OTHER verb that resolves an existing marker is filtered,
+    #           writes included (`station set`, `station describe`,
+    #           `contact add`, `visit add`): writing the right value to the
+    #           wrong station is the worst outcome here, not the most
+    #           tolerable one.
     #
     # These must also stay byte-identical to their `tos` forms:
     # gps-tos-corrections records 270 `tos audit apply` invocations as
