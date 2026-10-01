@@ -1,0 +1,385 @@
+interactions:
+- request:
+    body: '{"code": "marker", "value": "vlfs"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '35'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - python-requests/2.34.2
+    method: POST
+    uri: https://vi-api.vedur.is/tos/internal/entity/search/station/geophysical
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Length:
+      - '2'
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:24:08 GMT
+      X-Request-Id:
+      - 8bd6bd14-12e5-414d-8815-488f2425b2ff
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"code": "marker", "value": "vlfs"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '35'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - python-requests/2.34.2
+    method: POST
+    uri: https://vi-api.vedur.is/tos/internal/entity/search/station/meteorological
+  response:
+    body:
+      string: "[{\"attributes\":[{\"attribute_datatype_code\":\"text\",\"code\":\"marker\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        marker\",\"description_is\":\"Au\xF0kenni st\xF6\xF0var, venjulega fimm stafa
+        skammst\xF6fun me\xF0 enskum l\xE1gst\xF6fum\",\"id_attribute_value\":451,\"name_en\":\"Marker\",\"name_is\":\"Au\xF0kenni\",\"python_constraint\":\"^[a-z0-9]{3,6}|^[A-Z]\\\\d{1,6}\",\"sort_order\":10,\"value\":\"vlfs\"},{\"attribute_datatype_code\":\"integer\",\"code\":\"imo\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        meteorological IMO number\",\"description_is\":\"N\xFAmer samkv\xE6mt ve\xF0urst\xF6\xF0van\xFAmerakerfi
+        V\xCD\",\"id_attribute_value\":452,\"name_en\":\"IMO number\",\"name_is\":\"V\xCD
+        ve\xF0urst\xF6\xF0van\xFAmer\",\"python_constraint\":\".*\",\"sort_order\":20,\"value\":\"15\"},{\"attribute_datatype_code\":\"text\",\"code\":\"name\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        name\",\"description_is\":\"Nafn st\xF6\xF0var\",\"id_attribute_value\":453,\"name_en\":\"Name\",\"name_is\":\"Nafn\",\"python_constraint\":\".*\",\"sort_order\":50,\"value\":\"V\xEDfilssta\xF0ir\"},{\"attribute_datatype_code\":\"numeric\",\"code\":\"lat\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        latitude in decimal degrees\",\"description_is\":\"Breiddargr\xE1\xF0a st\xF6\xF0var
+        \xED tugabrotsgr\xE1\xF0um\",\"id_attribute_value\":454,\"name_en\":\"Latitude\",\"name_is\":\"Breiddargr\xE1\xF0a\",\"python_constraint\":\"^\\\\d{1,2}\\\\.\\\\d{1,5}\",\"sort_order\":110,\"value\":\"64.083\"},{\"attribute_datatype_code\":\"numeric\",\"code\":\"lon\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        longitude in decimal degrees\",\"description_is\":\"Lengdargr\xE1\xF0a st\xF6\xF0var
+        \xED tugabrotsgr\xE1\xF0um\",\"id_attribute_value\":455,\"name_en\":\"Longitude\",\"name_is\":\"Lengdargr\xE1\xF0a\",\"python_constraint\":\"^-\\\\d{1,2}\\\\.\\\\d{1,5}\",\"sort_order\":120,\"value\":\"-21.883\"},{\"attribute_datatype_code\":\"numeric\",\"code\":\"altitude\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        altitude in meters\",\"description_is\":\"H\xE6\xF0 st\xF6\xF0var yfir sj\xE1varm\xE1li
+        \xED metrum\",\"id_attribute_value\":456,\"name_en\":\"Altitude\",\"name_is\":\"H\xE6\xF0\",\"python_constraint\":\".*\",\"sort_order\":130,\"value\":\"62.0\"},{\"attribute_datatype_code\":\"text\",\"code\":\"subtype\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        subtype, indicates composition or subject of the measurements\",\"description_is\":\"Undirtegund
+        st\xF6\xF0var, l\xFDsir samsetningu e\xF0a vi\xF0fangsefni m\xE6linga\",\"id_attribute_value\":457,\"name_en\":\"Subtype\",\"name_is\":\"Undirtegund\",\"python_constraint\":\".*\",\"sort_order\":60,\"value\":\"\xDArkomust\xF6\xF0\"},{\"attribute_datatype_code\":\"text\",\"code\":\"forecast_area\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":\"2025-07-23T00:00:00\",\"description_en\":\"Station
+        forecast area\",\"description_is\":\"Sp\xE1sv\xE6\xF0i sem st\xF6\xF0in tilheyrir\",\"id_attribute_value\":458,\"name_en\":\"Forecast
+        area\",\"name_is\":\"Sp\xE1sv\xE6\xF0i\",\"python_constraint\":\".*\",\"sort_order\":80,\"value\":\"Faxafl\xF3i\"},{\"attribute_datatype_code\":\"timestamp\",\"code\":\"date_start\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        start date\",\"description_is\":\"Upphafsdagsetning\",\"id_attribute_value\":459,\"name_en\":\"Start
+        date\",\"name_is\":\"Upphafsdagsetning\",\"python_constraint\":\".*\",\"sort_order\":200,\"value\":\"1963-01-01
+        00:00:00\"},{\"attribute_datatype_code\":\"timestamp\",\"code\":\"date_end\",\"date_from\":\"2000-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        end date\",\"description_is\":\"Lokadagsetning\",\"id_attribute_value\":460,\"name_en\":\"End
+        date\",\"name_is\":\"Lokadagsetning\",\"python_constraint\":\".*\",\"sort_order\":210,\"value\":\"2000-01-01
+        00:00:00\"},{\"attribute_datatype_code\":\"timestamp\",\"code\":\"date_legacy\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Date
+        of oldest recorded data before regular operations start according to the start
+        date\",\"description_is\":\"Dagsetning elstu skr\xE1\xF0u gagna \xE1\xF0ur
+        en reglulegur rekstur hefst samkv\xE6mt upphafsdagsetningu\",\"id_attribute_value\":461,\"name_en\":\"Legacy
+        start date\",\"name_is\":\"Fyrndardagsetning\",\"python_constraint\":\".*\",\"sort_order\":220,\"value\":\"1910-01-01
+        00:00:00\"},{\"attribute_datatype_code\":\"text\",\"code\":\"comment\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        comment\",\"description_is\":\"Athugasemd vi\xF0 st\xF6\xF0\",\"id_attribute_value\":462,\"name_en\":\"Comment\",\"name_is\":\"Athugasemd\",\"python_constraint\":\".*\",\"sort_order\":9999,\"value\":\"Eldra
+        1910-1920\"},{\"attribute_datatype_code\":\"text\",\"code\":\"environment\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Description
+        of the environment, e.g. surrounded by houses, open area, forested\",\"description_is\":\"L\xFDsing
+        umhverfis, t.d. umkringt h\xFAsum, opi\xF0 sv\xE6\xF0i, umkringt sk\xF3gi\",\"id_attribute_value\":463,\"name_en\":\"Environment\",\"name_is\":\"Umhverfi\",\"python_constraint\":\".*\",\"sort_order\":90,\"value\":\"Opi\xF0
+        sv\xE6\xF0i\"},{\"attribute_datatype_code\":\"text\",\"code\":\"landscape\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Description
+        of landscape, e.g. moors, fjord, hillside\",\"description_is\":\"L\xFDsing
+        landslags, t.d. hei\xF0i, fj\xF6r\xF0ur, hl\xED\xF0\",\"id_attribute_value\":464,\"name_en\":\"Landscape\",\"name_is\":\"Landslag\",\"python_constraint\":\".*\",\"sort_order\":100,\"value\":\"Str\xF6nd\"},{\"attribute_datatype_code\":\"text\",\"code\":\"name_short\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Short
+        name for external applications\",\"description_is\":\"Stutt nafn fyrir ytri
+        kerfi\",\"id_attribute_value\":107838,\"name_en\":\"Name short\",\"name_is\":\"Nafn
+        stutt\",\"python_constraint\":\".*\",\"sort_order\":9999,\"value\":\"Vlfs\"},{\"attribute_datatype_code\":\"text\",\"code\":\"forecast_area\",\"date_from\":\"2025-07-23T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        forecast area\",\"description_is\":\"Sp\xE1sv\xE6\xF0i sem st\xF6\xF0in tilheyrir\",\"id_attribute_value\":148795,\"name_en\":\"Forecast
+        area\",\"name_is\":\"Sp\xE1sv\xE6\xF0i\",\"python_constraint\":\".*\",\"sort_order\":80,\"value\":\"H\xF6fu\xF0borgarsv\xE6\xF0i\xF0\"}],\"code_entity_subtype\":\"meteorological\",\"entity_subtype_description_en\":\"Automatic
+        weather stations, synoptic, precipitation and other weather measurement stations\",\"entity_subtype_description_is\":\"Sj\xE1lfvirkar
+        ve\xF0urst\xF6\xF0var, skeytast\xF6\xF0var, \xFArkomust\xF6\xF0var og a\xF0rar
+        ve\xF0urm\xE6list\xF6\xF0var\",\"entity_subtype_name_en\":\"Meteorological
+        station\",\"entity_subtype_name_is\":\"Ve\xF0urst\xF6\xF0\",\"entity_type_name_en\":\"station\",\"entity_type_name_is\":\"st\xF6\xF0\",\"id_entity\":96,\"id_entity_children\":null,\"id_entity_parent\":null,\"id_entity_subtype\":113}]"
+    headers:
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:24:07 GMT
+      Vary:
+      - Accept-Encoding
+      X-Request-Id:
+      - f66c7ff4-90e5-4c2f-8ab7-a95ced207921
+      content-length:
+      - '6387'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"code": "marker", "value": "vlfs"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '35'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - python-requests/2.34.2
+    method: POST
+    uri: https://vi-api.vedur.is/tos/internal/entity/search/station/hydrological
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Length:
+      - '2'
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:24:09 GMT
+      X-Request-Id:
+      - d974a084-11d7-4533-9b60-b11c94571761
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"code": "marker", "value": "VLFS"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '35'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - python-requests/2.34.2
+    method: POST
+    uri: https://vi-api.vedur.is/tos/internal/entity/search/station/geophysical
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Length:
+      - '2'
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:24:07 GMT
+      X-Request-Id:
+      - b513b667-6470-4d63-9945-8d3e4b70fbbe
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"code": "marker", "value": "VLFS"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '35'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - python-requests/2.34.2
+    method: POST
+    uri: https://vi-api.vedur.is/tos/internal/entity/search/station/meteorological
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Length:
+      - '2'
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:24:09 GMT
+      X-Request-Id:
+      - ab9cc6a2-d9e1-4fae-8c24-a425468a9f51
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"code": "marker", "value": "VLFS"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '35'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - python-requests/2.34.2
+    method: POST
+    uri: https://vi-api.vedur.is/tos/internal/entity/search/station/hydrological
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Length:
+      - '2'
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:24:07 GMT
+      X-Request-Id:
+      - 8c45f010-faae-411e-9501-1ff3b5c84d1c
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.34.2
+    method: GET
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/96
+  response:
+    body:
+      string: "{\"attributes\":[{\"attribute_datatype_code\":\"timestamp\",\"code\":\"date_start\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        start date\",\"description_is\":\"Upphafsdagsetning\",\"id_attribute_value\":459,\"name_en\":\"Start
+        date\",\"name_is\":\"Upphafsdagsetning\",\"python_constraint\":\".*\",\"sort_order\":200,\"value\":\"1963-01-01
+        00:00:00\"},{\"attribute_datatype_code\":\"text\",\"code\":\"name_short\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Short
+        name for external applications\",\"description_is\":\"Stutt nafn fyrir ytri
+        kerfi\",\"id_attribute_value\":107838,\"name_en\":\"Name short\",\"name_is\":\"Nafn
+        stutt\",\"python_constraint\":\".*\",\"sort_order\":9999,\"value\":\"Vlfs\"},{\"attribute_datatype_code\":\"timestamp\",\"code\":\"date_legacy\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Date
+        of oldest recorded data before regular operations start according to the start
+        date\",\"description_is\":\"Dagsetning elstu skr\xE1\xF0u gagna \xE1\xF0ur
+        en reglulegur rekstur hefst samkv\xE6mt upphafsdagsetningu\",\"id_attribute_value\":461,\"name_en\":\"Legacy
+        start date\",\"name_is\":\"Fyrndardagsetning\",\"python_constraint\":\".*\",\"sort_order\":220,\"value\":\"1910-01-01
+        00:00:00\"},{\"attribute_datatype_code\":\"text\",\"code\":\"name\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        name\",\"description_is\":\"Nafn st\xF6\xF0var\",\"id_attribute_value\":453,\"name_en\":\"Name\",\"name_is\":\"Nafn\",\"python_constraint\":\".*\",\"sort_order\":50,\"value\":\"V\xEDfilssta\xF0ir\"},{\"attribute_datatype_code\":\"text\",\"code\":\"subtype\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        subtype, indicates composition or subject of the measurements\",\"description_is\":\"Undirtegund
+        st\xF6\xF0var, l\xFDsir samsetningu e\xF0a vi\xF0fangsefni m\xE6linga\",\"id_attribute_value\":457,\"name_en\":\"Subtype\",\"name_is\":\"Undirtegund\",\"python_constraint\":\".*\",\"sort_order\":60,\"value\":\"\xDArkomust\xF6\xF0\"},{\"attribute_datatype_code\":\"timestamp\",\"code\":\"date_end\",\"date_from\":\"2000-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        end date\",\"description_is\":\"Lokadagsetning\",\"id_attribute_value\":460,\"name_en\":\"End
+        date\",\"name_is\":\"Lokadagsetning\",\"python_constraint\":\".*\",\"sort_order\":210,\"value\":\"2000-01-01
+        00:00:00\"},{\"attribute_datatype_code\":\"numeric\",\"code\":\"lon\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        longitude in decimal degrees\",\"description_is\":\"Lengdargr\xE1\xF0a st\xF6\xF0var
+        \xED tugabrotsgr\xE1\xF0um\",\"id_attribute_value\":455,\"name_en\":\"Longitude\",\"name_is\":\"Lengdargr\xE1\xF0a\",\"python_constraint\":\"^-\\\\d{1,2}\\\\.\\\\d{1,5}\",\"sort_order\":120,\"value\":\"-21.883\"},{\"attribute_datatype_code\":\"text\",\"code\":\"environment\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Description
+        of the environment, e.g. surrounded by houses, open area, forested\",\"description_is\":\"L\xFDsing
+        umhverfis, t.d. umkringt h\xFAsum, opi\xF0 sv\xE6\xF0i, umkringt sk\xF3gi\",\"id_attribute_value\":463,\"name_en\":\"Environment\",\"name_is\":\"Umhverfi\",\"python_constraint\":\".*\",\"sort_order\":90,\"value\":\"Opi\xF0
+        sv\xE6\xF0i\"},{\"attribute_datatype_code\":\"numeric\",\"code\":\"lat\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        latitude in decimal degrees\",\"description_is\":\"Breiddargr\xE1\xF0a st\xF6\xF0var
+        \xED tugabrotsgr\xE1\xF0um\",\"id_attribute_value\":454,\"name_en\":\"Latitude\",\"name_is\":\"Breiddargr\xE1\xF0a\",\"python_constraint\":\"^\\\\d{1,2}\\\\.\\\\d{1,5}\",\"sort_order\":110,\"value\":\"64.083\"},{\"attribute_datatype_code\":\"text\",\"code\":\"marker\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        marker\",\"description_is\":\"Au\xF0kenni st\xF6\xF0var, venjulega fimm stafa
+        skammst\xF6fun me\xF0 enskum l\xE1gst\xF6fum\",\"id_attribute_value\":451,\"name_en\":\"Marker\",\"name_is\":\"Au\xF0kenni\",\"python_constraint\":\"^[a-z0-9]{3,6}|^[A-Z]\\\\d{1,6}\",\"sort_order\":10,\"value\":\"vlfs\"},{\"attribute_datatype_code\":\"text\",\"code\":\"forecast_area\",\"date_from\":\"2025-07-23T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        forecast area\",\"description_is\":\"Sp\xE1sv\xE6\xF0i sem st\xF6\xF0in tilheyrir\",\"id_attribute_value\":148795,\"name_en\":\"Forecast
+        area\",\"name_is\":\"Sp\xE1sv\xE6\xF0i\",\"python_constraint\":\".*\",\"sort_order\":80,\"value\":\"H\xF6fu\xF0borgarsv\xE6\xF0i\xF0\"},{\"attribute_datatype_code\":\"integer\",\"code\":\"imo\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        meteorological IMO number\",\"description_is\":\"N\xFAmer samkv\xE6mt ve\xF0urst\xF6\xF0van\xFAmerakerfi
+        V\xCD\",\"id_attribute_value\":452,\"name_en\":\"IMO number\",\"name_is\":\"V\xCD
+        ve\xF0urst\xF6\xF0van\xFAmer\",\"python_constraint\":\".*\",\"sort_order\":20,\"value\":\"15\"},{\"attribute_datatype_code\":\"text\",\"code\":\"comment\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        comment\",\"description_is\":\"Athugasemd vi\xF0 st\xF6\xF0\",\"id_attribute_value\":462,\"name_en\":\"Comment\",\"name_is\":\"Athugasemd\",\"python_constraint\":\".*\",\"sort_order\":9999,\"value\":\"Eldra
+        1910-1920\"},{\"attribute_datatype_code\":\"text\",\"code\":\"forecast_area\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":\"2025-07-23T00:00:00\",\"description_en\":\"Station
+        forecast area\",\"description_is\":\"Sp\xE1sv\xE6\xF0i sem st\xF6\xF0in tilheyrir\",\"id_attribute_value\":458,\"name_en\":\"Forecast
+        area\",\"name_is\":\"Sp\xE1sv\xE6\xF0i\",\"python_constraint\":\".*\",\"sort_order\":80,\"value\":\"Faxafl\xF3i\"},{\"attribute_datatype_code\":\"numeric\",\"code\":\"altitude\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        altitude in meters\",\"description_is\":\"H\xE6\xF0 st\xF6\xF0var yfir sj\xE1varm\xE1li
+        \xED metrum\",\"id_attribute_value\":456,\"name_en\":\"Altitude\",\"name_is\":\"H\xE6\xF0\",\"python_constraint\":\".*\",\"sort_order\":130,\"value\":\"62.0\"},{\"attribute_datatype_code\":\"text\",\"code\":\"landscape\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Description
+        of landscape, e.g. moors, fjord, hillside\",\"description_is\":\"L\xFDsing
+        landslags, t.d. hei\xF0i, fj\xF6r\xF0ur, hl\xED\xF0\",\"id_attribute_value\":464,\"name_en\":\"Landscape\",\"name_is\":\"Landslag\",\"python_constraint\":\".*\",\"sort_order\":100,\"value\":\"Str\xF6nd\"}],\"children_connections\":null,\"code_entity_subtype\":\"meteorological\",\"entity_subtype_description_en\":\"Automatic
+        weather stations, synoptic, precipitation and other weather measurement stations\",\"entity_subtype_description_is\":\"Sj\xE1lfvirkar
+        ve\xF0urst\xF6\xF0var, skeytast\xF6\xF0var, \xFArkomust\xF6\xF0var og a\xF0rar
+        ve\xF0urm\xE6list\xF6\xF0var\",\"entity_subtype_name_en\":\"Meteorological
+        station\",\"entity_subtype_name_is\":\"Ve\xF0urst\xF6\xF0\",\"entity_type_name_en\":\"station\",\"entity_type_name_is\":\"st\xF6\xF0\",\"id_entity\":96,\"id_entity_parent\":95,\"id_entity_subtype\":113}"
+    headers:
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:24:07 GMT
+      Vary:
+      - Accept-Encoding
+      X-Request-Id:
+      - a5afaf70-f2bd-44ae-b189-d547c199fedf
+      content-length:
+      - '6385'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.34.2
+    method: GET
+    uri: https://vi-api.vedur.is/tos/internal/entity_contacts/96
+  response:
+    body:
+      string: "[{\"id_contact_entity_relationship\":2313,\"id_contact\":1256,\"id_entity\":96,\"per_time_from\":\"1910-01-01T00:00:00\",\"per_time_to\":null,\"role\":\"owner\",\"name\":\"Ve\xF0urstofa
+        \xCDslands\",\"ssid\":\"6309080350\",\"address\":\"B\xFAsta\xF0arvegur 7-9,
+        105 Reykjav\xEDk, \xCDsland\",\"job_title\":\"\",\"organization\":\"Ve\xF0urstofa
+        \xCDslands\",\"phone_primary\":\"5226000\",\"phone_secondary\":\"\",\"phone_tertiary\":\"\",\"contact_start_date\":\"1845-01-01T00:00:00\",\"contact_end_date\":null,\"comment\":\"\",\"role_is\":\"Eigandi
+        st\xF6\xF0var\"},{\"id_contact_entity_relationship\":3316,\"id_contact\":1498,\"id_entity\":96,\"per_time_from\":\"1992-01-01T00:00:00\",\"per_time_to\":\"1996-01-01T00:00:00\",\"role\":\"observer\",\"name\":\"Gu\xF0mundur
+        \xDE\xF3r Bjarnason\",\"ssid\":\"205785489\",\"address\":null,\"job_title\":\"athugunarma\xF0ur\",\"organization\":null,\"phone_primary\":null,\"phone_secondary\":null,\"phone_tertiary\":null,\"contact_start_date\":\"1992-01-01T00:00:00\",\"contact_end_date\":\"1996-01-01T00:00:00\",\"comment\":null,\"role_is\":\"Athugunarma\xF0ur\"},{\"id_contact_entity_relationship\":3349,\"id_contact\":1529,\"id_entity\":96,\"per_time_from\":\"1921-01-01T00:00:00\",\"per_time_to\":\"1921-01-01T00:00:00\",\"role\":\"observer\",\"name\":\"Gunnar
+        \xDEorsteinsson\",\"ssid\":null,\"address\":null,\"job_title\":\"athugunarma\xF0ur\",\"organization\":null,\"phone_primary\":null,\"phone_secondary\":null,\"phone_tertiary\":null,\"contact_start_date\":\"1921-01-01T00:00:00\",\"contact_end_date\":\"1921-01-01T00:00:00\",\"comment\":null,\"role_is\":\"Athugunarma\xF0ur\"},{\"id_contact_entity_relationship\":3607,\"id_contact\":1773,\"id_entity\":96,\"per_time_from\":\"1916-01-01T00:00:00\",\"per_time_to\":\"1919-01-01T00:00:00\",\"role\":\"observer\",\"name\":\"Magn\xFAs
+        Ingibergsson\",\"ssid\":null,\"address\":null,\"job_title\":\"athugunarma\xF0ur\",\"organization\":null,\"phone_primary\":null,\"phone_secondary\":null,\"phone_tertiary\":null,\"contact_start_date\":\"1916-01-01T00:00:00\",\"contact_end_date\":\"1919-01-01T00:00:00\",\"comment\":null,\"role_is\":\"Athugunarma\xF0ur\"},{\"id_contact_entity_relationship\":3521,\"id_contact\":1690,\"id_entity\":96,\"per_time_from\":\"1963-01-01T00:00:00\",\"per_time_to\":\"1989-01-01T00:00:00\",\"role\":\"observer\",\"name\":\"J\xF3nas
+        M. L\xE1russon\",\"ssid\":\"206074329\",\"address\":null,\"job_title\":\"athugunarma\xF0ur\",\"organization\":null,\"phone_primary\":null,\"phone_secondary\":null,\"phone_tertiary\":null,\"contact_start_date\":\"1963-01-01T00:00:00\",\"contact_end_date\":\"1989-01-01T00:00:00\",\"comment\":null,\"role_is\":\"Athugunarma\xF0ur\"},{\"id_contact_entity_relationship\":3552,\"id_contact\":1720,\"id_entity\":96,\"per_time_from\":\"1998-01-01T00:00:00\",\"per_time_to\":null,\"role\":\"observer\",\"name\":\"Kolbr\xFAn
+        \xDDr Sigf\xFAsd\xF3ttir\",\"ssid\":null,\"address\":null,\"job_title\":\"athugunarma\xF0ur\",\"organization\":null,\"phone_primary\":null,\"phone_secondary\":null,\"phone_tertiary\":null,\"contact_start_date\":\"1998-01-01T00:00:00\",\"contact_end_date\":null,\"comment\":null,\"role_is\":\"Athugunarma\xF0ur\"},{\"id_contact_entity_relationship\":3633,\"id_contact\":1799,\"id_entity\":96,\"per_time_from\":\"1996-01-01T00:00:00\",\"per_time_to\":\"1998-01-01T00:00:00\",\"role\":\"observer\",\"name\":\"N\xEDna
+        M. J\xF3nsd\xF3ttir\",\"ssid\":null,\"address\":null,\"job_title\":\"athugunarma\xF0ur\",\"organization\":null,\"phone_primary\":null,\"phone_secondary\":null,\"phone_tertiary\":null,\"contact_start_date\":\"1996-01-01T00:00:00\",\"contact_end_date\":\"1998-01-01T00:00:00\",\"comment\":null,\"role_is\":\"Athugunarma\xF0ur\"},{\"id_contact_entity_relationship\":3756,\"id_contact\":1917,\"id_entity\":96,\"per_time_from\":\"1910-01-01T00:00:00\",\"per_time_to\":\"1922-01-01T00:00:00\",\"role\":\"observer\",\"name\":\"Sigur\xF0ur
+        Magn\xFAsson\",\"ssid\":null,\"address\":null,\"job_title\":\"athugunarma\xF0ur\",\"organization\":null,\"phone_primary\":null,\"phone_secondary\":null,\"phone_tertiary\":null,\"contact_start_date\":\"1910-01-01T00:00:00\",\"contact_end_date\":\"1922-01-01T00:00:00\",\"comment\":null,\"role_is\":\"Athugunarma\xF0ur\"},{\"id_contact_entity_relationship\":3721,\"id_contact\":1882,\"id_entity\":96,\"per_time_from\":\"1989-01-01T00:00:00\",\"per_time_to\":\"1992-01-01T00:00:00\",\"role\":\"observer\",\"name\":\"Sigf\xFAs
+        Kristinsson\",\"ssid\":null,\"address\":null,\"job_title\":\"athugunarma\xF0ur\",\"organization\":null,\"phone_primary\":null,\"phone_secondary\":null,\"phone_tertiary\":null,\"contact_start_date\":\"1989-01-01T00:00:00\",\"contact_end_date\":\"1992-01-01T00:00:00\",\"comment\":\"l\xF6greglu\xFEj\xF3nn\",\"role_is\":\"Athugunarma\xF0ur\"},{\"id_contact_entity_relationship\":3793,\"id_contact\":1952,\"id_entity\":96,\"per_time_from\":\"1910-01-01T00:00:00\",\"per_time_to\":\"1911-01-01T00:00:00\",\"role\":\"observer\",\"name\":\"Sn\xE6bj\xF6rn
+        J\xF3nsson\",\"ssid\":null,\"address\":null,\"job_title\":\"athugunarma\xF0ur\",\"organization\":null,\"phone_primary\":null,\"phone_secondary\":null,\"phone_tertiary\":null,\"contact_start_date\":\"1910-01-01T00:00:00\",\"contact_end_date\":\"1911-01-01T00:00:00\",\"comment\":null,\"role_is\":\"Athugunarma\xF0ur\"},{\"id_contact_entity_relationship\":3861,\"id_contact\":2018,\"id_entity\":96,\"per_time_from\":\"1911-01-01T00:00:00\",\"per_time_to\":\"1916-01-01T00:00:00\",\"role\":\"observer\",\"name\":\"Sveinn
+        Gu\xF0mundsson\",\"ssid\":null,\"address\":null,\"job_title\":\"athugunarma\xF0ur\",\"organization\":null,\"phone_primary\":null,\"phone_secondary\":null,\"phone_tertiary\":null,\"contact_start_date\":\"1911-01-01T00:00:00\",\"contact_end_date\":\"1916-01-01T00:00:00\",\"comment\":null,\"role_is\":\"Athugunarma\xF0ur\"},{\"id_contact_entity_relationship\":4289,\"id_contact\":2433,\"id_entity\":96,\"per_time_from\":\"1995-01-01T00:00:00\",\"per_time_to\":null,\"role\":\"observer\",\"name\":\"Margr\xE9t
+        Molitor\",\"ssid\":\"1907445319\",\"address\":null,\"job_title\":\"athugunarma\xF0ur\",\"organization\":null,\"phone_primary\":null,\"phone_secondary\":null,\"phone_tertiary\":null,\"contact_start_date\":\"1995-01-01T00:00:00\",\"contact_end_date\":null,\"comment\":null,\"role_is\":\"Athugunarma\xF0ur\"}]"
+    headers:
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:24:09 GMT
+      Vary:
+      - Accept-Encoding
+      X-Request-Id:
+      - 942536dd-6bb6-4379-9567-a344dfcc67b5
+      content-length:
+      - '5572'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.34.2
+    method: GET
+    uri: https://vi-api.vedur.is/tos/internal/maintenances/id_entity/96
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Length:
+      - '2'
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:24:07 GMT
+      X-Request-Id:
+      - 619a6ed8-377b-41b1-8d0f-a9e6713ec390
+    status:
+      code: 200
+      message: OK
+version: 1
