@@ -44,6 +44,7 @@ TESTS = (
     "tests/test_station_kind_gate.py",
     "tests/test_fleet_ops.py",
     "tests/test_gps_profile.py",
+    "tests/test_station_add.py",
 )
 
 
@@ -166,6 +167,36 @@ MUTATIONS = [
         expect_red="station-set or station-describe or station-receivers",
         count=2,
     ),
+    Mutation(
+        name="station-add-clash-check-unscoped",
+        path="tos.py",
+        old="    clash_filter = domain_predicate((entity_type,), effective_subtype)",
+        new="    clash_filter = None",
+        why=(
+            "An unscoped duplicate-marker guard refuses work it has no "
+            "business refusing: `station add BRST` was blocked by the "
+            "Berustaðir weather station (646) while BRST is Brest, France."
+        ),
+        expect_red="duplicate_check_is_scoped",
+    ),
+    Mutation(
+        name="station-add-uses-the-raw-subtype-arg",
+        path="tos.py",
+        old=(
+            "    effective_subtype = args.subtype or "
+            "station_helpers.station_required_codes().get(\n"
+            '        "subtype"\n'
+            "    )"
+        ),
+        new="    effective_subtype = args.subtype",
+        why=(
+            "`--subtype` is optional and the catalog default lands downstream, "
+            "so the raw arg is None — which widens the filter to the whole "
+            "entity type and would block adding a GPS station where a DOAS "
+            "one already is. The SOHO shape exactly."
+        ),
+        expect_red="duplicate_check_is_scoped or duplicate_marker_refused",
+    ),
     # ======================= the predicate =======================
     Mutation(
         name="fleet-main-drops-the-predicate",
@@ -214,9 +245,15 @@ MUTATIONS = [
     ),
     Mutation(
         name="predicate-ignores-entity-type",
-        path="search_selectors.py",
-        old='            if entity.get("code_entity_subtype") not in self.entity_scopes:',
-        new="            if False:",
+        # Moved here when Profile.admits_station was collapsed into the one
+        # shared domain rule. The harness failed loudly on the stale anchor,
+        # which is exactly what it is for.
+        path="station_kind.py",
+        old=(
+            "    if entity_scopes and "
+            'entity.get("code_entity_subtype") not in entity_scopes:'
+        ),
+        new="    if False:",
         why=(
             "Drops the level that excludes other disciplines. Only ONE test can "
             "catch it — a non-geophysical entity with NO subtype attribute. "
@@ -227,11 +264,9 @@ MUTATIONS = [
     ),
     Mutation(
         name="predicate-ignores-the-subtype-attribute",
-        path="search_selectors.py",
-        old=(
-            "        if found is not None:\n" "            return found == self.subtype"
-        ),
-        new="        if found is not None:\n            return True",
+        path="station_kind.py",
+        old="    if found is not None:\n        return found == subtype",
+        new="    if found is not None:\n        return True",
         why=(
             "Drops the level that separates GPS from SIL/DOAS — both are "
             "`geophysical`, so SOHO becomes a coin toss again."
@@ -240,9 +275,9 @@ MUTATIONS = [
     ),
     Mutation(
         name="closed-subtype-reads-as-never-set",
-        path="search_selectors.py",
-        old="        return not ever or self.subtype in ever",
-        new="        return True",
+        path="station_kind.py",
+        old="    return not ever or subtype in ever",
+        new="    return True",
         why=(
             "A decommissioned DOAS station (only a CLOSED `subtype` period) "
             "would be handed to the GPS audits through the absent-subtype "

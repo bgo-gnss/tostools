@@ -161,6 +161,7 @@ class _FakeWriter:
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self.dry_run = kwargs.get("dry_run", True)
         self.marker_id: Optional[int] = None  # find_station_by_marker result
+        self.marker_predicates: List[Any] = []  # clash filters it was given
         self.land_id: Optional[int] = None  # find_land_location_by_name result
         self.location_history: Dict[int, Dict[str, Any]] = {}
         self.create_calls: List[tuple] = []
@@ -172,7 +173,15 @@ class _FakeWriter:
         self.create_raises_on: Optional[str] = None  # subtype that raises
         _FakeWriter.last_instance = self
 
-    def find_station_by_marker(self, marker: str) -> Optional[int]:
+    def find_station_by_marker(self, marker: str, predicate=None) -> Optional[int]:
+        """``predicate`` is the within-domain clash filter.
+
+        Recorded rather than applied: the fake has no entity histories to
+        judge, and what these tests care about is that the guard CONSULTED a
+        domain filter at all. `test_cli_duplicate_marker_scoped_to_domain`
+        asserts the filter itself against real entity shapes.
+        """
+        self.marker_predicates.append(predicate)
         return self.marker_id
 
     def find_land_location_by_name(self, name: str) -> Optional[int]:
@@ -242,19 +251,62 @@ def _base_args() -> List[str]:
 def test_cli_duplicate_marker_refused(capsys) -> None:
     rc = _run_cli(_base_args(), configure=lambda w: setattr(w, "marker_id", 4316))
     assert rc == 1
-    assert "already exists" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "already exists" in err
+    # The message must name the DOMAIN, or an operator cannot tell a real
+    # duplicate from the cross-discipline collision this guard used to flag.
+    assert "geophysical" in err and "GPS stöð" in err
     assert _FakeWriter.last_instance.create_calls == []
 
 
-def test_cli_force_overrides_duplicate_marker() -> None:
-    def cfg(w: _FakeWriter) -> None:
-        w.marker_id = 4316
-        w.land_id = 4360  # reuse existing site
+def test_cli_duplicate_check_is_scoped_to_the_domain_being_created() -> None:
+    """The guard must consult a filter, not ask "any station, anywhere".
 
-    rc = _run_cli(_base_args() + ["--force"], configure=cfg)
-    assert rc == 0
-    # Station create happened despite the existing marker.
-    assert any(s == "geophysical" for s, _ in _FakeWriter.last_instance.create_calls)
+    Unscoped it refused `station add BRST`, because entity 646 — the
+    Berustaðir weather station — carries marker `brst`, while BRST itself is
+    Brest, France, with no TOS entity at all.
+    """
+    _run_cli(_base_args(), configure=lambda w: setattr(w, "marker_id", None))
+    predicates = _FakeWriter.last_instance.marker_predicates
+    assert (
+        predicates and predicates[0] is not None
+    ), "the duplicate-marker guard asked for ANY station on this marker"
+
+    met = {
+        "id_entity": 646,
+        "code_entity_subtype": "meteorological",
+        "attributes": [{"code": "subtype", "value": "Veðurfarsstöð", "date_to": None}],
+    }
+    doas = {
+        "id_entity": 5356,
+        "code_entity_subtype": "geophysical",
+        "attributes": [{"code": "subtype", "value": "DOAS", "date_to": None}],
+    }
+    gps = {
+        "id_entity": 4416,
+        "code_entity_subtype": "geophysical",
+        "attributes": [{"code": "subtype", "value": "GPS stöð", "date_to": None}],
+    }
+    clash = predicates[0]
+    assert clash(met) is False, "a weather station must not block a GPS station"
+    assert clash(doas) is False, "a DOAS gas station is a different domain"
+    assert clash(gps) is True, "another GPS station on this marker IS a clash"
+
+
+def test_cli_has_no_force_escape_from_the_duplicate_guard() -> None:
+    """A within-domain duplicate is a mistake every time.
+
+    `--force` used to add the station anyway, and the land site this verb
+    creates on the way through is not deletable. The flag is gone, so a
+    script still passing it fails loudly rather than quietly meaning
+    something else.
+    """
+    with pytest.raises(SystemExit) as exc:
+        _run_cli(
+            _base_args() + ["--force"],
+            configure=lambda w: setattr(w, "marker_id", 4316),
+        )
+    assert exc.value.code == 2
 
 
 def test_cli_attaches_to_existing_site_no_site_create(capsys) -> None:

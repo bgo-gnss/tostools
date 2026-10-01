@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from .exceptions import TOSConnectionError
-from .station_kind import select_station
+from .station_kind import domain_predicate, select_station
 
 KNOWN_SUBCOMMANDS = {
     "owners",
@@ -3876,12 +3876,13 @@ def _add_station_add_parser(sub) -> None:
         "already exists (instead of reusing it).",
     )
     # --- common ---
-    p_add.add_argument(
-        "--force",
-        action="store_true",
-        help="Create the station even if its marker already exists in TOS "
-        "(bypasses the duplicate-marker guard).",
-    )
+    # NOTE: there is deliberately no `--force` here. It existed only to
+    # bypass the duplicate-marker guard, and that guard is now scoped to the
+    # domain being created (entity type + `--subtype`), so a hit is a REAL
+    # within-domain duplicate every time. "Add it anyway" had no good use and
+    # one very bad one: the land site this verb creates on the way through is
+    # not deletable. Removing the flag rather than ignoring it means a script
+    # still passing it fails loudly instead of silently changing meaning.
     p_add.add_argument(
         "--no-dry-run",
         action="store_true",
@@ -5104,27 +5105,45 @@ def _station_add_main(args) -> int:
     writer = TOSWriter(base_url=base_url, dry_run=dry_run)
 
     # ---- Pre-flight: duplicate-marker guard ------------------------------
-    # DELIBERATELY UNGATED, pending a decision from bgo.
+    # Scoped to the DOMAIN this call is creating, which the call itself
+    # defines: this verb always creates a `geophysical` station, and
+    # `--subtype` names the station kind (catalog default 'GPS stöð'). A
+    # marker is a duplicate only INSIDE one domain — cross-discipline sharing
+    # is normal in this fleet, and `AUST`, `HLFJ`, `HOFN`, `KVSK` and `SOHO`
+    # all do it today.
     #
-    # Filtering here would be a change in the PERMISSIVE direction, and the
-    # land site this verb creates is not deletable. Today `station add BRST`
-    # is REFUSED because entity 646, the Berustaðir weather station, carries
-    # marker `brst` — arguably wrong, since cross-discipline marker sharing
-    # is normal in this fleet (AUST, HLFJ, HOFN, KVSK and SOHO all do it), so
-    # a weather station should not block a real GPS station. But refusing is
-    # the SAFE error, and loosening a create path is not something to slip
-    # into a branch about narrowing reads.
+    # Unscoped, this guard refused work it had no business refusing:
+    # `station add BRST` was blocked by entity 646, the Berustaðir weather
+    # station, which carries marker `brst` — while BRST itself is Brest,
+    # France, with no TOS entity at all.
     #
-    # Worth recording while we are here: `station add` only ever REFUSES on a
-    # cross-discipline marker. It never attaches to the other discipline's
-    # entity. The severe "attaches a device to the wrong station" form of this
-    # bug lives in `receivers` (`cfg move-device --to SOHO` resolves 5356).
-    existing_marker_id = writer.find_station_by_marker(args.marker)
-    if existing_marker_id is not None and not args.force:
+    # Deriving the filter from the arguments rather than from a threaded
+    # profile is what makes `tos` and `tosGPS` agree here without either
+    # having to know about the other.
+    #
+    # `--force` deliberately does NOT override this any more. A real
+    # within-domain duplicate is a mistake every time, and the land site this
+    # verb creates on the way through is not deletable, so "add it anyway"
+    # was an option with no good use and one very bad one.
+    # `--subtype` is optional on the CLI and the catalog default is applied
+    # downstream, so resolve the EFFECTIVE value here. Using args.subtype raw
+    # would leave it None, and a None subtype widens the filter to the whole
+    # entity type — which would block adding a GPS station at a site that
+    # already has a DOAS one, the SOHO shape exactly.
+    entity_type = station_helpers.STATION_SUBTYPE
+    effective_subtype = args.subtype or station_helpers.station_required_codes().get(
+        "subtype"
+    )
+    clash_filter = domain_predicate((entity_type,), effective_subtype)
+    existing_marker_id = writer.find_station_by_marker(
+        args.marker, predicate=clash_filter
+    )
+    if existing_marker_id is not None:
         print(
-            f"A station with marker {args.marker!r} already exists "
-            f"(id_entity={existing_marker_id}). Pass --force to add anyway, "
-            f"or pick a different marker.",
+            f"A {entity_type} station with marker {args.marker!r} and subtype "
+            f"{effective_subtype!r} already exists "
+            f"(id_entity={existing_marker_id}). Pick a different marker, or "
+            f"correct the existing station instead of adding a second one.",
             file=sys.stderr,
         )
         return 1
