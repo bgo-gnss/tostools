@@ -3016,7 +3016,11 @@ def _audit_verify_from_rinex_main(args, client) -> int:
             # _gate_audit_station already resolved the marker; without this
             # the audit re-resolved it through an UNGATED path and reached
             # the right SOHO entity only by basic_search ordering luck.
-            id_entity=getattr(args, "id_entity", None),
+            **(
+                {"id_entity": args.id_entity}
+                if getattr(args, "id_entity", None) is not None
+                else {}
+            ),
         )
     except FileNotFoundError as e:
         print(str(e), file=sys.stderr)
@@ -5105,7 +5109,15 @@ def _station_add_main(args, *, predicate=None) -> int:
     # refused because entity 646, the Berustaðir weather station, carries
     # marker `brst`. The cross-discipline hit is still worth saying out loud,
     # so it is reported rather than dropped.
-    existing_marker_id = writer.find_station_by_marker(args.marker, predicate=predicate)
+    # The predicate kwarg is passed ONLY when gated. "Ungated behaves exactly
+    # as before" has to include the CALL SIGNATURE: find_station_by_marker is
+    # duck-typed and the station-add tests supply a _FakeWriter, which an
+    # unexpected keyword breaks outright.
+    existing_marker_id = (
+        writer.find_station_by_marker(args.marker, predicate=predicate)
+        if predicate is not None
+        else writer.find_station_by_marker(args.marker)
+    )
     if predicate is not None and existing_marker_id is None:
         other_discipline_id = writer.find_station_by_marker(args.marker)
         if other_discipline_id is not None:
@@ -8135,8 +8147,11 @@ def _audit_reconstruct_main(args, client) -> int:
     }
 
     # --- TOS child joins (receiver + antenna, open and closed) ---
-    parent_id = _resolve_station_id(
-        client, station, id_entity=getattr(args, "id_entity", None)
+    _recon_id = getattr(args, "id_entity", None)
+    parent_id = (
+        _resolve_station_id(client, station, id_entity=_recon_id)
+        if _recon_id is not None
+        else _resolve_station_id(client, station)
     )
     if parent_id is None:
         print(f"Station {station!r} not found in TOS", file=sys.stderr)
@@ -10666,7 +10681,11 @@ def _resolve_open_receiver(client, station, *, id_entity=None):
     from . import devices as devices_mod
     from .audit_verify_from_rinex import _resolve_station_id
 
-    sid = _resolve_station_id(client, station, id_entity=id_entity)
+    sid = (
+        _resolve_station_id(client, station, id_entity=id_entity)
+        if id_entity is not None
+        else _resolve_station_id(client, station)
+    )
     if sid is None:
         return None
     hist = client.get_entity_history(sid)
@@ -10706,8 +10725,11 @@ def _audit_firmware_chain_main(args, client) -> int:
     from . import audit_firmware_chain as fc_mod
     from . import receiver_timeline as rt_mod
 
-    tos_rx = _resolve_open_receiver(
-        client, args.station, id_entity=getattr(args, "id_entity", None)
+    _rx_id = getattr(args, "id_entity", None)
+    tos_rx = (
+        _resolve_open_receiver(client, args.station, id_entity=_rx_id)
+        if _rx_id is not None
+        else _resolve_open_receiver(client, args.station)
     )
     if tos_rx is None:
         print(

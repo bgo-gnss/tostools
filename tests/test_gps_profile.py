@@ -162,12 +162,22 @@ class TestSubtypePin:
 class TestTosGpsDelegation:
     """What `tosGPS` forwards to the shared engine, and how.
 
-    Asymmetric on purpose: `search` is profiled because `tos search` is
-    unconstrained, while `audit` is a plain alias because the audit is
-    already GPS-only by construction (audit_missing_attributes skips every
-    gps_relevance != 'yes' code). Applying a profile there would be
-    redundant, and `tos audit` must stay byte-identical — gps-tos-corrections
-    records 270 `tos audit apply` invocations as procedure.
+    This class used to assert the opposite of what it asserts now, and the
+    reversal is the point. `audit`, `fleet`, `station`, `device` and
+    `contact` were plain aliases on the grounds that the audit is "already
+    GPS-only by construction" because `audit_missing_attributes` skips every
+    `gps_relevance != 'yes'` code. That is exactly BACKWARDS: skipping every
+    non-GPS attribute is what makes a non-GPS station pass **vacuously**, and
+    `tosGPS station verify VLFS` duly reported "✓ clean — 0 finding(s)" for a
+    1963 precipitation gauge with zero devices. Each of those verbs resolves
+    a 4-char marker, and markers are not unique across disciplines in TOS —
+    nor even within `geophysical`. So each now takes the profile, which
+    constrains its station search to `GPS stöð`.
+
+    `tos` itself still passes no profile, and `test_station_kind_gate.py`
+    pins `tos` and `tosGPS` as byte-identical on a single-candidate station —
+    the invariant that matters, since gps-tos-corrections records 270
+    `tos audit apply` invocations as procedure.
     """
 
     def _main(self, argv):
@@ -188,22 +198,50 @@ class TestTosGpsDelegation:
     @pytest.mark.parametrize(
         "verb,handler",
         [
-            ("audit", "_audit_main"),
-            ("fleet", "_fleet_main"),
-            ("station", "_station_main"),
-            ("device", "_device_main"),
             ("location", "_location_main"),
-            ("contact", "_contact_main"),
+            ("attribute", "_attribute_main"),
             ("owners", "_owners_main"),
         ],
     )
     def test_plain_aliases_delegate_unprofiled(self, verb, handler):
-        """Every table entry forwards verbatim — no profile, exact argv."""
+        """A PLAIN entry forwards verbatim — no profile, exact argv.
+
+        What is left in the plain table resolves no station marker, so there
+        is nothing for a GPS profile to narrow: a `location` is the required
+        `land` PARENT of a station and carries no station subtype,
+        `attribute` resolves one `id_attribute_value` by id, and `owners` is
+        the allow-list behind `device add`.
+        """
         import tostools.tos as tos_mod
 
         with patch.object(tos_mod, handler, return_value=0) as spy:
             assert self._main([verb, "--help"]) == 0
         spy.assert_called_once_with(["--help"])
+
+    @pytest.mark.parametrize(
+        "verb,handler",
+        [
+            ("audit", "_audit_main"),
+            ("fleet", "_fleet_main"),
+            ("station", "_station_main"),
+            ("device", "_device_main"),
+            ("contact", "_contact_main"),
+        ],
+    )
+    def test_marker_resolving_verbs_are_delegated_WITH_the_profile(self, verb, handler):
+        """Every verb that resolves a station marker gets the GPS profile.
+
+        Parametrised so a verb wired in isolation and forgotten in a sibling
+        fails here. argv still forwards verbatim — the profile is the only
+        addition, and `tos` supplies none.
+        """
+        import tostools.tos as tos_mod
+
+        with patch.object(tos_mod, handler, return_value=0) as spy:
+            assert self._main([verb, "--help"]) == 0
+        argv, kwargs = spy.call_args
+        assert argv[0] == ["--help"]
+        assert kwargs["profile"].name == "GPS"
 
     def test_visit_is_delegated_with_the_gps_profile(self):
         # `visit search` is fleet-wide, so tosGPS threads the profile (only
@@ -216,18 +254,41 @@ class TestTosGpsDelegation:
         assert argv[0] == ["search", "--work", "x"]
         assert kwargs["profile"].name == "GPS"
 
-    def test_the_table_covers_every_tos_verb_except_profiled(self):
+    def test_the_tables_cover_every_tos_verb_between_them(self):
         """tosGPS exposes the whole `tos` surface, and nothing is silently
-        missing: a verb added to tos.py must be aliased or deliberately
-        profiled, never forgotten."""
+        missing: a verb added to tos.py must land in one of the two tables or
+        be deliberately profiled, never forgotten."""
         from tostools.tos import KNOWN_SUBCOMMANDS
-        from tostools.tosGPS import _PLAIN_ALIASES
+        from tostools.tosGPS import _PLAIN_ALIASES, _PROFILED_ALIASES
 
-        missing = set(KNOWN_SUBCOMMANDS) - set(_PLAIN_ALIASES) - {"search", "visit"}
+        missing = (
+            set(KNOWN_SUBCOMMANDS)
+            - set(_PLAIN_ALIASES)
+            - set(_PROFILED_ALIASES)
+            - {"search", "visit"}
+        )
         assert not missing, (
             f"tos verb(s) neither aliased by tosGPS nor profiled: {missing}. "
-            "Add to _PLAIN_ALIASES, or profile it like search and exempt it."
+            "If it resolves a station marker it belongs in _PROFILED_ALIASES; "
+            "if it does not, _PLAIN_ALIASES."
         )
+
+    def test_the_two_tables_are_disjoint(self):
+        """A verb in both would silently take whichever branch runs first."""
+        from tostools.tosGPS import _PLAIN_ALIASES, _PROFILED_ALIASES
+
+        assert not (set(_PLAIN_ALIASES) & set(_PROFILED_ALIASES))
+
+    def test_no_plain_alias_resolves_a_station_marker(self):
+        """The rule behind the split, asserted rather than trusted.
+
+        A plain alias must not accept `--station`/a station positional; if it
+        does it can land on another discipline's entity, which is the whole
+        bug this split exists to close.
+        """
+        from tostools.tosGPS import _PLAIN_ALIASES
+
+        assert set(_PLAIN_ALIASES) == {"location", "attribute", "owners"}
 
     def test_the_alias_table_excludes_profiled_verbs(self):
         """search (wholly) and visit (its search subcommand) are the verbs
@@ -238,21 +299,30 @@ class TestTosGpsDelegation:
         assert "visit" not in _PLAIN_ALIASES
 
     def test_every_alias_target_exists_on_tos(self):
-        """A typo in the table would surface as AttributeError at runtime."""
+        """A typo in either table would surface as AttributeError at runtime."""
         import tostools.tos as tos_mod
-        from tostools.tosGPS import _PLAIN_ALIASES
+        from tostools.tosGPS import _PLAIN_ALIASES, _PROFILED_ALIASES
 
-        for verb, handler in _PLAIN_ALIASES.items():
+        for verb, handler in {**_PLAIN_ALIASES, **_PROFILED_ALIASES}.items():
             assert callable(
                 getattr(tos_mod, handler, None)
             ), f"{verb} -> {handler} is not a callable on tos.py"
 
-    def test_audit_is_delegated_with_NO_profile(self):
+    def test_audit_is_delegated_WITH_the_profile(self):
+        """`audit` resolves a marker on nine of its kinds, so it is profiled.
+
+        `audit timeline` takes entity ids rather than a marker, and the gate
+        no-ops for it — but the profile is still threaded, because the
+        decision of which KINDS to gate belongs in one place
+        (`_AUDIT_STATION_KINDS`) and not in the dispatch table.
+        """
         import tostools.tos as tos_mod
 
         with patch.object(tos_mod, "_audit_main", return_value=0) as spy:
             assert self._main(["audit", "timeline", "16156"]) == 0
-        spy.assert_called_once_with(["timeline", "16156"])
+        argv, kwargs = spy.call_args
+        assert argv[0] == ["timeline", "16156"]
+        assert kwargs["profile"].name == "GPS"
 
     def test_audit_delegates_to_the_very_same_function(self):
         """Alias, not a reimplementation — one function, one behaviour."""
@@ -260,14 +330,16 @@ class TestTosGpsDelegation:
 
         seen = {}
 
-        def _record(argv):
+        def _record(argv, profile=None):
             seen["argv"] = argv
+            seen["profile"] = profile
             return 7
 
         with patch.object(tos_mod, "_audit_main", _record):
             rc = self._main(["audit", "--help"])
         assert rc == 7, "tosGPS must return the exit code tos audit produced"
         assert seen["argv"] == ["--help"]
+        assert seen["profile"].name == "GPS"
 
     def test_product_subcommands_are_not_intercepted(self):
         """PrintTOS/rinex/sitelog/... still reach tosGPS's own parser."""
@@ -361,14 +433,21 @@ class TestImoFleetMarkers:
 
 
 class TestFleetDelegation:
-    def test_fleet_is_delegated_with_NO_profile(self):
+    def test_fleet_is_delegated_WITH_the_profile(self):
+        """`fleet` enumerates stations.cfg and resolves every marker, so it
+        is profiled. The filter is applied per marker during enumeration,
+        where a miss already skips the station with a warning — one non-GPS
+        marker in the cfg (BRST, which resolves to the Berustaðir weather
+        station) must not abort a 200-station run."""
         import tostools.tos as tos_mod
         import tostools.tosGPS as tosgps
 
         with patch.object(tos_mod, "_fleet_main", return_value=0) as spy:
             with patch.object(tosgps.sys, "argv", ["tosGPS", "fleet", "status"]):
                 assert tosgps.main() == 0
-        spy.assert_called_once_with(["status"])
+        argv, kwargs = spy.call_args
+        assert argv[0] == ["status"]
+        assert kwargs["profile"].name == "GPS"
 
 
 class TestSugarStaysInsideTheProfile:

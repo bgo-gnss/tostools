@@ -245,7 +245,17 @@ def enumerate_fleet_stations(
         if enumerate_progress is not None:
             enumerate_progress(i, total)
         try:
-            eid = resolve_marker_to_entity_id(client, marker, predicate=predicate)
+            # The kwarg is passed ONLY when gated. "Ungated behaves exactly
+            # as before" has to include the CALL SIGNATURE: this resolver is
+            # duck-typed and monkeypatched by the fleet tests, so handing it
+            # an unexpected keyword raised TypeError, which the per-marker
+            # `except Exception: continue` below swallowed into "zero stations
+            # resolved" — a silent, total fleet failure.
+            eid = (
+                resolve_marker_to_entity_id(client, marker, predicate=predicate)
+                if predicate is not None
+                else resolve_marker_to_entity_id(client, marker)
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "enumerate_fleet_stations: resolve(%r) raised: %s; skipping",
