@@ -50,47 +50,72 @@ class Mutation:
     why: str
     #: pytest -k selector for the test(s) that MUST go red
     expect_red: str
+    #: how many occurrences the anchor is EXPECTED to match. >1 where one
+    #: logical seam is spread over identical call sites (the station
+    #: fan-out pre-resolve sits in both `verify` and `triage`). A count
+    #: mismatch fails loudly rather than silently mutating the wrong number.
+    count: int = 1
 
 
 MUTATIONS = [
-    # ---------------- the wiring ----------------
+    # ======================= the wiring =======================
     Mutation(
         name="dispatch-passes-no-profile",
         path="tosGPS.py",
         old="return handler(sys.argv[2:], profile=gps_profile())",
         new="return handler(sys.argv[2:], profile=None)",
         why=(
-            "The single line that turns the gate on. Revert it and the whole "
-            "feature is inert while every helper still works perfectly. This "
-            "is THE mutation — if the suite stays green here, it proves nothing."
+            "The single line that turns the filter on for EVERY profiled verb. "
+            "Revert it and the whole feature is inert while each helper still "
+            "works perfectly. This is THE mutation — a suite that stays green "
+            "here proves nothing at all."
         ),
-        expect_red="refuses or resolves_the_gps_entity",
+        expect_red="cannot_see or resolves_the_gps_entity",
     ),
     Mutation(
         name="station-handler-drops-the-predicate",
         path="tos.py",
-        # `_fleet_predicate = profile.admits_station ...` CONTAINS the bare
-        # form as a substring, so the anchor carries its comment to stay unique.
-        old=(
-            "    # `_visit_main(profile=None)` already use.\n"
-            "    predicate = profile.admits_station if profile is not None else None"
+        old="    predicate = profile.admits_station if profile is not None else None",
+        new="    predicate = None",
+        why="_station_main's derivation — breaks every `station` verb at once.",
+        expect_red="station-show or station-verify or station-set",
+    ),
+    Mutation(
+        name="station-fan-out-skips-the-pre-resolve",
+        path="tos.py",
+        old="ok, _gated_id = _gated_station_id(client, args.station, predicate)",
+        new="ok, _gated_id = (True, None)",
+        why=(
+            "`station verify` / `station triage` would fall through to the "
+            "audits, which re-resolve the marker UNGATED and reach the very "
+            "entity the filter excluded."
         ),
-        new=("    # `_visit_main(profile=None)` already use.\n" "    predicate = None"),
-        why="_station_main's derivation — breaks station show/verify/triage only.",
-        expect_red="station-show or station-verify",
+        expect_red="station-verify or station-triage or same_entity",
+        count=2,
+    ),
+    Mutation(
+        name="gated-lookup-miss-proceeds-anyway",
+        path="tos.py",
+        old=(
+            "        return False, None\n" '    return True, int(entity["id_entity"])'
+        ),
+        new=("        return True, None\n" '    return True, int(entity["id_entity"])'),
+        why=(
+            "The miss branch is what makes a filtered-out station behave as "
+            "NOT FOUND. Returning True instead lets the verb run unconstrained."
+        ),
+        # Deliberately an OFFLINE selector: the dispatch tests can only
+        # reach this through a cassette mismatch, which proves nothing.
+        expect_red="gated_station_id_reports_a_miss",
     ),
     Mutation(
         name="audit-handler-never-gates",
         path="tos.py",
-        old=(
-            "    _gate_audit_station(\n"
-            "        client, args, profile.admits_station if profile is not None else None\n"
-            "    )"
-        ),
-        new="    pass",
+        old="if not _gate_audit_station(",
+        new="if False and _gate_audit_station(",
         why=(
             "The audit verbs are where the FALSE PASS lives — "
-            "`audit missing-attributes VLFS` is the vacuous oracle itself."
+            "`audit missing-attributes VLFS` IS the vacuous oracle."
         ),
         expect_red="audit-station or audit-missing-attributes",
     ),
@@ -102,30 +127,47 @@ MUTATIONS = [
             "        client,\n"
             "        predicate=predicate,"
         ),
-        new="    parent_id = _resolve_parent_id(\n        client,\n        predicate=None,",
-        why="`device list --station` is a sibling that could be missed on its own.",
+        new=(
+            "    parent_id = _resolve_parent_id(\n"
+            "        client,\n"
+            "        predicate=None,"
+        ),
+        why="`device list --station` is a sibling that could be missed alone.",
         expect_red="device-list or resolves_the_gps_entity",
     ),
     Mutation(
-        name="triage-skips-the-pre-resolve",
-        path="station_triage.py",
-        old="    if predicate is not None and id_entity is None:",
-        new="    if False:",
+        name="station-show-device-delegates-ungated",
+        path="tos.py",
+        old="_device_list_main(delegated, predicate=predicate)",
+        new="_device_list_main(delegated)",
         why=(
-            "Without the pre-resolve a refusal is raised INSIDE an audit, where "
-            "`except Exception` turns it into 'N audits failed' (exit 2) rather "
-            "than a refusal."
+            "`station show VLFS --device` built its own namespace and lost the "
+            "predicate — zero devices, exit 0, the vacuous pass on the verb the "
+            "plain `station show` test appears to cover. Found in review."
         ),
-        expect_red="station-verify",
+        expect_red="station-show-device",
     ),
-    # ---------------- the helper ----------------
+    Mutation(
+        name="station-write-path-ungated",
+        path="tos.py",
+        old="client, station_marker=station, predicate=predicate",
+        new="client, station_marker=station, predicate=None",
+        why=(
+            "`station set` / `station describe` are WRITES; ungated they PATCH "
+            "a precipitation gauge, or the DOAS gas station for SOHO. Also "
+            "covers `station receivers`. Found in review."
+        ),
+        expect_red="station-set or station-describe or station-receivers",
+        count=2,
+    ),
+    # ======================= the predicate =======================
     Mutation(
         name="select-takes-the-first-candidate",
         path="station_kind.py",
         old="    admitted = [c for c in cands if predicate(c)]",
         new="    admitted = cands[:1]",
-        why="Filter-candidates collapses to first-hit: SOHO lands on the DOAS station.",
-        expect_red="refuses or resolves_the_gps_entity",
+        why="The filter collapses to first-hit: SOHO lands on the DOAS station.",
+        expect_red="cannot_see or resolves_the_gps_entity",
     ),
     Mutation(
         name="predicate-ignores-entity-type",
@@ -134,22 +176,36 @@ MUTATIONS = [
         new="            if False:",
         why=(
             "Drops the level that excludes other disciplines. Only ONE test can "
-            "catch this — a non-geophysical entity with NO subtype attribute. "
-            "Everything else is caught on the subtype level, which is precisely "
-            "why this mutation went undetected on the first run."
+            "catch it — a non-geophysical entity with NO subtype attribute. "
+            "Everything else is caught on the subtype level, which is exactly "
+            "why this mutation survived the harness's first run."
         ),
-        expect_red="no_subtype_is_still_refused",
+        expect_red="no_subtype_is_still_excluded",
     ),
     Mutation(
         name="predicate-ignores-the-subtype-attribute",
         path="search_selectors.py",
-        old="        return found is None or found == self.subtype",
-        new="        return True",
+        old=(
+            "        if found is not None:\n" "            return found == self.subtype"
+        ),
+        new="        if found is not None:\n            return True",
         why=(
             "Drops the level that separates GPS from SIL/DOAS — both are "
             "`geophysical`, so SOHO becomes a coin toss again."
         ),
         expect_red="entity_type_alone or resolves_the_gps_entity",
+    ),
+    Mutation(
+        name="closed-subtype-reads-as-never-set",
+        path="search_selectors.py",
+        old="        return not ever or self.subtype in ever",
+        new="        return True",
+        why=(
+            "A decommissioned DOAS station (only a CLOSED `subtype` period) "
+            "would be handed to the GPS audits through the absent-subtype "
+            "leniency. Raised in review."
+        ),
+        expect_red="decommissioned_doas",
     ),
 ]
 
@@ -176,8 +232,12 @@ def _apply(m: Mutation) -> str:
     n = text.count(m.old)
     if n == 0:
         sys.exit(f"ANCHOR NOT FOUND in {m.path} for {m.name!r} — fix the anchor.")
-    if n > 1:
-        sys.exit(f"AMBIGUOUS anchor in {m.path} for {m.name!r} ({n} matches).")
+    if n != m.count:
+        sys.exit(
+            f"ANCHOR COUNT CHANGED in {m.path} for {m.name!r}: found {n}, "
+            f"expected {m.count}. The code moved — fix the anchor or the count, "
+            f"never delete the mutation."
+        )
     path.write_text(text.replace(m.old, m.new), encoding="utf-8")
     return text
 
@@ -234,8 +294,17 @@ def main() -> int:
             (SRC / m.path).write_text(original, encoding="utf-8")
             backups.pop(m.path, None)
 
+            blob = run.stdout + run.stderr
             if "no tests ran" in run.stdout or "NO TESTS" in run.stdout:
                 verdict = "NO TESTS MATCHED"
+            elif "CannotOverwriteExistingCassette" in blob and (
+                "AssertionError" not in blob and "assert" not in blob
+            ):
+                # The mutation changed the REQUEST SEQUENCE, so VCR refused
+                # before any assertion ran. The suite went red, but not for
+                # the reason the test claims to check — a much weaker signal,
+                # and reporting it as DETECTED would overstate the coverage.
+                verdict = "CASSETTE-ONLY"
             elif run.returncode != 0:
                 verdict = "DETECTED"
             else:

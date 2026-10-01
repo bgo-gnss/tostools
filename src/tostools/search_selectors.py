@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .search import ANY_DEVICE, DEVICE_SUBTYPE_ALIASES, device_in_namespace
-from .station_kind import open_attribute
+from .station_kind import all_attribute_values, open_attribute
 from .utils.logging import get_logger
 
 logger = get_logger(__name__, logging.WARNING)
@@ -124,12 +124,22 @@ class Profile:
         make the gate pre-empt the audit that exists to report it, and
         would lock a real GPS station out of its own verify run for the
         very defect the run should surface.
+
+        But absent means **never set**, not merely "not set right now". A
+        station whose only ``subtype`` period is a CLOSED ``DOAS`` is a
+        decommissioned gas station, and treating a closed period as absent
+        would quietly hand it to the GPS audits. So when no period is open,
+        the station is admitted only if it never carried a subtype at all,
+        or if one of the values it carried was ours.
         """
         if self.entity_scopes:
             if entity.get("code_entity_subtype") not in self.entity_scopes:
                 return False
         found = open_attribute(entity, "subtype")
-        return found is None or found == self.subtype
+        if found is not None:
+            return found == self.subtype
+        ever = all_attribute_values(entity, "subtype")
+        return not ever or self.subtype in ever
 
 
 def gps_profile(catalog=None) -> Profile:

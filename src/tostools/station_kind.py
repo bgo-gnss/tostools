@@ -38,8 +38,15 @@ Hence: entity type in scope **AND** (subtype attribute matches **OR** is
 absent). The absent-leniency is what keeps the gate from pre-empting the
 audit that exists to report it.
 
-Filter candidates — never resolve-then-refuse
----------------------------------------------
+A filter, not a refusal
+-----------------------
+
+``tosGPS`` constrains every station search to ``GPS stöð``. A station of
+another discipline is therefore not something it refuses — it is something
+it **cannot see**, exactly as if the marker were not in TOS at all, and the
+existing "no station with marker X" path answers for it. No new exception
+type, no new exit-code convention, and nothing for a caller to forget to
+catch.
 
 The gate is applied while **choosing** among the marker's candidates, not
 to the one a first-hit resolver already picked. That is not a stylistic
@@ -60,7 +67,8 @@ all three outcomes:
 * ``BRST`` is *Brest, France* (``is_in_iceland = false``), an external IGS
   reference site with **no TOS entity**. The only candidate on marker
   ``brst`` is entity 646, *Berustaðir í Ásum* — an Icelandic weather
-  station. Refusing is correct; returning 646 is what happens today.
+  station. Answering "not found" is correct; returning 646 is what happens
+  today, and ``tosGPS station verify BRST`` therefore said ``✓ clean``.
 
 Measured over all 344 ``stations.cfg`` markers (2026-10-01): 198 resolve
 to exactly one admitted candidate (unchanged); 140 have no candidate at
@@ -105,6 +113,27 @@ def open_attribute(entity: Mapping[str, Any], code: str) -> Optional[str]:
     return None
 
 
+def all_attribute_values(entity: Mapping[str, Any], code: str) -> List[str]:
+    """Every value ``code`` has EVER carried on ``entity``, open or closed.
+
+    Needed to tell "this station never had a subtype" (a brand-new GPS
+    station, admitted by the leniency) from "this station had one and it was
+    somebody else's" (a decommissioned DOAS station, which is not ours
+    merely because its period was closed).
+    """
+    out: List[str] = []
+    for attr in entity.get("attributes") or ():
+        if not isinstance(attr, Mapping):
+            continue
+        if attr.get("code") == code or attr.get("code_attribute") == code:
+            value = attr.get("value")
+            if value is None:
+                value = attr.get("value_varchar")
+            if isinstance(value, str) and value not in out:
+                out.append(value)
+    return out
+
+
 def describe_entity(entity: Mapping[str, Any]) -> str:
     """A short human label for an entity, for refusal messages.
 
@@ -126,50 +155,6 @@ def describe_entity(entity: Mapping[str, Any]) -> str:
         tail.append(f"id_entity={eid}")
     label = " ".join(bits)
     return f"{label} ({', '.join(tail)})" if tail else label
-
-
-class WrongStationKind(LookupError):
-    """No candidate on this marker is the kind of station we act on.
-
-    Subclasses :class:`LookupError` on purpose: every resolver's caller
-    already handles a lookup miss and maps it to the right exit code, so
-    a refusal rides the existing path instead of growing a second one.
-    The rejected candidates ride along so the message can name what was
-    actually found — a refusal an operator cannot check is a refusal they
-    will work around.
-    """
-
-    def __init__(
-        self,
-        marker: str,
-        candidates: Sequence[Mapping[str, Any]] = (),
-        *,
-        tool: str = "tosGPS",
-        plain_tool: str = "tos",
-        kind: str = "a GPS station",
-    ) -> None:
-        self.marker = marker
-        self.candidates: List[Mapping[str, Any]] = list(candidates)
-        self.tool = tool
-        self.plain_tool = plain_tool
-        self.kind = kind
-        super().__init__(self._message())
-
-    def _message(self) -> str:
-        mk = self.marker.upper()
-        if not self.candidates:
-            return (
-                f"{mk} is not {self.kind} in TOS — no entity carries marker "
-                f"{self.marker.lower()!r}. If it is an external reference site "
-                f"it has no TOS record by design; otherwise add it with "
-                f"`{self.plain_tool} station add`."
-            )
-        found = "; ".join(describe_entity(c) for c in self.candidates)
-        return (
-            f"{mk} is not {self.kind} — TOS has {found}. "
-            f"{self.tool} acts on GPS stations only; use "
-            f"`{self.plain_tool} station show {mk}` to inspect it."
-        )
 
 
 class AmbiguousStation(LookupError):
@@ -196,33 +181,40 @@ def select_station(
     marker: str,
     candidates: Sequence[Mapping[str, Any]],
     predicate: Optional[StationPredicate],
-    *,
-    kind: str = "a GPS station",
 ) -> Optional[Mapping[str, Any]]:
-    """Pick the one candidate ``predicate`` admits.
+    """Pick the one candidate ``predicate`` admits, or ``None``.
 
     With ``predicate=None`` this is the historical behaviour exactly:
     first candidate wins, or ``None`` when there are none. That default
     is what keeps ``tos`` byte-identical.
 
-    With a predicate:
+    With a predicate it is a **filter**, and nothing more:
 
     * exactly one admitted  → return it
-    * none admitted         → :class:`WrongStationKind` (naming the
-      rejects, or reporting that the marker is absent from TOS)
+    * none admitted         → ``None``, i.e. *not found*
     * several admitted      → :class:`AmbiguousStation`
 
+    Returning ``None`` rather than a bespoke refusal is the whole point.
+    ``tosGPS`` constrains its searches to GPS stations, so a
+    meteorological station is not a station it REFUSES — it is a station
+    it cannot see, exactly as if the marker were absent. Every resolver
+    already answers ``None`` for an absent marker and every caller already
+    handles that, so the gate rides a path that is tested and in use
+    instead of a second one bolted alongside it. A refusal object would
+    also have had to be caught in each of the five resolvers' callers,
+    and one that was missed (``_visit_main``) turned the refusal into a
+    stack trace.
+
     Args:
-        marker: the marker being resolved, for the messages.
+        marker: the marker being resolved, for the ambiguity message.
         candidates: entity mappings, in the resolver's own preference
             order. Each must carry ``code_entity_subtype`` and
             ``attributes`` for the predicate to judge it.
         predicate: the gate, or ``None`` for no gate.
-        kind: what this tool acts on, for the refusal message.
 
     Raises:
-        WrongStationKind: nothing admitted.
-        AmbiguousStation: more than one admitted.
+        AmbiguousStation: more than one admitted — a data-integrity error,
+            never a routine outcome. See the class.
     """
     cands = [c for c in candidates if isinstance(c, Mapping)]
     if predicate is None:
@@ -231,5 +223,5 @@ def select_station(
     if len(admitted) == 1:
         return admitted[0]
     if not admitted:
-        raise WrongStationKind(marker, cands, kind=kind)
+        return None
     raise AmbiguousStation(marker, admitted)

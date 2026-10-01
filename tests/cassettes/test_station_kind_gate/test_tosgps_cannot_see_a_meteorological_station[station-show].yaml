@@ -25,9 +25,9 @@ interactions:
       Content-Type:
       - application/json
       Date:
-      - Thu, 01 Oct 2026 22:24:06 GMT
+      - Thu, 01 Oct 2026 22:46:11 GMT
       X-Request-Id:
-      - 68aafa3d-34dd-4b87-9890-645fda361400
+      - 10f41127-e530-451b-bb09-46f11b2e9334
     status:
       code: 200
       message: OK
@@ -98,11 +98,11 @@ interactions:
       Content-Type:
       - application/json
       Date:
-      - Thu, 01 Oct 2026 22:24:04 GMT
+      - Thu, 01 Oct 2026 22:46:10 GMT
       Vary:
       - Accept-Encoding
       X-Request-Id:
-      - 22f89481-027f-4f99-9551-8a8987123bec
+      - 694446bd-d712-47a7-9a2e-62bc51fc00f1
       content-length:
       - '6387'
     status:
@@ -134,9 +134,9 @@ interactions:
       Content-Type:
       - application/json
       Date:
-      - Thu, 01 Oct 2026 22:24:04 GMT
+      - Thu, 01 Oct 2026 22:46:10 GMT
       X-Request-Id:
-      - 6e4dec15-5035-4dd3-aba7-0702d305ed45
+      - ecb7121c-5906-4dde-8394-47b85ab30b59
     status:
       code: 200
       message: OK
@@ -166,9 +166,9 @@ interactions:
       Content-Type:
       - application/json
       Date:
-      - Thu, 01 Oct 2026 22:24:04 GMT
+      - Thu, 01 Oct 2026 22:46:12 GMT
       X-Request-Id:
-      - 6c8e31f2-9cc8-448c-a134-ca5e32da8792
+      - 4b270050-e524-40bb-9e5a-d806d257bdfc
     status:
       code: 200
       message: OK
@@ -198,9 +198,9 @@ interactions:
       Content-Type:
       - application/json
       Date:
-      - Thu, 01 Oct 2026 22:24:06 GMT
+      - Thu, 01 Oct 2026 22:46:12 GMT
       X-Request-Id:
-      - 95245e73-be5a-4595-8e08-b44fc679550c
+      - 1e7d7303-323b-4fd4-9555-d89a86f15b8f
     status:
       code: 200
       message: OK
@@ -230,14 +230,14 @@ interactions:
       Content-Type:
       - application/json
       Date:
-      - Thu, 01 Oct 2026 22:24:04 GMT
+      - Thu, 01 Oct 2026 22:46:10 GMT
       X-Request-Id:
-      - ef2f86c4-9808-4b11-ad35-e54abb73f06d
+      - c7536061-30ef-473d-a531-adf9e264f809
     status:
       code: 200
       message: OK
 - request:
-    body: '{"search_term": "VLFS"}'
+    body: '{"search_term": "vlfs"}'
     headers:
       Accept:
       - '*/*'
@@ -310,11 +310,11 @@ interactions:
       Content-Type:
       - application/json
       Date:
-      - Thu, 01 Oct 2026 22:24:06 GMT
+      - Thu, 01 Oct 2026 22:46:12 GMT
       Vary:
       - Accept-Encoding
       X-Request-Id:
-      - 0616d4da-dbcd-4dd4-ae65-053441122128
+      - d9e50446-e1da-4440-ae98-f6163b10b162
       content-length:
       - '13854'
     status:
@@ -383,11 +383,11 @@ interactions:
       Content-Type:
       - application/json
       Date:
-      - Thu, 01 Oct 2026 22:24:05 GMT
+      - Thu, 01 Oct 2026 22:46:10 GMT
       Vary:
       - Accept-Encoding
       X-Request-Id:
-      - 880c8b57-54dc-4668-9816-61b5df4c1929
+      - 3f87f96d-725d-43b3-a9ad-f65159a0240e
       content-length:
       - '6385'
     status:

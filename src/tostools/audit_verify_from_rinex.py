@@ -31,7 +31,6 @@ from typing import Any, Dict, List, Optional
 
 from .api.tos_client import TOSClient
 from .receiver_timeline import ReceiverHeader
-from .station_kind import StationPredicate, select_station
 
 logger = logging.getLogger(__name__)
 
@@ -483,7 +482,6 @@ def audit_station_verify_from_rinex(
     archive_root: Optional[Path] = None,
     min_gap_days: float = 30.0,
     check_current_receiver: bool = True,
-    predicate: Optional[StationPredicate] = None,
     id_entity: Optional[int] = None,
 ) -> StationRinexReport:
     """Cross-check one station's TOS state against the cold RINEX archive.
@@ -500,8 +498,6 @@ def audit_station_verify_from_rinex(
     min_gap_days
         Minimum gap duration to flag (default 30; below ~7 the report
         fills with date-rounding noise).
-    predicate
-        Optional station gate (see :mod:`tostools.station_kind`).
     id_entity
         Pre-resolved station id. ``station`` is still used for archive
         paths and report labels — this only skips the marker lookup, which
@@ -555,9 +551,7 @@ def audit_station_verify_from_rinex(
     # `tos device list`. Resolution failures yield an empty receivers
     # list rather than raising; the operator still sees the archive
     # side of the picture.
-    parent_id = _resolve_station_id(
-        client, station, predicate=predicate, id_entity=id_entity
-    )
+    parent_id = _resolve_station_id(client, station, id_entity=id_entity)
     receivers: List[TOSReceiverVerdict] = []
     # Fields of the currently-OPEN gnss_receiver join (time_to is None) — the
     # receiver-level current-install check below compares the archive's current
@@ -673,7 +667,6 @@ def _resolve_station_id(
     client: TOSClient,
     station: str,
     *,
-    predicate: Optional[StationPredicate] = None,
     id_entity: Optional[int] = None,
 ) -> Optional[int]:
     """Resolve a station marker → id via basic_search.
@@ -690,15 +683,17 @@ def _resolve_station_id(
     5356 in every other audit, producing one triage file describing two
     different stations.
 
-    ``predicate`` gates which candidate is chosen when several carry the
-    marker; ``None`` keeps the previous first-hit behaviour exactly.
+    This resolver takes NO predicate, deliberately. Every caller that needs
+    the GPS filter now pre-resolves at the CLI boundary and passes
+    ``id_entity``, so a predicate here would be an orphaned abstraction —
+    exported, plausible, and reached by nobody, which is how this codebase
+    has grown logic that silently drifts from the live path.
     """
     if id_entity is not None:
         return int(id_entity)
     if not station:
         return None
     needle = station.lower()
-    candidate_ids: List[int] = []
     for hit in client.basic_search(needle):
         if hit.get("code") != "marker":
             continue
@@ -710,22 +705,8 @@ def _resolve_station_id(
             continue
         entity_id = hit.get("id_entity") or hit.get("id_lvl_two")
         if entity_id:
-            if predicate is None:
-                return int(entity_id)
-            if int(entity_id) not in candidate_ids:
-                candidate_ids.append(int(entity_id))
-    if predicate is None or not candidate_ids:
-        return None
-    resolved = []
-    for eid in candidate_ids:
-        history = client.get_entity_history(eid)
-        if history:
-            history.setdefault("id_entity", eid)
-            resolved.append(history)
-    if not resolved:
-        return None
-    chosen = select_station(station, resolved, predicate)
-    return int(chosen["id_entity"]) if chosen else None
+            return int(entity_id)
+    return None
 
 
 def format_triage_file(

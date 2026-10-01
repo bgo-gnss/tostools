@@ -1,4 +1,4 @@
-"""`tosGPS` must refuse non-GPS stations, and `tos` must still find them.
+"""`tosGPS` constrains every station search to ``GPS stöð``.
 
 The bug these lock down: the GPS audits narrow which **attributes** they
 grade (``audit_missing_attributes`` skips every code whose
@@ -7,29 +7,33 @@ nothing to fail and they pass **vacuously**. ``tosGPS station verify VLFS``
 reported ``✓ clean — 0 finding(s)`` for a 1963 precipitation gauge with zero
 devices. A false PASS from the oracle is the actual danger.
 
+The gate is a **filter**, not a refusal. A station of another discipline is
+not something ``tosGPS`` rejects; it is something ``tosGPS`` cannot see, and
+each verb's existing "not found" path answers for it. So these tests assert
+each verb's own not-found exit code rather than a bespoke one.
+
 Three live cases, each a different outcome, measured 2026-10-01:
 
 * **VLFS** (id 96, *Vífilsstaðir*, ``meteorological`` / ``Úrkomustöð``) —
-  must REFUSE. The reported bug.
-* **BRST** — must REFUSE. BRST is *Brest, France*
-  (``is_in_iceland = false``), an external IGS site with no TOS entity; its
-  only candidate is id 646, *Berustaðir í Ásum*, an Icelandic weather
-  station. Nobody had noticed.
+  must not resolve. The reported bug.
+* **BRST** — must not resolve. BRST is *Brest, France*
+  (``is_in_iceland = false``), an external IGS site with no TOS entity; the
+  only entity carrying marker ``brst`` is id 646, *Berustaðir í Ásum*, an
+  Icelandic weather station. Nobody had noticed.
 * **SOHO** — must RESOLVE, to 4416. Marker ``soho`` carries **two**
   geophysical entities: 5356 (``DOAS``, volcanic gas) and 4416
-  (``GPS stöð``, receiver 3075357). SOHO is the discriminating case: a
-  resolve-then-refuse implementation refuses a perfectly valid GPS station
-  here, while filtering candidates picks 4416. If this test passes while
-  the VLFS tests also pass, the gate filters rather than post-checks.
+  (``GPS stöð``, receiver 3075357). SOHO is the discriminating case: an
+  implementation that checked AFTER resolving would reject a perfectly valid
+  GPS station here, while filtering candidates picks 4416. If the SOHO tests
+  pass while the VLFS tests also pass, the gate filters.
 
 And the invariant the whole design protects: on a single-candidate station
 ``tosGPS`` must be **byte-identical** to ``tos``, because
 ``gps-tos-corrections`` records 270 ``tos audit apply`` runs as operational
 procedure and ``tos station`` appears ~150 times across the docs.
 
-The unit tests below need no network. The dispatch-level tests are
-cassette-backed (``pytest-recording``); re-record with
-``pytest tests/test_station_kind_gate.py --record-mode=once``.
+The unit tests need no network. The dispatch-level tests are cassette-backed
+(``pytest-recording``); re-record with ``--record-mode=once``.
 """
 
 import sys
@@ -41,15 +45,15 @@ from tostools import tosGPS as tosgps_mod
 from tostools.search_selectors import gps_profile
 from tostools.station_kind import (
     AmbiguousStation,
-    WrongStationKind,
+    all_attribute_values,
     describe_entity,
     open_attribute,
     select_station,
 )
 
 # --------------------------------------------------------------------------
-# Fixtures shaped like the live entities, so the unit tests below assert
-# against the real data rather than a convenient simplification.
+# Fixtures shaped like the live entities, so the unit tests assert against
+# the real data rather than a convenient simplification.
 # --------------------------------------------------------------------------
 
 
@@ -75,12 +79,12 @@ def predicate():
 
 
 # --------------------------------------------------------------------------
-# The predicate — both levels, and why neither alone suffices
+# The predicate — two levels, and why neither alone suffices
 # --------------------------------------------------------------------------
 
 
 def test_predicate_is_read_off_the_attribute_catalog():
-    """Not hardcoded: both halves come from the catalog's `subtype` entry.
+    """Not hardcoded: both levels come from the catalog's `subtype` entry.
 
     ``applies_to`` gives the entity-type scope, ``default_value`` the
     subtype label — the same catalog ``gps_profile()`` already reads its
@@ -92,7 +96,8 @@ def test_predicate_is_read_off_the_attribute_catalog():
 
 
 def test_entity_type_alone_is_insufficient(predicate):
-    """SIL and DOAS are `geophysical` too — the subtype attribute separates them."""
+    """SIL and DOAS are `geophysical` too — the subtype attribute separates
+    them. This is why the gate cannot be `code_entity_subtype` alone."""
     assert SIL_SEISMIC["code_entity_subtype"] == "geophysical"
     assert SOHO_DOAS["code_entity_subtype"] == "geophysical"
     assert predicate(SIL_SEISMIC) is False
@@ -109,7 +114,7 @@ def test_real_gps_stations_are_admitted(predicate):
     assert predicate(VFLS_GPS) is True
 
 
-def test_an_absent_subtype_attribute_is_admitted(predicate):
+def test_a_station_that_never_carried_a_subtype_is_admitted(predicate):
     """Lenient on purpose, and load-bearing.
 
     ``subtype`` is itself audited by ``missing-attributes``. Requiring it
@@ -118,18 +123,19 @@ def test_an_absent_subtype_attribute_is_admitted(predicate):
     the defect that run should surface.
     """
     assert open_attribute(NO_SUBTYPE, "subtype") is None
+    assert all_attribute_values(NO_SUBTYPE, "subtype") == []
     assert predicate(NO_SUBTYPE) is True
 
 
-def test_a_non_geophysical_entity_with_no_subtype_is_still_refused(predicate):
+def test_a_non_geophysical_entity_with_no_subtype_is_still_excluded(predicate):
     """The one case where the entity-type level does the work by itself.
 
     Found by ``scripts/dev/mutate_station_gate.py``: deleting the entity-type
     check left every other test green, because ``Úrkomustöð != GPS stöð``
     catches VLFS and BRST on the subtype level alone. The type level only
-    bites where the subtype attribute is ABSENT — and the absent-subtype
-    leniency is deliberate, so without this check it would be a hole a
-    meteorological or hydrological entity sails straight through.
+    bites where the subtype attribute is absent — and that leniency is
+    deliberate, so without the type check a meteorological or hydrological
+    entity would sail straight through.
     """
     bare_met = {
         "id_entity": 11,
@@ -140,19 +146,39 @@ def test_a_non_geophysical_entity_with_no_subtype_is_still_refused(predicate):
     assert predicate(bare_met) is False
 
 
-def test_a_closed_subtype_period_reads_as_absent(predicate):
-    """Only the OPEN period counts; a closed one is history, not identity."""
-    closed = {
-        "id_entity": 7,
+def test_a_decommissioned_doas_station_is_not_admitted(predicate):
+    """Absent means NEVER SET, not "not set right now".
+
+    A geophysical entity whose only ``subtype`` period is a closed ``DOAS``
+    is a decommissioned gas station. Reading a closed period as absent would
+    hand it to the GPS audits via the leniency above.
+    """
+    retired_doas = {
+        "id_entity": 12,
         "code_entity_subtype": "geophysical",
         "attributes": [{"code": "subtype", "value": "DOAS", "date_to": "2020-01-01"}],
     }
-    assert open_attribute(closed, "subtype") is None
-    assert predicate(closed) is True
+    assert open_attribute(retired_doas, "subtype") is None
+    assert all_attribute_values(retired_doas, "subtype") == ["DOAS"]
+    assert predicate(retired_doas) is False
+
+
+def test_a_gps_station_whose_subtype_period_lapsed_is_still_admitted(predicate):
+    """The other half of the same rule — a data gap on OUR station must not
+    lock it out of its own audit."""
+    lapsed_gps = {
+        "id_entity": 13,
+        "code_entity_subtype": "geophysical",
+        "attributes": [
+            {"code": "subtype", "value": "GPS stöð", "date_to": "2020-01-01"}
+        ],
+    }
+    assert open_attribute(lapsed_gps, "subtype") is None
+    assert predicate(lapsed_gps) is True
 
 
 # --------------------------------------------------------------------------
-# select_station — filter candidates, never resolve-then-refuse
+# select_station — a filter; "none admitted" is NOT FOUND, not an error
 # --------------------------------------------------------------------------
 
 
@@ -169,64 +195,185 @@ def test_the_gate_picks_the_gps_candidate_not_the_first(predicate):
     assert chosen["id_entity"] == 4416
 
 
-def test_refusal_names_what_was_actually_found(predicate):
-    """A refusal an operator cannot check is one they will work around."""
-    with pytest.raises(WrongStationKind) as exc:
-        select_station("vlfs", [VLFS_MET], predicate)
-    msg = str(exc.value)
-    assert "VLFS" in msg
-    assert "meteorological" in msg
-    assert "Vífilsstaðir" in msg
-    assert "id_entity=96" in msg
-    assert "tos station show VLFS" in msg
+def test_no_admitted_candidate_is_simply_not_found(predicate):
+    """No exception, no bespoke refusal — the answer an absent marker gives.
+
+    This is what lets the gate ride each caller's existing not-found path
+    instead of a second one that every caller would have to remember to
+    handle (``_visit_main`` did not, and turned an earlier refusal-object
+    design into a stack trace).
+    """
+    assert select_station("vlfs", [VLFS_MET], predicate) is None
+    assert select_station("brst", [], predicate) is None
 
 
-def test_refusal_distinguishes_absent_from_wrong_kind(predicate):
-    with pytest.raises(WrongStationKind) as exc:
-        select_station("brst", [], predicate)
-    assert "no entity carries marker" in str(exc.value)
+def test_two_admitted_candidates_raise_rather_than_guess(predicate):
+    """The one case the filter cannot answer by itself.
 
-
-def test_a_refusal_is_a_lookup_error(predicate):
-    """Subclassing LookupError is what lets a refusal ride the lookup-miss
-    path every caller already handles, instead of growing a second one."""
-    assert issubclass(WrongStationKind, LookupError)
-    assert issubclass(AmbiguousStation, LookupError)
-
-
-def test_two_admitted_candidates_refuse_rather_than_guess(predicate):
-    """Unreachable fleet-wide today — which is exactly why it raises.
-
-    The day a second ``GPS stöð`` appears on one marker, silently taking the
-    first would be the SOHO bug again, one level down.
+    Unreachable across the whole live fleet as measured 2026-10-01 — which
+    is exactly why it is loud. The day a second ``GPS stöð`` appears on one
+    marker, silently taking the first would be the SOHO bug again, one level
+    down.
     """
     twin = dict(SOHO_GPS, id_entity=5555)
     with pytest.raises(AmbiguousStation) as exc:
         select_station("soho", [SOHO_GPS, twin], predicate)
     assert "ambiguous" in str(exc.value)
-    assert "--id" in str(exc.value)
+    assert issubclass(AmbiguousStation, LookupError)
 
 
-def test_describe_entity_gives_the_three_facts_that_justify_a_refusal():
+def test_describe_entity_gives_the_three_facts_that_justify_exclusion():
     out = describe_entity(VLFS_MET)
     assert "meteorological" in out and "Vífilsstaðir" in out and "id_entity=96" in out
+
+
+# --------------------------------------------------------------------------
+# basic_search-only candidates (the HELC class) need a history fetch each
+# --------------------------------------------------------------------------
+
+
+class _FakeClient:
+    """A client whose LIVE station index misses the marker entirely.
+
+    HELC (id 16095) stores marker ``helc`` but is absent from
+    ``/basic_search/``; the inverse also happens, and it is the branch where
+    a candidate arrives WITHOUT ``attributes``, so the predicate cannot
+    judge it in place and the resolver must fetch its history. Nothing else
+    reaches that branch, so it would otherwise be untested.
+    """
+
+    def __init__(self, histories, basic_hits):
+        self.histories = histories
+        self.basic_hits = basic_hits
+        self.history_calls = []
+
+    def search_stations(self, *_a, **_k):
+        return []
+
+    def basic_search(self, *_a, **_k):
+        return self.basic_hits
+
+    def get_entity_history(self, eid):
+        self.history_calls.append(int(eid))
+        return self.histories.get(int(eid))
+
+
+def _basic_hit(eid, marker):
+    return {
+        "code": "marker",
+        "value_varchar": marker,
+        "distance": 0,
+        "id_entity": eid,
+        "type_lvl_two": "stöð",
+    }
+
+
+def test_basic_search_only_candidates_are_fetched_and_filtered(predicate):
+    client = _FakeClient(
+        histories={5356: SOHO_DOAS, 4416: SOHO_GPS},
+        basic_hits=[_basic_hit(5356, "soho"), _basic_hit(4416, "soho")],
+    )
+    got = tos_mod._resolve_parent_id(client, station_marker="soho", predicate=predicate)
+    assert got == 4416
+    assert set(client.history_calls) == {5356, 4416}, "both must be judged"
+
+
+def test_basic_search_only_candidates_ungated_keep_first_hit_and_fetch_nothing():
+    """Ungated, the extra history fetches must NOT happen — the request
+    sequence is part of what "byte-identical" means here."""
+    client = _FakeClient(
+        histories={5356: SOHO_DOAS, 4416: SOHO_GPS},
+        basic_hits=[_basic_hit(5356, "soho"), _basic_hit(4416, "soho")],
+    )
+    assert tos_mod._resolve_parent_id(client, station_marker="soho") == 5356
+    assert client.history_calls == []
+
+
+def test_unreadable_candidate_histories_yield_not_found(predicate):
+    """All histories None → None, not a crash and not a false positive."""
+    client = _FakeClient(
+        histories={5356: None, 4416: None},
+        basic_hits=[_basic_hit(5356, "soho"), _basic_hit(4416, "soho")],
+    )
+    assert (
+        tos_mod._resolve_parent_id(client, station_marker="soho", predicate=predicate)
+        is None
+    )
+
+
+# --------------------------------------------------------------------------
+# _gated_station_id — the fan-out boundary, asserted directly
+# --------------------------------------------------------------------------
+#
+# These are offline on purpose. The dispatch-level `station verify VLFS` test
+# cannot carry this weight: break the miss branch and the verb proceeds,
+# issuing requests the cassette does not hold, so VCR refuses BEFORE any
+# assertion runs. The suite goes red either way, but only for the wrong
+# reason — `mutate_station_gate.py` reports that as CASSETTE-ONLY rather than
+# DETECTED, and these tests are what turn it into a real detection.
+
+
+def test_gated_station_id_reports_a_miss_for_a_filtered_station(predicate):
+    """A filtered-out marker must come back as "do not proceed".
+
+    If this returned ``True`` the verb would run on with ``id_entity=None``
+    and every audit would re-resolve the marker UNGATED — straight back to
+    entity 96.
+    """
+    client = _FakeClient(histories={96: VLFS_MET}, basic_hits=[_basic_hit(96, "vlfs")])
+    assert tos_mod._gated_station_id(client, "vlfs", predicate) == (False, None)
+
+
+def test_gated_station_id_returns_the_admitted_candidate(predicate):
+    client = _FakeClient(
+        histories={5356: SOHO_DOAS, 4416: SOHO_GPS},
+        basic_hits=[_basic_hit(5356, "soho"), _basic_hit(4416, "soho")],
+    )
+    assert tos_mod._gated_station_id(client, "soho", predicate) == (True, 4416)
+
+
+def test_gated_station_id_is_free_and_silent_without_a_predicate():
+    """Ungated it must cost NOTHING — no request, and the verb resolves the
+    marker itself exactly as it always has."""
+    client = _FakeClient(histories={}, basic_hits=[])
+    assert tos_mod._gated_station_id(client, "vlfs", None) == (True, None)
+    assert client.history_calls == []
 
 
 # --------------------------------------------------------------------------
 # Dispatch level — the wiring, not the helper
 # --------------------------------------------------------------------------
 
-#: Every `tosGPS` read verb that resolves a station marker. Parametrised so a
-#: resolver wired in one verb and missed in a sibling fails here — the
-#: "fix one, leave the sibling open" pattern this codebase has been bitten by
-#: repeatedly.
-REFUSING_VERBS = [
-    pytest.param(["station", "show", "VLFS"], id="station-show"),
-    pytest.param(["station", "verify", "VLFS"], id="station-verify"),
-    pytest.param(["device", "list", "--station", "VLFS"], id="device-list"),
-    pytest.param(["audit", "station", "VLFS"], id="audit-station"),
+#: Every `tosGPS` verb that resolves a station marker, with the exit code
+#: that verb uses for a lookup miss. Parametrised so a resolver wired in one
+#: verb and missed in a sibling fails HERE — the "fix one, leave the sibling
+#: open" pattern this codebase has been bitten by repeatedly. The exit code
+#: is pinned, not merely asserted non-zero: 1 is a lookup miss, 2 is "the
+#: audit could not run", and a gate that silently moved a verb from one to
+#: the other would change what callers see.
+EXCLUDED_VERBS = [
+    pytest.param(["station", "show", "VLFS"], 1, id="station-show"),
+    pytest.param(["station", "show", "VLFS", "--device"], 1, id="station-show-device"),
+    pytest.param(["station", "receivers", "VLFS"], 1, id="station-receivers"),
+    pytest.param(["device", "list", "--station", "VLFS"], 1, id="device-list"),
+    pytest.param(["contact", "list", "--station", "VLFS"], 1, id="contact-list"),
+    pytest.param(["visit", "list", "--station", "VLFS"], 1, id="visit-list"),
+    pytest.param(["station", "verify", "VLFS"], 2, id="station-verify"),
+    pytest.param(["station", "triage", "VLFS", "--stdout"], 2, id="station-triage"),
+    pytest.param(["audit", "station", "VLFS"], 2, id="audit-station"),
     pytest.param(
-        ["audit", "missing-attributes", "VLFS"], id="audit-missing-attributes"
+        ["audit", "missing-attributes", "VLFS"], 2, id="audit-missing-attributes"
+    ),
+    # WRITES. Dry-run by default (`--no-dry-run` is the opt-in), so these are
+    # safe to run, and they matter most: writing the right value to the wrong
+    # station is the worst outcome available here, not the most tolerable one.
+    # `tosGPS station describe SOHO --text … --no-dry-run` would have PATCHed
+    # `description` onto the DOAS gas station 5356.
+    pytest.param(
+        ["station", "describe", "VLFS", "--text", "hallo"], 2, id="station-describe"
+    ),
+    pytest.param(
+        ["station", "set", "VLFS", "description", "hallo"], 2, id="station-set"
     ),
 ]
 
@@ -237,31 +384,37 @@ def _run_tosgps(monkeypatch, argv):
 
 
 @pytest.mark.vcr
-@pytest.mark.parametrize("argv", REFUSING_VERBS)
-def test_tosgps_refuses_a_meteorological_station(monkeypatch, capsys, argv):
+@pytest.mark.parametrize("argv,expected_rc", EXCLUDED_VERBS)
+def test_tosgps_cannot_see_a_meteorological_station(
+    monkeypatch, capsys, argv, expected_rc
+):
     rc = _run_tosgps(monkeypatch, argv)
-    err = capsys.readouterr().err
-    assert rc != 0, f"{argv} returned {rc} — a vacuous PASS is the bug"
-    assert "is not a GPS station" in err
-    assert "Vífilsstaðir" in err
+    captured = capsys.readouterr()
+    assert rc == expected_rc, (
+        f"{argv} returned {rc}; a zero exit here is the vacuous PASS this "
+        f"whole change exists to remove"
+    )
+    # Vífilsstaðir's own data must not be rendered as if it were a GPS station.
+    assert "Úrkomustöð" not in captured.out
+    assert "✓ clean" not in captured.out
 
 
 @pytest.mark.vcr
-def test_tosgps_refuses_a_marker_whose_only_entity_is_a_weather_station(
+def test_tosgps_cannot_see_a_marker_whose_only_entity_is_a_weather_station(
     monkeypatch, capsys
 ):
     """BRST is Brest, France — an IGS site with no TOS record at all."""
     rc = _run_tosgps(monkeypatch, ["station", "show", "BRST"])
-    err = capsys.readouterr().err
-    assert rc != 0
-    assert "Berustaðir í Ásum" in err
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "Berustaðir" not in out
 
 
 @pytest.mark.vcr
 def test_tosgps_resolves_the_gps_entity_when_a_marker_has_two(monkeypatch, capsys):
-    """SOHO: must reach 4416 (GPS), never 5356 (DOAS gas station).
+    """SOHO must reach 4416 (GPS), never 5356 (DOAS gas station).
 
-    The DOAS station's own devices (scanners, spectrometer) must not appear.
+    The gas station's own devices — scanners, spectrometer — must not appear.
     """
     rc = _run_tosgps(monkeypatch, ["device", "list", "--station", "SOHO"])
     out = capsys.readouterr().out
@@ -272,9 +425,28 @@ def test_tosgps_resolves_the_gps_entity_when_a_marker_has_two(monkeypatch, capsy
 
 
 @pytest.mark.vcr
+def test_every_audit_in_a_fan_out_run_grades_the_same_entity(monkeypatch, capsys):
+    """The fan-out shape, which is the half a one-hop test cannot prove.
+
+    `tos station triage SOHO` genuinely mixed entities: `verify-from-rinex`
+    resolved via `_resolve_station_id` (basic_search → 4416) while every
+    other audit resolved via `_resolve_station_entity` (live search → 5356),
+    so ONE triage file described TWO stations. Resolving once at the boundary
+    is what fixes that, and this pins it: the header's id must be the GPS
+    station, and no DOAS device may appear in any section.
+    """
+    _run_tosgps(monkeypatch, ["station", "verify", "SOHO"])
+    out = capsys.readouterr().out
+    assert "id_entity=4416" in out
+    assert "5356" not in out
+    for doas_device in ("19530", "19531", "19532", "15562", "15565", "15569"):
+        assert doas_device not in out, f"DOAS device {doas_device} leaked into SOHO"
+
+
+@pytest.mark.vcr
 def test_plain_tos_still_resolves_the_meteorological_station(capsys):
     """`tos` is the whole-TOS tool and must keep answering for every
-    discipline — the refusal message points operators here."""
+    discipline — that is the entire reason `tosGPS` may narrow."""
     rc = tos_mod._dispatch(["station", "show", "VLFS"])
     out = capsys.readouterr().out
     assert rc == 0
@@ -285,7 +457,7 @@ def test_plain_tos_still_resolves_the_meteorological_station(capsys):
 def test_tosgps_is_byte_identical_to_tos_on_a_single_candidate_station(
     monkeypatch, capsys
 ):
-    """The invariant the `_PLAIN_ALIASES` comment block exists to protect."""
+    """The invariant the `_PROFILED_ALIASES` comment block exists to protect."""
     plain_rc = tos_mod._dispatch(["station", "show", "VFLS"])
     plain = capsys.readouterr()
 
@@ -299,9 +471,8 @@ def test_tosgps_is_byte_identical_to_tos_on_a_single_candidate_station(
 
 @pytest.mark.vcr
 def test_an_explicit_id_bypasses_the_gate(monkeypatch, capsys):
-    """`--id` is the operator naming an entity outright, and is the escape
-    hatch the refusal message advertises. Gating it would make the message
-    a lie."""
+    """`--id` is the operator naming an entity outright, so it is not
+    filtered. Gating it would leave no way to reach a known entity."""
     rc = _run_tosgps(monkeypatch, ["audit", "station", "--id", "96"])
     out = capsys.readouterr().out
     assert rc == 0

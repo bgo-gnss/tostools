@@ -404,9 +404,11 @@ def _dispatch():
     #
     #           `station add` remains ungated — it CREATES the station and
     #           already defaults subtype to 'GPS stöð', so there is no
-    #           candidate to choose among. The write verbs that resolve an
-    #           existing marker (`station set`, `contact add`, `visit add`)
-    #           are knowingly still open; see the branch notes.
+    #           candidate to choose among. Every OTHER verb that resolves an
+    #           existing marker is gated, writes included (`station set`,
+    #           `station describe`, `contact add`, `visit add`): writing the
+    #           right value to the wrong station is the worst outcome here,
+    #           not the most tolerable one.
     #
     # These must also stay byte-identical to their `tos` forms:
     # gps-tos-corrections records 270 `tos audit apply` invocations as
@@ -414,30 +416,41 @@ def _dispatch():
     # docs. Every external reference is prose or help text — neither verb has
     # a programmatic caller outside tostools (checked 2026-08-23).
     verb = sys.argv[1:2]
-    if verb == ["search"]:
-        from .search_selectors import gps_profile
-        from .tos import _search_main
 
-        return _search_main(sys.argv[2:], profile=gps_profile())
-    if verb == ["visit"]:
-        from .search_selectors import gps_profile
-        from .tos import _visit_main
+    def _run_profiled(name: str, handler) -> int:
+        """Run a profile-taking handler under the GPS station filter.
 
-        return _visit_main(sys.argv[2:], profile=gps_profile())
-    if verb and verb[0] in _PROFILED_ALIASES:
-        from . import tos as _tos
+        Every profiled verb goes through here, `search` and `visit` included.
+        `search` and `visit` used to be dispatched ahead of the shared
+        handler, which is how `visit` ended up gated but unprotected.
+        """
         from .search_selectors import gps_profile
-        from .station_kind import AmbiguousStation, WrongStationKind
+        from .station_kind import AmbiguousStation
 
-        handler = getattr(_tos, _PROFILED_ALIASES[verb[0]])
         try:
             return handler(sys.argv[2:], profile=gps_profile())
-        except (WrongStationKind, AmbiguousStation) as exc:
-            # Exit 1 — the same code every one of these verbs already uses
-            # for a lookup miss, which is what this is: we looked for a GPS
-            # station under that marker and there isn't one.
-            print(f"tosGPS {verb[0]}: {exc}", file=sys.stderr)
-            return 1
+        except AmbiguousStation as exc:
+            # The ONE case the filter cannot answer by itself: two GPS
+            # stations on one marker. Unreachable fleet-wide today, and that
+            # is why it is loud — silently taking the first would be the SOHO
+            # bug again, one level down. A non-GPS station needs nothing here:
+            # the filter makes it invisible and the ordinary "not found" path
+            # reports it.
+            print(f"tosGPS {name}: {exc}", file=sys.stderr)
+            return 2
+
+    if verb == ["search"]:
+        from .tos import _search_main
+
+        return _run_profiled("search", _search_main)
+    if verb == ["visit"]:
+        from .tos import _visit_main
+
+        return _run_profiled("visit", _visit_main)
+    if verb and verb[0] in _PROFILED_ALIASES:
+        from . import tos as _tos
+
+        return _run_profiled(verb[0], getattr(_tos, _PROFILED_ALIASES[verb[0]]))
 
     if verb and verb[0] in _PLAIN_ALIASES:
         from . import tos as _tos
