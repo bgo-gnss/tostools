@@ -530,3 +530,32 @@ def test_prefer_domain_leaves_a_single_candidate_alone():
 
     assert prefer_domain([VFLS_GPS], ("geophysical",), "GPS stöð")["id_entity"] == 21832
     assert prefer_domain([], ("geophysical",), "GPS stöð") is None
+
+
+def test_the_literal_gps_predicate_agrees_with_the_catalog():
+    """`gps_station_predicate()` must never drift from `gps_profile()`.
+
+    It uses literal constants on purpose — `receivers` runs from a wheel on
+    rek-d01, where packaged-data paths have broken twice, and a predicate
+    that raises on import is worse than one that ignores a catalog override.
+    The cost of that choice is exactly this: two sources for one rule. So the
+    agreement is asserted rather than assumed, and a catalog edit that moves
+    the GPS domain fails here instead of silently splitting the two tools.
+    """
+    from tostools.station_kind import gps_station_predicate
+
+    literal = gps_station_predicate()
+    from_catalog = gps_profile().admits_station
+
+    for entity in (
+        SOHO_GPS,
+        VFLS_GPS,
+        SOHO_DOAS,
+        SIL_SEISMIC,
+        VLFS_MET,
+        BRST_MET,
+        NO_SUBTYPE,
+    ):
+        assert literal(entity) == from_catalog(entity), (
+            f"literal and catalog predicates disagree on " f"{describe_entity(entity)}"
+        )

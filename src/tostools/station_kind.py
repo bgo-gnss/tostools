@@ -92,6 +92,18 @@ from typing import Any, Callable, List, Mapping, Optional, Sequence
 #: internal caller keep their exact previous behaviour.
 StationPredicate = Callable[[Mapping[str, Any]], bool]
 
+#: The GPS station's domain, as the PAIR of levels TOS confusingly gives the
+#: same name. Both are needed: SIL seismic and DOAS gas stations are
+#: ``geophysical`` too, and only the ``subtype`` attribute separates them.
+#:
+#: These are the literal fallbacks. The authoritative source is the attribute
+#: catalog, read by :func:`tostools.search_selectors.gps_profile` — prefer
+#: that inside tostools. These exist for callers that must not depend on a
+#: packaged data file loading correctly (``receivers`` runs from a WHEEL on
+#: rek-d01, where `Path(__file__).parent` data paths have broken twice).
+GPS_STATION_ENTITY_TYPE = "geophysical"
+GPS_STATION_SUBTYPE = "GPS stöð"
+
 
 def open_attribute(entity: Mapping[str, Any], code: str) -> Optional[str]:
     """The value of ``entity``'s currently-open ``code`` attribute.
@@ -151,6 +163,24 @@ def admits_domain(
         return found == subtype
     ever = all_attribute_values(entity, "subtype")
     return not ever or subtype in ever
+
+
+def gps_station_predicate() -> StationPredicate:
+    """The GPS-station filter, with no catalog read.
+
+    The one-call entry point for tools outside tostools that act on GPS
+    stations only — chiefly ``receivers``, whose ``cfg`` verbs reach
+    :meth:`TOSWriter.find_station_by_marker` from seventeen call sites and
+    would otherwise resolve marker ``soho`` to the DOAS gas station 5356 and
+    join a GPS receiver to it.
+
+    Uses the literal domain constants rather than
+    :func:`tostools.search_selectors.gps_profile`, deliberately: the catalog
+    is a packaged data file, and on rek-d01 ``receivers`` runs from a wheel
+    where that kind of path has failed twice. A predicate that raises on
+    import is worse than one that cannot see a catalog override.
+    """
+    return domain_predicate((GPS_STATION_ENTITY_TYPE,), GPS_STATION_SUBTYPE)
 
 
 def prefer_domain(
