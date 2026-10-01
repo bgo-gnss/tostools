@@ -37,6 +37,7 @@ The unit tests need no network. The dispatch-level tests are cassette-backed
 """
 
 import sys
+from unittest.mock import patch
 
 import pytest
 
@@ -477,3 +478,55 @@ def test_an_explicit_id_bypasses_the_gate(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert "96" in out
+
+
+# --------------------------------------------------------------------------
+# The metadata path — a PREFERENCE, not a filter
+# --------------------------------------------------------------------------
+
+
+def test_station_metadata_prefers_the_gps_candidate():
+    """`TOSClient.get_station_metadata` fed PrintTOS, the IGS site log and
+    syncMeta from `stations[0]`.
+
+    `domains="geophysical"` pins only the FIRST of the two levels, so within
+    `geophysical` marker `soho` offered both 5356 (DOAS) and 4416 (GPS stöð)
+    in an order nobody controls — and the gas station won. That reaches M3G
+    and EPOS, which is why it is worth fixing even though a DOAS station has
+    no receiver and the failure is eventually loud.
+    """
+    from tostools.api.tos_client import TOSClient
+
+    client = TOSClient()
+    with (
+        patch.object(TOSClient, "search_stations", return_value=[SOHO_DOAS, SOHO_GPS]),
+        patch.object(TOSClient, "_make_request", return_value={"stub": True}),
+    ):
+        station, _history = client.get_station_metadata("soho")
+
+    assert station["id_entity"] == 4416
+
+
+def test_station_metadata_is_a_preference_so_nothing_becomes_unreachable():
+    """Unlike the station FILTER, this path must still answer for a marker
+    with no GPS candidate at all — its callers never asked to be narrowed,
+    and returning None would be a new failure mode rather than a fix."""
+    from tostools.api.tos_client import TOSClient
+
+    client = TOSClient()
+    with (
+        patch.object(TOSClient, "search_stations", return_value=[SOHO_DOAS]),
+        patch.object(TOSClient, "_make_request", return_value={"stub": True}),
+    ):
+        station, _history = client.get_station_metadata("soho")
+
+    assert station["id_entity"] == 5356
+
+
+def test_prefer_domain_leaves_a_single_candidate_alone():
+    """198 of the fleet's 202 resolvable markers have one candidate; for them
+    this change must be a no-op."""
+    from tostools.station_kind import prefer_domain
+
+    assert prefer_domain([VFLS_GPS], ("geophysical",), "GPS stöð")["id_entity"] == 21832
+    assert prefer_domain([], ("geophysical",), "GPS stöð") is None
