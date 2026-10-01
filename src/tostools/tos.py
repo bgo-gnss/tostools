@@ -504,6 +504,59 @@ def _select_gated_station(client, marker: str, entity_ids, predicate):
     return select_station(marker, resolved, predicate)
 
 
+#: `tos audit <kind>` verbs that resolve a STATION marker. Every other kind
+#: either takes no station (`device`, `orphans`, `attribute-catalog`), is
+#: fleet-wide (`fleet-gaps`, `duplicate-serials`, `fleet-sweep`), or replays
+#: ids from a file (`apply`, `show`, `timeline`, `reconstruct-from-archive`,
+#: `rinex-timeline`). `apply` in particular MUST stay ungated — the
+#: gps-tos-corrections repo records 270 `tos audit apply` runs as operational
+#: procedure and they replay entity ids directly.
+_AUDIT_STATION_KINDS = frozenset(
+    {
+        "station",
+        "attribute-dates",
+        "version-chains",
+        "missing-attributes",
+        "visit-coverage",
+        "contact-dates",
+        "verify-from-rinex",
+        "firmware-chain",
+        "constellations",
+    }
+)
+
+
+def _gate_audit_station(client, args, predicate) -> None:
+    """Pre-resolve `tos audit <kind> <STN>`'s marker and pin it on ``args``.
+
+    Resolving ONCE here, rather than letting each audit resolve its own
+    marker, is what makes the gate uniform across nine verbs — and it is also
+    the only way the refusal reaches the CLI as a refusal: the audit verbs
+    catch ``LookupError`` and return 2, and a refusal IS a ``LookupError``
+    subclass, so raised any deeper it would be reported as an audit failure
+    rather than as "this is not a GPS station".
+
+    No-ops when ``predicate`` is ``None`` (every ``tos`` invocation), when the
+    verb takes no station, or when the operator already named ``--id`` — an
+    explicit id is the documented way to reach a non-GPS entity on purpose.
+    """
+    if predicate is None:
+        return
+    if getattr(args, "kind", None) not in _AUDIT_STATION_KINDS:
+        return
+    if getattr(args, "id_entity", None) is not None:
+        return
+    marker = getattr(args, "name", None) or getattr(args, "station", None)
+    if not isinstance(marker, str) or not marker:
+        return
+    from .audit import _resolve_station_entity
+
+    gated = _resolve_station_entity(
+        client, name=marker, id_entity=None, predicate=predicate
+    )
+    args.id_entity = int(gated["id_entity"])
+
+
 def _resolve_parent_id(
     client,
     *,
@@ -592,7 +645,7 @@ def _resolve_parent_id(
     return None
 
 
-def _device_list_main(args) -> int:
+def _device_list_main(args, *, predicate=None) -> int:
     """Handle ``tos device list`` — list devices joined to a parent.
 
     Resolves the parent entity from ``--station`` (marker) or
@@ -620,6 +673,7 @@ def _device_list_main(args) -> int:
 
     parent_id = _resolve_parent_id(
         client,
+        predicate=predicate,
         station_marker=args.station,
         location_name=args.location,
     )
@@ -2200,7 +2254,7 @@ def _device_merge_main(args) -> int:
     return 0 if gone else 1
 
 
-def _device_main(argv):
+def _device_main(argv, profile=None):
     """Handle ``tos device ...`` subcommands.
 
     Step 3 of the device-warehouse interface — adds a brand-new device entity
@@ -2684,7 +2738,10 @@ def _device_main(argv):
             args.id_entity = args.id_flag
         return _device_show_main(args)
     if args.action == "list":
-        return _device_list_main(args)
+        return _device_list_main(
+            args,
+            predicate=(profile.admits_station if profile is not None else None),
+        )
     if args.action != "add":
         p.error(f"unknown action: {args.action}")
         return 2
@@ -3163,7 +3220,7 @@ def _print_rinex_audit_report(report, *, min_gap_days: float) -> None:
             console.print(f"    {cr.suggested_command}")
 
 
-def _station_main(argv):
+def _station_main(argv, profile=None):
     """Handle ``tos station <verb> <STN>`` — top-level station orchestration.
 
     Verbs:
@@ -3434,14 +3491,20 @@ def _station_main(argv):
 
     args = p.parse_args(argv)
 
+    # The GPS gate, derived once. `tos` passes no profile and therefore no
+    # predicate, which is what keeps its behaviour byte-identical; `tosGPS`
+    # passes gps_profile(). Same seam as `_search_main(profile=...)` and
+    # `_visit_main(profile=None)` already use.
+    predicate = profile.admits_station if profile is not None else None
+
     if args.verb == "triage":
-        return _station_triage_main(args)
+        return _station_triage_main(args, predicate=predicate)
     if args.verb == "verify":
-        return _station_verify_main(args)
+        return _station_verify_main(args, predicate=predicate)
     if args.verb == "show":
-        return _station_show_main(args)
+        return _station_show_main(args, predicate=predicate)
     if args.verb == "receivers":
-        return _station_receivers_main(args)
+        return _station_receivers_main(args, predicate=predicate)
     if args.verb == "set":
         return _station_set_main(args)
     if args.verb == "describe":
@@ -3789,7 +3852,7 @@ def _add_station_add_parser(sub) -> None:
     p_add.add_argument("--port", type=int, default=443)
 
 
-def _station_triage_main(args) -> int:
+def _station_triage_main(args, *, predicate=None) -> int:
     """Generate and write a combined triage file for one station."""
     from .api.tos_client import TOSClient
     from .station_triage import (
@@ -3808,6 +3871,7 @@ def _station_triage_main(args) -> int:
     report = generate_station_triage(
         args.station,
         client=client,
+        predicate=predicate,
         with_archive=getattr(args, "with_archive", False),
         archive_root=getattr(args, "archive_root", None),
         min_gap_days=getattr(args, "archive_min_gap_days", 30.0),
@@ -3861,11 +3925,18 @@ def _station_triage_main(args) -> int:
     return 0
 
 
-def _station_receivers_main(args) -> int:
+def _station_receivers_main(args, *, predicate=None) -> int:
     """`tos station receivers <STN>` — RINEX-header receiver/firmware timeline."""
     from .receiver_timeline import build_receiver_timeline, current_install
 
     station = args.station.upper()
+    if predicate is not None:
+        # Archive-only verb — it never reads TOS, so this lookup exists purely
+        # to refuse a non-GPS marker instead of reporting "no archived RINEX
+        # found", which is true but says nothing about why.
+        from .api.tos_client import TOSClient
+
+        _resolve_parent_id(TOSClient(), station_marker=station, predicate=predicate)
     timeline = build_receiver_timeline(
         station,
         root=getattr(args, "archive_root", None),
@@ -3912,7 +3983,7 @@ def _station_receivers_main(args) -> int:
     return 0
 
 
-def _station_verify_main(args) -> int:
+def _station_verify_main(args, *, predicate=None) -> int:
     """Run every audit against a station; exit 0 clean / 1 findings / 2 failure.
 
     Reuses :func:`generate_station_triage` as the aggregator — the same
@@ -3930,6 +4001,7 @@ def _station_verify_main(args) -> int:
     report = generate_station_triage(
         args.station,
         client=client,
+        predicate=predicate,
         use_suppressions=not args.no_suppressions,
         suppressions_path=args.suppressions,
         catalog_path=args.catalog,
@@ -4112,7 +4184,7 @@ def _rinex_report_to_dict(report) -> Dict[str, Any]:
     }
 
 
-def _station_show_main(args) -> int:
+def _station_show_main(args, *, predicate=None) -> int:
     """Display a station's current TOS state.
 
     Default view: identity + open attribute periods + currently-joined
@@ -4149,7 +4221,9 @@ def _station_show_main(args) -> int:
     base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
     client = TOSClient(base_url=base_url)
 
-    station_id = _resolve_parent_id(client, station_marker=args.station)
+    station_id = _resolve_parent_id(
+        client, station_marker=args.station, predicate=predicate
+    )
     if station_id is None:
         print(
             f"No station found for marker {args.station!r}",
@@ -5414,7 +5488,7 @@ def _attribute_main(argv):
     return _main(argv)
 
 
-def _contact_main(argv):
+def _contact_main(argv, profile=None):
     """Handle ``tos contact <verb>`` subcommands.
 
     Contacts live in their own id namespace (``id_contact``), distinct
@@ -5846,7 +5920,11 @@ def _contact_main(argv):
             _render_all_contacts_table(console, contacts)
             return 0
 
-        station_id = _resolve_parent_id(client, station_marker=args.station)
+        station_id = _resolve_parent_id(
+            client,
+            station_marker=args.station,
+            predicate=(profile.admits_station if profile is not None else None),
+        )
         if station_id is None:
             print(
                 f"No station found for marker {args.station!r}",
@@ -5876,12 +5954,16 @@ def _contact_main(argv):
         "create",
         "patch-entity",
     ):
-        return _contact_write_main(args, base_url)
+        return _contact_write_main(
+            args,
+            base_url,
+            predicate=(profile.admits_station if profile is not None else None),
+        )
 
     return 2
 
 
-def _contact_write_main(args, base_url: str) -> int:
+def _contact_write_main(args, base_url: str, *, predicate=None) -> int:
     """Handle the contact write verbs (relationship + entity).
 
     Split out from :func:`_contact_main` so the read path stays on the
@@ -6019,7 +6101,11 @@ def _contact_write_main(args, base_url: str) -> int:
         from .api.tos_client import TOSClient
 
         client = TOSClient(base_url=base_url)
-        id_entity = _resolve_parent_id(client, station_marker=args.station)
+        id_entity = _resolve_parent_id(
+            client,
+            station_marker=args.station,
+            predicate=predicate,
+        )
         if id_entity is None:
             print(f"No station found for marker {args.station!r}", file=sys.stderr)
             return 1
@@ -6654,7 +6740,11 @@ def _visit_main(argv, profile=None):
         # endpoint. The split exists so `--device` reads naturally on
         # the operator's eye for the eventual lifecycle-tracker use case.
         if args.station is not None:
-            id_entity = _resolve_parent_id(client, station_marker=args.station)
+            id_entity = _resolve_parent_id(
+                client,
+                station_marker=args.station,
+                predicate=(profile.admits_station if profile is not None else None),
+            )
             if id_entity is None:
                 print(
                     f"No station found for marker {args.station!r}",
@@ -6722,7 +6812,11 @@ def _visit_main(argv, profile=None):
     if args.verb == "add":
         # Resolve target via the same three-way affordance as `list`.
         if args.station is not None:
-            id_entity = _resolve_parent_id(client, station_marker=args.station)
+            id_entity = _resolve_parent_id(
+                client,
+                station_marker=args.station,
+                predicate=(profile.admits_station if profile is not None else None),
+            )
             if id_entity is None:
                 print(
                     f"No station found for marker {args.station!r}",
@@ -7247,7 +7341,7 @@ def _render_visit_detail(console, visit: Dict[str, Any]) -> None:
         console.print(av_table)
 
 
-def _fleet_main(argv):
+def _fleet_main(argv, profile=None):
     """Handle ``tos fleet <verb>`` subcommands.
 
     Fleet-wide orchestrators that loop the single-station verbs across
@@ -7704,6 +7798,12 @@ def _fleet_main(argv):
     )
     from .station_triage import STATUS_MARK
 
+    # The GPS gate for the fleet verbs. Applied per MARKER during enumeration,
+    # where a refusal is already caught and the station skipped with a warning
+    # — one non-GPS marker in stations.cfg (BRST, which resolves to the
+    # Berustaðir weather station) must not abort a 200-station run.
+    _fleet_predicate = profile.admits_station if profile is not None else None
+
     client = TOSClient()
 
     # contact-dates has its own summary type + render path — handle it
@@ -7730,6 +7830,7 @@ def _fleet_main(argv):
         try:
             cd_summary = run_fleet_contact_dates(
                 client,
+                predicate=_fleet_predicate,
                 use_suppressions=not bool(args.no_suppressions),
                 suppressions_path=args.suppressions,
                 station_cfg_path=str(args.stations_cfg) if args.stations_cfg else None,
@@ -7812,6 +7913,7 @@ def _fleet_main(argv):
         if args.verb == "triage":
             summary = run_fleet_triage(
                 client,
+                predicate=_fleet_predicate,
                 out_dir=args.out_dir,
                 include_clean=args.include_clean,
                 use_suppressions=use_suppressions,
@@ -7833,6 +7935,7 @@ def _fleet_main(argv):
         elif args.verb == "status":
             summary = run_fleet_verify(
                 client,
+                predicate=_fleet_predicate,
                 use_suppressions=use_suppressions,
                 suppressions_path=args.suppressions,
                 catalog_path=args.catalog,
@@ -8142,7 +8245,7 @@ def _audit_reconstruct_main(args, client) -> int:
     return 0 if report.is_clean else 1
 
 
-def _audit_main(argv):
+def _audit_main(argv, profile=None):
     """Handle ``tos audit <kind>`` subcommands.
 
     Step 1 of the device-warehouse implementation order — read-only invariant
@@ -9750,6 +9853,12 @@ def _audit_main(argv):
     base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
     client = TOSClient(base_url=base_url)
 
+    # The GPS gate, on the one client this handler already built so the token
+    # cache and any --server/--port override still apply. No-op under `tos`.
+    _gate_audit_station(
+        client, args, profile.admits_station if profile is not None else None
+    )
+
     if args.kind == "device":
         if args.serial and not args.subtype:
             print("--subtype is required when using --serial", file=sys.stderr)
@@ -10276,7 +10385,11 @@ def _audit_main(argv):
         from . import audit_missing_attributes as ama_mod  # noqa: F401
 
         if getattr(args, "all", False):
-            return _run_missing_attributes_fleet(client, args)
+            return _run_missing_attributes_fleet(
+                client,
+                args,
+                predicate=(profile.admits_station if profile is not None else None),
+            )
 
         si_path, si_note = _resolved_station_info_path(args)
         try:
@@ -10702,7 +10815,10 @@ def _audit_constellations_main(args, client) -> int:
 
     try:
         report = audit_station_constellations(
-            client, name=args.name, archive_root=args.archive_root
+            client,
+            name=args.name,
+            id_entity=getattr(args, "id_entity", None),
+            archive_root=args.archive_root,
         )
     except LookupError as exc:
         print(f"constellations: {exc}", file=sys.stderr)
@@ -10812,7 +10928,11 @@ def _audit_constellations_history_main(args, client) -> int:
         kwargs["min_segment_days"] = args.min_segment_days
     try:
         report = audit_station_constellations_history(
-            client, name=args.name, archive_root=args.archive_root, **kwargs
+            client,
+            name=args.name,
+            id_entity=getattr(args, "id_entity", None),
+            archive_root=args.archive_root,
+            **kwargs,
         )
     except LookupError as exc:
         print(f"constellations: {exc}", file=sys.stderr)
@@ -13962,7 +14082,23 @@ def _resolved_station_info_path(args):
     return (str(src.path), None) if src is not None else (None, note)
 
 
-def _run_missing_attributes_fleet(client, args) -> int:
+def _gated_fleet_marker_id(client, marker: str, predicate):
+    """Resolve one fleet marker under ``predicate``; ``None`` when ungated.
+
+    Returning ``None`` is what preserves `tos`'s behaviour: the audit then
+    resolves ``name=marker`` itself, exactly as before.
+    """
+    if predicate is None:
+        return None
+    from .audit import _resolve_station_entity
+
+    gated = _resolve_station_entity(
+        client, name=marker, id_entity=None, predicate=predicate
+    )
+    return int(gated["id_entity"])
+
+
+def _run_missing_attributes_fleet(client, args, *, predicate=None) -> int:
     """Read-only missing-attributes survey across every station in stations.cfg.
 
     Deliberately a SURVEY, not a bulk triage generator. The single-station verb
@@ -14025,7 +14161,11 @@ def _run_missing_attributes_fleet(client, args) -> int:
             report = ama_mod.audit_station_missing_attributes(
                 client,
                 name=marker,
-                id_entity=None,
+                # Gated per marker. The survey already drops IGS reference
+                # sites, which is why BRST never reached it; SOHO is not a
+                # reference site and DID reach it, surveying the DOAS gas
+                # station 5356 instead of the GPS station 4416.
+                id_entity=_gated_fleet_marker_id(client, marker, predicate),
                 subtypes=args.subtypes,
                 catalog_path=args.catalog,
                 suppressions_path=args.suppressions,

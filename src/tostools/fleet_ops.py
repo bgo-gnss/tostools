@@ -159,6 +159,7 @@ def enumerate_fleet_stations(
     exclude: Optional[Sequence[str]] = None,
     limit: Optional[int] = None,
     enumerate_progress: Optional[Callable[[int, int], None]] = None,
+    predicate=None,
 ) -> List[ParentEntity]:
     """Return the fleet of GNSS stations as a list of :class:`ParentEntity`.
 
@@ -244,7 +245,7 @@ def enumerate_fleet_stations(
         if enumerate_progress is not None:
             enumerate_progress(i, total)
         try:
-            eid = resolve_marker_to_entity_id(client, marker)
+            eid = resolve_marker_to_entity_id(client, marker, predicate=predicate)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "enumerate_fleet_stations: resolve(%r) raised: %s; skipping",
@@ -339,6 +340,7 @@ def _iterate_fleet(
     progress: Optional[Callable[[int, int, FleetStationResult], None]] = None,
     triage_kwargs: Optional[Dict[str, Any]] = None,
     generated_at: Optional[str] = None,
+    predicate=None,
 ) -> List[FleetStationResult]:
     """Shared loop body for fleet triage + fleet status.
 
@@ -371,6 +373,12 @@ def _iterate_fleet(
                 marker,
                 client=client,
                 generated_at=generated_at,
+                # The enumeration already resolved this marker; handing the id
+                # over stops each audit re-resolving it independently. Only
+                # under a predicate, so `tos fleet` stays byte-identical —
+                # the two resolvers DISAGREE on SOHO (4416 vs 5356), so this
+                # is a behaviour change, and a deliberate one.
+                id_entity=(parent.id_entity if predicate is not None else None),
                 **triage_kwargs,
             )
             result = _result_from_report(marker, report)
@@ -434,6 +442,7 @@ def run_fleet_triage(
     progress: Optional[Callable[[int, int, FleetStationResult], None]] = None,
     enumerate_progress: Optional[Callable[[int, int], None]] = None,
     generated_at: Optional[str] = None,
+    predicate=None,
 ) -> FleetRunSummary:
     """Generate per-station triage files across the fleet.
 
@@ -470,6 +479,7 @@ def run_fleet_triage(
             exclude=exclude,
             limit=limit,
             enumerate_progress=enumerate_progress,
+            predicate=predicate,
         )
 
     triage_kwargs = {
@@ -515,6 +525,7 @@ def run_fleet_triage(
         progress=progress,
         triage_kwargs=triage_kwargs,
         generated_at=generated_at,
+        predicate=predicate,
     )
 
     return FleetRunSummary(
@@ -546,6 +557,7 @@ def run_fleet_verify(
     progress: Optional[Callable[[int, int, FleetStationResult], None]] = None,
     enumerate_progress: Optional[Callable[[int, int], None]] = None,
     generated_at: Optional[str] = None,
+    predicate=None,
 ) -> FleetRunSummary:
     """Run :func:`station_triage.generate_station_triage` across the
     fleet without writing anything — the verify oracle in bulk form.
@@ -563,6 +575,7 @@ def run_fleet_verify(
             exclude=exclude,
             limit=limit,
             enumerate_progress=enumerate_progress,
+            predicate=predicate,
         )
 
     triage_kwargs = {
@@ -586,6 +599,7 @@ def run_fleet_verify(
         progress=progress,
         triage_kwargs=triage_kwargs,
         generated_at=generated_at,
+        predicate=predicate,
     )
 
     return FleetRunSummary(
@@ -662,6 +676,7 @@ def run_fleet_contact_dates(
     progress: Optional[Callable[[int, int, FleetContactDatesStation], None]] = None,
     enumerate_progress: Optional[Callable[[int, int], None]] = None,
     generated_at: Optional[str] = None,
+    predicate=None,
 ) -> FleetContactDatesSummary:
     """Sweep :func:`audit_station_contact_dates` across the GNSS fleet.
 
@@ -681,6 +696,7 @@ def run_fleet_contact_dates(
             exclude=exclude,
             limit=limit,
             enumerate_progress=enumerate_progress,
+            predicate=predicate,
         )
 
     summary = FleetContactDatesSummary(generated_at=generated_at)

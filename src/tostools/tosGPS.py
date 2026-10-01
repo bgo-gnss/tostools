@@ -314,24 +314,55 @@ def _configure_logging(args):
             handler.setLevel(console_level)
 
 
-#: `tos` verbs tosGPS re-exposes UNPROFILED, verb -> tos.py handler. They are
-#: already GPS-only by construction, so the alias is exact: same function,
-#: same arguments, same exit code. `search` is deliberately absent — it is the
-#: one verb with unconstrained behaviour to narrow (see main()).
-_PLAIN_ALIASES = {
+#: `tos` verbs tosGPS re-exposes, verb -> tos.py handler, split by whether the
+#: handler takes a **profile**.
+#:
+#: The split replaces an earlier claim that none of them needed one because
+#: they were "already GPS-only BY CONSTRUCTION … a profile would be redundant
+#: machinery pretending to add a constraint that is already welded in." That
+#: was true of `station add`, which defaults subtype to 'GPS stöð', and false
+#: of every verb that RESOLVES a marker instead of creating one. The GPS
+#: audits narrow which ATTRIBUTES they grade — `audit_missing_attributes`
+#: skips every code whose `gps_relevance != 'yes'` — so aiming them at a
+#: non-GPS station leaves nothing to fail and they pass VACUOUSLY. The
+#: constraint was never welded in; it was simply never checked. Measured
+#: 2026-10-01 against live TOS:
+#:
+#:   tosGPS station verify VLFS  -> "✓ clean — 0 finding(s)", exit 0
+#:                                  (id 96, Vífilsstaðir, a 1963 precipitation
+#:                                  gauge with zero devices)
+#:   tosGPS station verify BRST  -> "✓ clean", exit 0 (id 646, Berustaðir í
+#:                                  Ásum — while BRST is Brest, France, an
+#:                                  IGS site with no TOS entity at all)
+#:   tosGPS station verify SOHO  -> findings about DOAS gas-scanner monuments
+#:                                  (id 5356), because marker `soho` carries
+#:                                  TWO geophysical entities and the GPS one
+#:                                  (4416) is not the first hit
+#:
+#: A false PASS from the oracle is the danger — worse than a wrong table,
+#: because it is the oracle agreeing with you. See `station_kind.py`.
+#:
+#: PROFILED: every verb that resolves a station marker. tosGPS passes
+#: `gps_profile()`; `tos` passes nothing and stays byte-identical, request
+#: sequence included.
+_PROFILED_ALIASES = {
     "audit": "_audit_main",
     "fleet": "_fleet_main",
     "station": "_station_main",
-    # Supporting verbs of the same GPS station/device workflow. None has
-    # fleet-wide query behaviour a profile could narrow — each acts on one
-    # named entity and is reached from a GPS task:
-    "device": "_device_main",  # exactly the subtypes the GPS profile curates
-    "location": "_location_main",  # the required `land` parent of a station
-    "contact": "_contact_main",  # reached from `station show`'s Contacts table
-    # id_attribute_value drill-down. Entity-agnostic by design, so there is
-    # nothing for a GPS profile to narrow: it resolves ONE row by its id, and
-    # the ids come from `station show` / `device show` tables a GPS operator
-    # is already reading.
+    "device": "_device_main",  # `device list --station <STN>`
+    "contact": "_contact_main",  # `contact list/show --station <STN>`
+}
+
+#: PLAIN: genuinely nothing for a GPS profile to narrow — neither resolves a
+#: station marker, so neither can land on the wrong discipline's entity.
+_PLAIN_ALIASES = {
+    # The required `land` parent of a station. A location is not a station
+    # and has no station subtype; `station add` is where the GPS-ness of the
+    # child is decided.
+    "location": "_location_main",
+    # id_attribute_value drill-down — entity-agnostic by design: it resolves
+    # ONE row by its id, and the ids come from `station show` / `device show`
+    # tables a GPS operator is already reading.
     "attribute": "_attribute_main",
     "owners": "_owners_main",  # the allow-list backing `device add`
 }
@@ -360,17 +391,22 @@ def _dispatch():
     #           subcommand (subtype pin + attribute gate); list/show/add
     #           ignore it and stay byte-identical to `tos visit`.
     #
-    #   audit   PLAIN ALIAS. Already GPS-only BY CONSTRUCTION:
-    #   fleet   audit_missing_attributes skips every code whose
-    #   station  gps_relevance != 'yes' and grades the rest with
-    #           gps_required_for (station.py likewise); fleet enumerates
-    #           stations.cfg — the GPS network's own config, minus the IGS
-    #           reference sites; station verify/triage route through those
-    #           same audits, station receivers reconstructs from the RINEX
-    #           archive, and station add already defaults subtype to
-    #           'GPS stöð'. There is no unconstrained behaviour to narrow,
-    #           so a profile would be redundant machinery pretending to add
-    #           a constraint that is already welded in.
+    #   audit   PROFILED. These used to be plain aliases on the grounds
+    #   fleet   that they were GPS-only by construction. They are not: each
+    #   station resolves a 4-char marker, and markers are NOT unique in TOS
+    #   device  across disciplines — or even within `geophysical`. The
+    #   contact profile supplies the station gate (Profile.admits_station),
+    #           which the handlers thread down to whichever of the five
+    #           marker resolvers they reach. It FILTERS CANDIDATES rather
+    #           than refusing after resolution; resolve-then-refuse would
+    #           reject SOHO, whose GPS station is real but is the second
+    #           candidate on its marker.
+    #
+    #           `station add` remains ungated — it CREATES the station and
+    #           already defaults subtype to 'GPS stöð', so there is no
+    #           candidate to choose among. The write verbs that resolve an
+    #           existing marker (`station set`, `contact add`, `visit add`)
+    #           are knowingly still open; see the branch notes.
     #
     # These must also stay byte-identical to their `tos` forms:
     # gps-tos-corrections records 270 `tos audit apply` invocations as
@@ -388,6 +424,21 @@ def _dispatch():
         from .tos import _visit_main
 
         return _visit_main(sys.argv[2:], profile=gps_profile())
+    if verb and verb[0] in _PROFILED_ALIASES:
+        from . import tos as _tos
+        from .search_selectors import gps_profile
+        from .station_kind import AmbiguousStation, WrongStationKind
+
+        handler = getattr(_tos, _PROFILED_ALIASES[verb[0]])
+        try:
+            return handler(sys.argv[2:], profile=gps_profile())
+        except (WrongStationKind, AmbiguousStation) as exc:
+            # Exit 1 — the same code every one of these verbs already uses
+            # for a lookup miss, which is what this is: we looked for a GPS
+            # station under that marker and there isn't one.
+            print(f"tosGPS {verb[0]}: {exc}", file=sys.stderr)
+            return 1
+
     if verb and verb[0] in _PLAIN_ALIASES:
         from . import tos as _tos
 

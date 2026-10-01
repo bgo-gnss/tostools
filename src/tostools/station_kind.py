@@ -63,12 +63,13 @@ all three outcomes:
   station. Refusing is correct; returning 646 is what happens today.
 
 Measured over all 344 ``stations.cfg`` markers (2026-10-01): 198 resolve
-to exactly one admitted candidate (unchanged), 140 have no candidate at
-all and already refuse (the external IGS sites), 5 have two candidates of
-which exactly **one** is admitted, and 1 (``BRST``) has a candidate but
-none admitted. **No marker admitted two or more**, so there is no tie to
-break — if one ever appears, :class:`AmbiguousStation` is raised rather
-than guessed.
+to exactly one admitted candidate (unchanged); 140 have no candidate at
+all and already refuse today (136 ``is_reference_site`` entries plus
+``ELAT``, ``LEBA``, ``UNIV`` and ``VCAP``, four cfg stations simply absent
+from TOS); 5 have two candidates of which exactly **one** is admitted; and
+1 (``BRST``) has a candidate but none admitted. **No marker admitted two
+or more**, so there is no tie to break — if one ever appears,
+:class:`AmbiguousStation` is raised rather than guessed.
 """
 
 from __future__ import annotations

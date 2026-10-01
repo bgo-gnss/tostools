@@ -483,6 +483,8 @@ def audit_station_verify_from_rinex(
     archive_root: Optional[Path] = None,
     min_gap_days: float = 30.0,
     check_current_receiver: bool = True,
+    predicate: Optional[StationPredicate] = None,
+    id_entity: Optional[int] = None,
 ) -> StationRinexReport:
     """Cross-check one station's TOS state against the cold RINEX archive.
 
@@ -498,6 +500,13 @@ def audit_station_verify_from_rinex(
     min_gap_days
         Minimum gap duration to flag (default 30; below ~7 the report
         fills with date-rounding noise).
+    predicate
+        Optional station gate (see :mod:`tostools.station_kind`).
+    id_entity
+        Pre-resolved station id. ``station`` is still used for archive
+        paths and report labels — this only skips the marker lookup, which
+        is how a caller guarantees every audit in a triage run grades the
+        SAME entity.
     check_current_receiver
         When True (default) also build the RINEX-header receiver timeline
         and compare its current install against TOS's open receiver join
@@ -546,7 +555,9 @@ def audit_station_verify_from_rinex(
     # `tos device list`. Resolution failures yield an empty receivers
     # list rather than raising; the operator still sees the archive
     # side of the picture.
-    parent_id = _resolve_station_id(client, station)
+    parent_id = _resolve_station_id(
+        client, station, predicate=predicate, id_entity=id_entity
+    )
     receivers: List[TOSReceiverVerdict] = []
     # Fields of the currently-OPEN gnss_receiver join (time_to is None) — the
     # receiver-level current-install check below compares the archive's current

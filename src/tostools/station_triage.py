@@ -204,6 +204,8 @@ def generate_station_triage(
     include_closed: bool = False,
     station_info_path: Optional[Path] = None,
     station_info_note: Optional[str] = None,
+    predicate=None,
+    id_entity: Optional[int] = None,
 ) -> StationTriageReport:
     """Run all audits on ``station`` and aggregate into a single report.
 
@@ -212,6 +214,22 @@ def generate_station_triage(
     station
         Station marker (e.g. ``"HEDI"``) or display name. Resolved by
         the underlying audits; both accept the same identifier shape.
+    predicate
+        Optional station gate (see :mod:`tostools.station_kind`). When
+        given, the marker is resolved **once here** and the resulting id
+        is handed to every audit.
+
+        That is not only about the gate. Each audit used to resolve the
+        marker itself, through two different resolvers — and on ``SOHO``,
+        where marker ``soho`` carries both a DOAS gas station (5356) and
+        the real GPS station (4416), the two disagreed:
+        ``verify-from-rinex`` audited 4416 while every other audit audited
+        5356, so a single triage file described two different stations.
+        Resolving once removes that class of bug, not just this instance.
+    id_entity
+        Pre-resolved station id, used instead of resolving ``station``.
+        ``fleet`` already resolves every marker before calling this and
+        previously discarded the id.
     client
         Optional :class:`TOSClient`. One is constructed if omitted —
         each audit shares the same client so token-cached lookups
@@ -256,6 +274,18 @@ def generate_station_triage(
         "catalog_path": catalog_path,
     }
 
+    if predicate is not None and id_entity is None:
+        # Resolved BEFORE any audit runs, deliberately: every audit below is
+        # wrapped in `except Exception`, so a refusal raised inside one would
+        # surface as "N audits failed" (exit 2) instead of as the refusal it
+        # is. Raising here lets the CLI report it as a refusal, exit 1.
+        from .audit import _resolve_station_entity
+
+        gated = _resolve_station_entity(
+            client, name=station, id_entity=None, predicate=predicate
+        )
+        id_entity = int(gated["id_entity"])
+
     # === Section: missing attributes ===
     missing_report: Optional[StationMissingAttributesReport]
     try:
@@ -267,6 +297,7 @@ def generate_station_triage(
         missing_report = audit_station_missing_attributes(
             client,
             name=station,
+            id_entity=id_entity,
             include_closed=include_closed,
             station_info_path=station_info_path,
             station_info_note=station_info_note,
@@ -281,7 +312,7 @@ def generate_station_triage(
     dates_report: Optional[StationAttributeDateReport]
     try:
         dates_report = audit_station_attribute_dates(
-            client, name=station, **audit_kwargs
+            client, name=station, id_entity=id_entity, **audit_kwargs
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("attribute-dates audit failed on %s: %s", station, exc)
@@ -301,6 +332,7 @@ def generate_station_triage(
                 station,
                 archive_root=archive_root,
                 min_gap_days=min_gap_days,
+                id_entity=id_entity,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("verify-from-rinex audit failed on %s: %s", station, exc)
@@ -314,7 +346,7 @@ def generate_station_triage(
     if with_archive:
         try:
             constellation_report = audit_station_constellations(
-                client, name=station, archive_root=archive_root
+                client, name=station, id_entity=id_entity, archive_root=archive_root
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("constellations audit failed on %s: %s", station, exc)
@@ -332,6 +364,7 @@ def generate_station_triage(
             coverage_report = audit_station_visit_coverage(
                 client,
                 name=station,
+                id_entity=id_entity,
                 since=coverage_since,
                 coverage_window_days=coverage_window_days,
                 suppressions_path=suppressions_path,
@@ -342,10 +375,14 @@ def generate_station_triage(
             notes.append(f"visit-coverage audit FAILED: {exc}")
             coverage_report = None
 
-    # Resolve a station_id for the header. Prefer whichever sub-report
-    # successfully looked one up; all audits resolve the same way.
-    station_id: Optional[int] = None
-    if missing_report is not None:
+    # Resolve a station_id for the header. A pre-resolved id wins: it is
+    # the one every audit above was actually given. Falling back to
+    # "whichever sub-report looked one up" is what let the header disagree
+    # with half the sections on SOHO.
+    station_id: Optional[int] = id_entity
+    if station_id is not None:
+        pass
+    elif missing_report is not None:
         station_id = missing_report.station_id
     elif dates_report is not None:
         station_id = dates_report.station_id
