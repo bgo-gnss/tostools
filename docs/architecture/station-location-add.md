@@ -125,17 +125,41 @@ Flow:
 
 ```
 tos station add --marker MARKER --name NAME --lat LAT --lon LON --altitude ALT
+                --subtype KIND                    # REQUIRED under `tos`
                 --operational-class CLASS --date-start DATE
                 --continuity VAL --geological-characteristic VAL
                 --is-near-fault-zones {yes|no} --bedrock-condition VAL
                 --bedrock-type VAL --in-network-epos {ja|nei}
-                [--subtype 'GPS stöð']            # default; the station-kind attr
                 [--location-id ID | --location-name NAME]   # default name = --name
                 [--create-location]               # require a fresh site (error if name taken)
-                [--force] [--no-dry-run] [--json]
+                [--no-dry-run] [--json]
                 [--triage PATH --placeholder TOKEN]
                 [--server H] [--port N]
 ```
+
+**`--subtype` is required under `tos`, and supplied automatically by
+`tosGPS`.** The `geophysical` entity type is not one kind of station — it
+holds `GPS stöð`, `SIL stöð`, `DOAS` and `Multigas` — so the earlier catalog
+default of `GPS stöð` mislabelled every non-GPS station created with `tos`.
+`tosGPS station add` takes the value from its profile, and
+`receivers cfg add-tos-station` does the same, so only a bare `tos`
+invocation has to name it.
+
+**There is no `--force`.** It existed only to bypass the duplicate-marker
+guard. That guard is now scoped to the domain being created — entity type
+plus `--subtype` — so a hit is a real within-domain duplicate every time, and
+the `land` site this verb creates on the way through is **not deletable**.
+Unscoped, the guard refused legitimate work: `station add BRST` was blocked
+by the Berustaðir weather station (id 646), which carries marker `brst`,
+while BRST itself is Brest, France and has no TOS entity at all.
+Cross-discipline marker sharing is normal in this fleet — `AUST`, `HLFJ`,
+`HOFN`, `KVSK` and `SOHO` all do it.
+
+The ENTITY TYPE stays fixed at `geophysical` because that is the only domain
+the catalog describes (`tos_required_for` names `geophysical` for all nine
+required codes and nothing for the other disciplines). Supporting
+meteorological or hydrological stations here needs their required-attribute
+sets added to the catalog first.
 
 Required-attribute set is taken from `data/attribute_codes.yaml` → `stations`
 scope, `required_for == ['geophysical']`:
