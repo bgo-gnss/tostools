@@ -113,6 +113,60 @@ def open_attribute(entity: Mapping[str, Any], code: str) -> Optional[str]:
     return None
 
 
+def admits_domain(
+    entity: Mapping[str, Any],
+    entity_scopes: Sequence[str],
+    subtype: Optional[str],
+) -> bool:
+    """Is ``entity`` a station of this ONE domain?
+
+    A "domain" is the pair of levels TOS confusingly gives the same name:
+
+    * ``code_entity_subtype`` on the entity — ``geophysical`` /
+      ``meteorological`` / ``hydrological``;
+    * a station **attribute** literally named ``subtype`` — the human label
+      ``GPS stöð`` / ``SIL stöð`` / ``Úrkomustöð`` / ``DOAS``.
+
+    Both are needed. The entity type alone admits SIL seismic and DOAS gas
+    stations, which are ``geophysical`` too. The subtype attribute alone
+    cannot distinguish disciplines that happen to reuse a label.
+
+    An ABSENT subtype is admitted; a subtype that was set and CLOSED is not.
+    "Absent" means never set, which is a station still being built — and
+    ``subtype`` is itself audited, so demanding it here would pre-empt the
+    audit that exists to report it. A geophysical entity whose only
+    ``subtype`` period is a closed ``DOAS`` is a decommissioned gas station,
+    and reading that as absent would quietly admit it.
+
+    The leniency also makes this the right rule for a DUPLICATE check, where
+    admitting more means refusing more: a half-built station with no subtype
+    yet should count as a clash, not be waved through.
+    """
+    if entity_scopes and entity.get("code_entity_subtype") not in entity_scopes:
+        return False
+    if subtype is None:
+        return True
+    found = open_attribute(entity, "subtype")
+    if found is not None:
+        return found == subtype
+    ever = all_attribute_values(entity, "subtype")
+    return not ever or subtype in ever
+
+
+def domain_predicate(
+    entity_scopes: Sequence[str], subtype: Optional[str]
+) -> StationPredicate:
+    """:func:`admits_domain` bound to one domain, as a predicate.
+
+    Lets a verb build the filter from what it is actually DOING rather than
+    from which tool invoked it — `station add` always creates a
+    ``geophysical`` station with ``--subtype``, so its duplicate-marker check
+    scopes itself and needs no profile threaded in.
+    """
+    scopes = tuple(entity_scopes)
+    return lambda entity: admits_domain(entity, scopes, subtype)
+
+
 def all_attribute_values(entity: Mapping[str, Any], code: str) -> List[str]:
     """Every value ``code`` has EVER carried on ``entity``, open or closed.
 

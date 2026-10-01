@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .search import ANY_DEVICE, DEVICE_SUBTYPE_ALIASES, device_in_namespace
-from .station_kind import all_attribute_values, open_attribute
+from .station_kind import admits_domain
 from .utils.logging import get_logger
 
 logger = get_logger(__name__, logging.WARNING)
@@ -132,14 +132,7 @@ class Profile:
         the station is admitted only if it never carried a subtype at all,
         or if one of the values it carried was ours.
         """
-        if self.entity_scopes:
-            if entity.get("code_entity_subtype") not in self.entity_scopes:
-                return False
-        found = open_attribute(entity, "subtype")
-        if found is not None:
-            return found == self.subtype
-        ever = all_attribute_values(entity, "subtype")
-        return not ever or self.subtype in ever
+        return admits_domain(entity, self.entity_scopes, self.subtype)
 
 
 def gps_profile(catalog=None) -> Profile:
