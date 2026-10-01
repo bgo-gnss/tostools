@@ -10,8 +10,16 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from ..station_kind import prefer_domain
 from ..utils.logging import get_logger
 from ._http import canonical_tos_url
+
+#: The GPS station's domain — the PAIR of levels TOS confusingly gives the
+#: same name: `code_entity_subtype` on the entity, and a station attribute
+#: literally called `subtype`. Needed together: SIL seismic and DOAS gas
+#: stations are `geophysical` too.
+GPS_STATION_ENTITY_TYPE = "geophysical"
+GPS_STATION_SUBTYPE = "GPS stöð"
 
 # TOS API Configuration
 DEFAULT_TOS_URL = "https://vi-api.vedur.is/tos/internal"
@@ -207,7 +215,22 @@ class TOSClient:
         if not stations:
             return None, None
 
-        station = stations[0]
+        # Prefer the GPS station when a marker carries several entities of
+        # this domain. `domains` already pins the entity type, but that is
+        # only the FIRST of the two levels TOS calls "subtype": within
+        # `geophysical`, marker `soho` carries 5356 (DOAS, a volcanic-gas
+        # station) AND 4416 (GPS stöð, receiver 3075357). `stations[0]`
+        # returned 5356, so every caller of this method — PrintTOS, the IGS
+        # site log, syncMeta — read a gas station's metadata for SOHO.
+        #
+        # A PREFERENCE rather than a filter, deliberately: this is a shared
+        # read path whose callers did not ask to be narrowed, so nothing may
+        # become unreachable. The hits already carry `attributes` and
+        # `code_entity_subtype`, so judging them costs no extra request, and
+        # for a marker with one candidate the behaviour is unchanged.
+        station = prefer_domain(
+            stations, (GPS_STATION_ENTITY_TYPE,), GPS_STATION_SUBTYPE
+        )
         station_id = station["id_entity"]
 
         self.logger.info(f"station {station_identifier} id_entity: {station_id}")

@@ -153,6 +153,36 @@ def admits_domain(
     return not ever or subtype in ever
 
 
+def prefer_domain(
+    candidates: Sequence[Mapping[str, Any]],
+    entity_scopes: Sequence[str],
+    subtype: Optional[str],
+) -> Optional[Mapping[str, Any]]:
+    """The first candidate in ``(entity_scopes, subtype)``, else the first one.
+
+    A PREFERENCE, not a filter — and the difference is the point. Where
+    :func:`select_station` makes an out-of-domain station invisible, this only
+    reorders: nothing becomes unreachable, so it is safe on paths whose
+    callers never asked to be narrowed and where answering *something* is
+    better than answering nothing.
+
+    It exists for ``stations[0]``-style tie-breaks. ``TOSClient``'s
+    ``search_stations`` already restricts to one entity type via ``domains``,
+    but within ``geophysical`` it returns both of SOHO's entities — 5356
+    (``DOAS``) and 4416 (``GPS stöð``) — in an order nobody controls, and
+    taking the first meant the site-log and PrintTOS paths read a volcanic-gas
+    station's metadata for a GPS station. For the 198 single-candidate
+    markers this changes nothing at all.
+    """
+    cands = [c for c in candidates if isinstance(c, Mapping)]
+    if not cands:
+        return None
+    for cand in cands:
+        if admits_domain(cand, entity_scopes, subtype):
+            return cand
+    return cands[0]
+
+
 def domain_predicate(
     entity_scopes: Sequence[str], subtype: Optional[str]
 ) -> StationPredicate:

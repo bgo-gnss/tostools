@@ -197,6 +197,21 @@ MUTATIONS = [
         ),
         expect_red="duplicate_check_is_scoped or duplicate_marker_refused",
     ),
+    Mutation(
+        name="metadata-path-takes-the-first-hit",
+        path="api/tos_client.py",
+        old=(
+            "        station = prefer_domain(\n"
+            "            stations, (GPS_STATION_ENTITY_TYPE,), GPS_STATION_SUBTYPE\n"
+            "        )"
+        ),
+        new="        station = stations[0]",
+        why=(
+            "PrintTOS / IGS site log / syncMeta read SOHO's metadata from the "
+            "DOAS gas station 5356. This path reaches M3G and EPOS."
+        ),
+        expect_red="metadata_prefers_the_gps_candidate",
+    ),
     # ======================= the predicate =======================
     Mutation(
         name="fleet-main-drops-the-predicate",
