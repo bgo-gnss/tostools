@@ -228,7 +228,10 @@ def _relationship_recency(row: Dict[str, Any]) -> tuple:
     parsing (and no date-library import) is needed. A missing ``per_time_from``
     degrades to the empty string, sorting last within its class.
     """
-    return (1 if _relationship_is_open(row) else 0, (row.get("per_time_from") or "").strip())
+    return (
+        1 if _relationship_is_open(row) else 0,
+        (row.get("per_time_from") or "").strip(),
+    )
 
 
 def station_role_orgs(client: Any, meta: Dict[str, Any]) -> Dict[str, str]:
