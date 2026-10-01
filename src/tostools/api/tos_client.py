@@ -10,16 +10,13 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-from ..station_kind import prefer_domain
+from ..station_kind import (
+    GPS_STATION_ENTITY_TYPE,
+    GPS_STATION_SUBTYPE,
+    prefer_domain,
+)
 from ..utils.logging import get_logger
 from ._http import canonical_tos_url
-
-#: The GPS station's domain — the PAIR of levels TOS confusingly gives the
-#: same name: `code_entity_subtype` on the entity, and a station attribute
-#: literally called `subtype`. Needed together: SIL seismic and DOAS gas
-#: stations are `geophysical` too.
-GPS_STATION_ENTITY_TYPE = "geophysical"
-GPS_STATION_SUBTYPE = "GPS stöð"
 
 # TOS API Configuration
 DEFAULT_TOS_URL = "https://vi-api.vedur.is/tos/internal"
