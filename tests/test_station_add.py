@@ -305,20 +305,28 @@ def test_cli_duplicate_check_is_scoped_to_the_domain_being_created() -> None:
     assert clash(gps) is True, "another GPS station on this marker IS a clash"
 
 
-def test_cli_has_no_force_escape_from_the_duplicate_guard() -> None:
-    """A within-domain duplicate is a mistake every time.
+def test_force_overrides_the_duplicate_guard_but_warns_in_detail(capsys) -> None:
+    """`--force` is kept for the case nobody has thought of yet.
 
-    `--force` used to add the station anyway, and the land site this verb
-    creates on the way through is not deletable. The flag is gone, so a
-    script still passing it fails loudly rather than quietly meaning
-    something else.
+    It must not be quiet, though, and the consequence is specific rather than
+    generic: two stations of ONE domain on one marker makes every
+    marker lookup ambiguous, so `select_station` raises rather than guess and
+    `tosGPS station verify`, `device list --station` and the `receivers cfg`
+    verbs all refuse on that marker afterwards — not just this verb.
     """
-    with pytest.raises(SystemExit) as exc:
-        _run_cli(
-            _base_args() + ["--force"],
-            configure=lambda w: setattr(w, "marker_id", 4316),
-        )
-    assert exc.value.code == 2
+
+    def cfg(w: _FakeWriter) -> None:
+        w.marker_id = 4316
+        w.land_id = 4360  # reuse an existing site
+
+    rc = _run_cli(_base_args() + ["--force"], configure=cfg)
+    err = capsys.readouterr().err
+
+    assert rc == 0
+    assert any(s == "geophysical" for s, _ in _FakeWriter.last_instance.create_calls)
+    assert "--force" in err and "ALREADY" in err
+    assert "AMBIGUOUS" in err, "the operator must be told what breaks afterwards"
+    assert "NOT deletable" in err, "the land site is irreversible"
 
 
 def test_cli_attaches_to_existing_site_no_site_create(capsys) -> None:

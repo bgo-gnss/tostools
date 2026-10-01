@@ -210,6 +210,19 @@ MUTATIONS = [
         ),
         expect_red="requires_an_explicit_subtype",
     ),
+    Mutation(
+        name="force-bypasses-silently",
+        path="tos.py",
+        old='            f"⚠️  --force: a {entity_type} station with marker "',
+        new='            f"-- force: a {entity_type} station with marker "',
+        why=(
+            "`--force` is kept deliberately, so the ONLY thing protecting the "
+            "operator is that it says what it is doing. A silent bypass "
+            "creates a within-domain duplicate that makes every later marker "
+            "lookup refuse as ambiguous."
+        ),
+        expect_red="force_overrides_the_duplicate_guard",
+    ),
     # ======================= the predicate =======================
     Mutation(
         name="fleet-main-drops-the-predicate",
