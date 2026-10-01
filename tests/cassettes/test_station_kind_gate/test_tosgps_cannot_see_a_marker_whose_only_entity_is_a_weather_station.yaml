@@ -1,0 +1,882 @@
+interactions:
+- request:
+    body: '{"code": "marker", "value": "brst"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '35'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - python-requests/2.34.2
+    method: POST
+    uri: https://vi-api.vedur.is/tos/internal/entity/search/station/geophysical
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Length:
+      - '2'
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:46:19 GMT
+      X-Request-Id:
+      - 61dac9b9-a414-4ffc-81c8-6496cf42d301
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"code": "marker", "value": "brst"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '35'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - python-requests/2.34.2
+    method: POST
+    uri: https://vi-api.vedur.is/tos/internal/entity/search/station/meteorological
+  response:
+    body:
+      string: "[{\"attributes\":[{\"attribute_datatype_code\":\"text\",\"code\":\"marker\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        marker\",\"description_is\":\"Au\xF0kenni st\xF6\xF0var, venjulega fimm stafa
+        skammst\xF6fun me\xF0 enskum l\xE1gst\xF6fum\",\"id_attribute_value\":5613,\"name_en\":\"Marker\",\"name_is\":\"Au\xF0kenni\",\"python_constraint\":\"^[a-z0-9]{3,6}|^[A-Z]\\\\d{1,6}\",\"sort_order\":10,\"value\":\"brst\"},{\"attribute_datatype_code\":\"integer\",\"code\":\"imo\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        meteorological IMO number\",\"description_is\":\"N\xFAmer samkv\xE6mt ve\xF0urst\xF6\xF0van\xFAmerakerfi
+        V\xCD\",\"id_attribute_value\":5614,\"name_en\":\"IMO number\",\"name_is\":\"V\xCD
+        ve\xF0urst\xF6\xF0van\xFAmer\",\"python_constraint\":\".*\",\"sort_order\":20,\"value\":\"829\"},{\"attribute_datatype_code\":\"text\",\"code\":\"name\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        name\",\"description_is\":\"Nafn st\xF6\xF0var\",\"id_attribute_value\":5615,\"name_en\":\"Name\",\"name_is\":\"Nafn\",\"python_constraint\":\".*\",\"sort_order\":50,\"value\":\"Berusta\xF0ir
+        \xED \xC1sum\"},{\"attribute_datatype_code\":\"numeric\",\"code\":\"lat\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        latitude in decimal degrees\",\"description_is\":\"Breiddargr\xE1\xF0a st\xF6\xF0var
+        \xED tugabrotsgr\xE1\xF0um\",\"id_attribute_value\":5616,\"name_en\":\"Latitude\",\"name_is\":\"Breiddargr\xE1\xF0a\",\"python_constraint\":\"^\\\\d{1,2}\\\\.\\\\d{1,5}\",\"sort_order\":110,\"value\":\"63.867\"},{\"attribute_datatype_code\":\"numeric\",\"code\":\"lon\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        longitude in decimal degrees\",\"description_is\":\"Lengdargr\xE1\xF0a st\xF6\xF0var
+        \xED tugabrotsgr\xE1\xF0um\",\"id_attribute_value\":5617,\"name_en\":\"Longitude\",\"name_is\":\"Lengdargr\xE1\xF0a\",\"python_constraint\":\"^-\\\\d{1,2}\\\\.\\\\d{1,5}\",\"sort_order\":120,\"value\":\"-20.55\"},{\"attribute_datatype_code\":\"numeric\",\"code\":\"altitude\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        altitude in meters\",\"description_is\":\"H\xE6\xF0 st\xF6\xF0var yfir sj\xE1varm\xE1li
+        \xED metrum\",\"id_attribute_value\":5618,\"name_en\":\"Altitude\",\"name_is\":\"H\xE6\xF0\",\"python_constraint\":\".*\",\"sort_order\":130,\"value\":\"20.0\"},{\"attribute_datatype_code\":\"text\",\"code\":\"subtype\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        subtype, indicates composition or subject of the measurements\",\"description_is\":\"Undirtegund
+        st\xF6\xF0var, l\xFDsir samsetningu e\xF0a vi\xF0fangsefni m\xE6linga\",\"id_attribute_value\":5619,\"name_en\":\"Subtype\",\"name_is\":\"Undirtegund\",\"python_constraint\":\".*\",\"sort_order\":60,\"value\":\"Ve\xF0urfarsst\xF6\xF0\"},{\"attribute_datatype_code\":\"text\",\"code\":\"forecast_area\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        forecast area\",\"description_is\":\"Sp\xE1sv\xE6\xF0i sem st\xF6\xF0in tilheyrir\",\"id_attribute_value\":5620,\"name_en\":\"Forecast
+        area\",\"name_is\":\"Sp\xE1sv\xE6\xF0i\",\"python_constraint\":\".*\",\"sort_order\":80,\"value\":\"Su\xF0urland\"},{\"attribute_datatype_code\":\"timestamp\",\"code\":\"date_start\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        start date\",\"description_is\":\"Upphafsdagsetning\",\"id_attribute_value\":5621,\"name_en\":\"Start
+        date\",\"name_is\":\"Upphafsdagsetning\",\"python_constraint\":\".*\",\"sort_order\":200,\"value\":\"1939-01-01
+        00:00:00\"},{\"attribute_datatype_code\":\"timestamp\",\"code\":\"date_end\",\"date_from\":\"1941-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        end date\",\"description_is\":\"Lokadagsetning\",\"id_attribute_value\":5622,\"name_en\":\"End
+        date\",\"name_is\":\"Lokadagsetning\",\"python_constraint\":\".*\",\"sort_order\":210,\"value\":\"1941-01-01
+        00:00:00\"},{\"attribute_datatype_code\":\"timestamp\",\"code\":\"date_legacy\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Date
+        of oldest recorded data before regular operations start according to the start
+        date\",\"description_is\":\"Dagsetning elstu skr\xE1\xF0u gagna \xE1\xF0ur
+        en reglulegur rekstur hefst samkv\xE6mt upphafsdagsetningu\",\"id_attribute_value\":5623,\"name_en\":\"Legacy
+        start date\",\"name_is\":\"Fyrndardagsetning\",\"python_constraint\":\".*\",\"sort_order\":220,\"value\":\"1939-01-01
+        00:00:00\"},{\"attribute_datatype_code\":\"text\",\"code\":\"landscape\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Description
+        of landscape, e.g. moors, fjord, hillside\",\"description_is\":\"L\xFDsing
+        landslags, t.d. hei\xF0i, fj\xF6r\xF0ur, hl\xED\xF0\",\"id_attribute_value\":5624,\"name_en\":\"Landscape\",\"name_is\":\"Landslag\",\"python_constraint\":\".*\",\"sort_order\":100,\"value\":\"Innsveit\"},{\"attribute_datatype_code\":\"text\",\"code\":\"name_short\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Short
+        name for external applications\",\"description_is\":\"Stutt nafn fyrir ytri
+        kerfi\",\"id_attribute_value\":108140,\"name_en\":\"Name short\",\"name_is\":\"Nafn
+        stutt\",\"python_constraint\":\".*\",\"sort_order\":9999,\"value\":\"Brst\"}],\"code_entity_subtype\":\"meteorological\",\"entity_subtype_description_en\":\"Automatic
+        weather stations, synoptic, precipitation and other weather measurement stations\",\"entity_subtype_description_is\":\"Sj\xE1lfvirkar
+        ve\xF0urst\xF6\xF0var, skeytast\xF6\xF0var, \xFArkomust\xF6\xF0var og a\xF0rar
+        ve\xF0urm\xE6list\xF6\xF0var\",\"entity_subtype_name_en\":\"Meteorological
+        station\",\"entity_subtype_name_is\":\"Ve\xF0urst\xF6\xF0\",\"entity_type_name_en\":\"station\",\"entity_type_name_is\":\"st\xF6\xF0\",\"id_entity\":646,\"id_entity_children\":null,\"id_entity_parent\":null,\"id_entity_subtype\":113}]"
+    headers:
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:46:18 GMT
+      Vary:
+      - Accept-Encoding
+      X-Request-Id:
+      - 3fd2b1e7-ad6c-46ba-bc05-aac983dbe575
+      content-length:
+      - '5296'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"code": "marker", "value": "brst"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '35'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - python-requests/2.34.2
+    method: POST
+    uri: https://vi-api.vedur.is/tos/internal/entity/search/station/hydrological
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Length:
+      - '2'
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:46:18 GMT
+      X-Request-Id:
+      - 8334e025-b6bf-4890-80f9-4d9fda42ddcc
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"code": "marker", "value": "BRST"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '35'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - python-requests/2.34.2
+    method: POST
+    uri: https://vi-api.vedur.is/tos/internal/entity/search/station/geophysical
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Length:
+      - '2'
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:46:20 GMT
+      X-Request-Id:
+      - 5cf07392-7720-4bd7-98de-60933fba3088
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"code": "marker", "value": "BRST"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '35'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - python-requests/2.34.2
+    method: POST
+    uri: https://vi-api.vedur.is/tos/internal/entity/search/station/meteorological
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Length:
+      - '2'
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:46:18 GMT
+      X-Request-Id:
+      - f8f95e77-f48b-42f8-9ec0-25d214ba1328
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"code": "marker", "value": "BRST"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '35'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - python-requests/2.34.2
+    method: POST
+    uri: https://vi-api.vedur.is/tos/internal/entity/search/station/hydrological
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Length:
+      - '2'
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:46:18 GMT
+      X-Request-Id:
+      - c7e29fe2-b1f4-433d-9b62-bb00b1697053
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"search_term": "brst"}'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '23'
+      Content-Type:
+      - application/json
+      User-Agent:
+      - python-requests/2.34.2
+    method: POST
+    uri: https://vi-api.vedur.is/tos/internal/basic_search
+  response:
+    body:
+      string: "[{\"id_lvl_one\":9877,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Br\xFAnasta\xF0ir\",\"id_lvl_two\":9878,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Vatnam\xE6lingast\xF6\xF0\",\"name_lvl_two\":\"Br\xFAnasta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":9878,\"value_varchar\":\"Br\xFAnasta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":7},{\"id_lvl_one\":330,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Br\xFAsasta\xF0ir\",\"id_lvl_two\":901,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Br\xFAsasta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":901,\"value_varchar\":\"Br\xFAsasta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":7},{\"id_lvl_one\":9877,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Br\xFAnasta\xF0ir\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":9877,\"value_varchar\":\"Br\xFAnasta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":7},{\"id_lvl_one\":330,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Br\xFAsasta\xF0ir\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":330,\"value_varchar\":\"Br\xFAsasta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":7},{\"id_lvl_one\":5393,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Bjarnasta\xF0ir\",\"id_lvl_two\":5394,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Bjarnasta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":5394,\"value_varchar\":\"Bjarnasta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":8},{\"id_lvl_one\":5393,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Bjarnasta\xF0ir\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":5393,\"value_varchar\":\"Bjarnasta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":8},{\"id_lvl_one\":464,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":465,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":465,\"value_varchar\":\"Grst\",\"code\":\"name_short\",\"name_is\":\"Nafn
+        stutt\",\"description_is\":\"Stutt nafn fyrir ytri kerfi\",\"distance\":8},{\"id_lvl_one\":464,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":465,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":465,\"value_varchar\":\"grst\",\"code\":\"marker\",\"name_is\":\"Au\xF0kenni\",\"description_is\":\"Au\xF0kenni
+        st\xF6\xF0var, venjulega fimm stafa skammst\xF6fun me\xF0 enskum l\xE1gst\xF6fum\",\"distance\":8},{\"id_lvl_one\":5397,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Brettingssta\xF0ir\",\"id_lvl_two\":16357,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Brettingssta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":16357,\"value_varchar\":\"brtt\",\"code\":\"marker\",\"name_is\":\"Au\xF0kenni\",\"description_is\":\"Au\xF0kenni
+        st\xF6\xF0var, venjulega fimm stafa skammst\xF6fun me\xF0 enskum l\xE1gst\xF6fum\",\"distance\":8},{\"id_lvl_one\":464,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":980,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir
+        \xE1 Fj\xF6llum\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":980,\"value_varchar\":\"grist\",\"code\":\"marker\",\"name_is\":\"Au\xF0kenni\",\"description_is\":\"Au\xF0kenni
+        st\xF6\xF0var, venjulega fimm stafa skammst\xF6fun me\xF0 enskum l\xE1gst\xF6fum\",\"distance\":9},{\"id_lvl_one\":330,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Br\xFAsasta\xF0ir\",\"id_lvl_two\":901,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Br\xFAsasta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":901,\"value_varchar\":\"BRUSA\",\"code\":\"name_short\",\"name_is\":\"Nafn
+        stutt\",\"description_is\":\"Stutt nafn fyrir ytri kerfi\",\"distance\":9},{\"id_lvl_one\":330,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Br\xFAsasta\xF0ir\",\"id_lvl_two\":901,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Br\xFAsasta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":901,\"value_varchar\":\"brusa\",\"code\":\"marker\",\"name_is\":\"Au\xF0kenni\",\"description_is\":\"Au\xF0kenni
+        st\xF6\xF0var, venjulega fimm stafa skammst\xF6fun me\xF0 enskum l\xE1gst\xF6fum\",\"distance\":9},{\"id_lvl_one\":464,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":980,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir
+        \xE1 Fj\xF6llum\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":980,\"value_varchar\":\"GRIST\",\"code\":\"name_short\",\"name_is\":\"Nafn
+        stutt\",\"description_is\":\"Stutt nafn fyrir ytri kerfi\",\"distance\":9},{\"id_lvl_one\":32,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Reykjav\xEDk\",\"id_lvl_two\":6220,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Almenn
+        st\xF6\xF0\",\"name_lvl_two\":\"Reykjav\xEDk\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":6220,\"value_varchar\":\"bustv\",\"code\":\"marker\",\"name_is\":\"Au\xF0kenni\",\"description_is\":\"Au\xF0kenni
+        st\xF6\xF0var, venjulega fimm stafa skammst\xF6fun me\xF0 enskum l\xE1gst\xF6fum\",\"distance\":9},{\"id_lvl_one\":464,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":980,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir
+        \xE1 Fj\xF6llum\",\"id_lvl_three\":21541,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2021081202\",\"id_entity\":21541,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":464,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":980,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir
+        \xE1 Fj\xF6llum\",\"id_lvl_three\":21540,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2021081201\",\"id_entity\":21540,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":464,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":980,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir
+        \xE1 Fj\xF6llum\",\"id_lvl_three\":21539,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2021081204\",\"id_entity\":21539,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":464,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":980,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir
+        \xE1 Fj\xF6llum\",\"id_lvl_three\":21538,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"756215\",\"id_entity\":21538,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":21433,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041703\",\"id_entity\":21433,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":464,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":980,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir
+        \xE1 Fj\xF6llum\",\"id_lvl_three\":21537,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2021081601\",\"id_entity\":21537,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":65,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xDEykkvib\xE6r\",\"id_lvl_two\":1080,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"\xDEykkvib\xE6r\",\"id_lvl_three\":21440,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041710\",\"id_entity\":21440,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":65,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xDEykkvib\xE6r\",\"id_lvl_two\":1080,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"\xDEykkvib\xE6r\",\"id_lvl_three\":21439,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041709\",\"id_entity\":21439,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":65,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xDEykkvib\xE6r\",\"id_lvl_two\":1080,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"\xDEykkvib\xE6r\",\"id_lvl_three\":21438,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041708\",\"id_entity\":21438,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":65,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xDEykkvib\xE6r\",\"id_lvl_two\":1080,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"\xDEykkvib\xE6r\",\"id_lvl_three\":21437,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041707\",\"id_entity\":21437,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":65,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xDEykkvib\xE6r\",\"id_lvl_two\":1080,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"\xDEykkvib\xE6r\",\"id_lvl_three\":21435,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041705\",\"id_entity\":21435,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":32,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Reykjav\xEDk\",\"id_lvl_two\":16068,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Reykjav\xEDk
+        V\xED\xF0idalur\",\"id_lvl_three\":16977,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2020051201\",\"id_entity\":16977,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":32,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Reykjav\xEDk\",\"id_lvl_two\":16068,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Reykjav\xEDk
+        V\xED\xF0idalur\",\"id_lvl_three\":16976,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2019120301\",\"id_entity\":16976,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":32,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Reykjav\xEDk\",\"id_lvl_two\":16068,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Reykjav\xEDk
+        V\xED\xF0idalur\",\"id_lvl_three\":16975,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2019112601\",\"id_entity\":16975,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":32,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Reykjav\xEDk\",\"id_lvl_two\":16068,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Reykjav\xEDk
+        V\xED\xF0idalur\",\"id_lvl_three\":16974,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2019111401\",\"id_entity\":16974,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":32,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Reykjav\xEDk\",\"id_lvl_two\":16068,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Reykjav\xEDk
+        V\xED\xF0idalur\",\"id_lvl_three\":16973,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2019111901\",\"id_entity\":16973,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"Ve\xF0urstofa
+        - \xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21436,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041706\",\"id_entity\":21436,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"Ve\xF0urstofa
+        - \xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21434,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041704\",\"id_entity\":21434,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"Ve\xF0urstofa
+        - \xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21432,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041702\",\"id_entity\":21432,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"Ve\xF0urstofa
+        - \xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21431,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041701\",\"id_entity\":21431,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"Ve\xF0urstofa
+        - \xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21430,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041603\",\"id_entity\":21430,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"Ve\xF0urstofa
+        - \xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21429,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041602\",\"id_entity\":21429,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"Ve\xF0urstofa
+        - \xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21428,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041601\",\"id_entity\":21428,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21436,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041706\",\"id_entity\":21436,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21434,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041704\",\"id_entity\":21434,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21432,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041702\",\"id_entity\":21432,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21428,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041601\",\"id_entity\":21428,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21429,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041602\",\"id_entity\":21429,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21431,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041701\",\"id_entity\":21431,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21430,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"2026041603\",\"id_entity\":21430,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":16204,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Hei\xF0m\xF6rk\",\"id_lvl_two\":16205,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Hei\xF0m\xF6rk\",\"id_lvl_three\":19036,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"4368201\",\"id_entity\":19036,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":16204,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Hei\xF0m\xF6rk\",\"id_lvl_two\":16205,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Hei\xF0m\xF6rk\",\"id_lvl_three\":19035,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"4339508\",\"id_entity\":19035,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":16204,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Hei\xF0m\xF6rk\",\"id_lvl_two\":16205,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Hei\xF0m\xF6rk\",\"id_lvl_three\":19034,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"4339507\",\"id_entity\":19034,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":16204,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Hei\xF0m\xF6rk\",\"id_lvl_two\":16205,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Hei\xF0m\xF6rk\",\"id_lvl_three\":19033,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"4339506\",\"id_entity\":19033,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":16204,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Hei\xF0m\xF6rk\",\"id_lvl_two\":16205,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Hei\xF0m\xF6rk\",\"id_lvl_three\":19032,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"4339505\",\"id_entity\":19032,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":8975,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"st\xEDfla\",\"id_lvl_two\":8976,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Vatnam\xE6lingast\xF6\xF0\",\"name_lvl_two\":\"st\xEDfla\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":8976,\"value_varchar\":\"Vatnsbor\xF0sst\xF6\xF0\",\"code\":\"subtype\",\"name_is\":\"Undirtegund\",\"description_is\":\"Undirtegund
+        st\xF6\xF0var, l\xFDsir samsetningu e\xF0a vi\xF0fangsefni m\xE6linga\",\"distance\":10},{\"id_lvl_one\":888,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Hornbjargsviti\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":888,\"value_varchar\":\"Hornbjargsviti\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":10},{\"id_lvl_one\":888,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Hornbjargsviti\",\"id_lvl_two\":889,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Hornbjargsviti\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":889,\"value_varchar\":\"Hornbjargsviti\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":10},{\"id_lvl_one\":811,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xDEingvellir\",\"id_lvl_two\":812,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"\xDEingvellir\",\"id_lvl_three\":17098,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2020061901\",\"id_entity\":17098,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":19025,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"4339501\",\"id_entity\":19025,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":19026,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"4339502\",\"id_entity\":19026,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":19027,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"4339503\",\"id_entity\":19027,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":19028,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"4339504\",\"id_entity\":19028,\"value_varchar\":\"Frosti\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":10},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":4000,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Hg\",\"name_lvl_three\":\"4913\",\"id_entity\":4000,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2623,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"7813068\",\"id_entity\":2623,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2895,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Sj\xE1varhitam\xE6lir - Hg\",\"name_lvl_three\":\"2006/96\",\"id_entity\":2895,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2896,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Sj\xE1varhitam\xE6lir - Hg\",\"name_lvl_three\":\"37/97\",\"id_entity\":2896,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2897,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"857/01\",\"id_entity\":2897,\"value_varchar\":\"Brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2902,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"1215/00\",\"id_entity\":2902,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2907,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Sj\xE1varhitam\xE6lir - Hg\",\"name_lvl_three\":\"34/97\",\"id_entity\":2907,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2908,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Sj\xE1varhitam\xE6lir - Hg\",\"name_lvl_three\":\"40/97\",\"id_entity\":2908,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2909,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Sj\xE1varhitam\xE6lir - Hg\",\"name_lvl_three\":\"46/97\",\"id_entity\":2909,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2910,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Sj\xE1varhitam\xE6lir - Hg\",\"name_lvl_three\":\"75/97\",\"id_entity\":2910,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2953,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"75/03\",\"id_entity\":2953,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":3020,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"3986/06\",\"id_entity\":3020,\"value_varchar\":\"brotinn\",\"code\":\"comment_date_end\",\"name_is\":\"Athugasemd
+        endadagsetningar\",\"description_is\":\"Athugasemd vi\xF0 endadagsetningar
+        t\xE6kis\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":3031,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Sj\xE1varhitam\xE6lir - Hg\",\"name_lvl_three\":\"57/97\",\"id_entity\":3031,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":3995,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"3516/96\",\"id_entity\":3995,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":3999,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Sj\xE1varhitam\xE6lir - Hg\",\"name_lvl_three\":\"5914/92\",\"id_entity\":3999,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":4005,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Hg\",\"name_lvl_three\":\"5882/94\",\"id_entity\":4005,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":4006,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Hg\",\"name_lvl_three\":\"1866/97\",\"id_entity\":4006,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":4007,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Hg\",\"name_lvl_three\":\"5985/93\",\"id_entity\":4007,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":4008,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Hg\",\"name_lvl_three\":\"5809/**\",\"id_entity\":4008,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":4009,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Hg\",\"name_lvl_three\":\"6227/87\",\"id_entity\":4009,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":4010,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Hg\",\"name_lvl_three\":\"1831/96\",\"id_entity\":4010,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":4011,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Hg\",\"name_lvl_three\":\"4814/90\",\"id_entity\":4011,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":4012,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Hg\",\"name_lvl_three\":\"10463/97\",\"id_entity\":4012,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":4013,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Hg\",\"name_lvl_three\":\"5599/91\",\"id_entity\":4013,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":4014,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"656250\",\"id_entity\":4014,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":4015,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"210/4690/93\",\"id_entity\":4015,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":4016,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Jar\xF0vegshitam\xE6lir\",\"name_lvl_three\":\"6881/93\",\"id_entity\":4016,\"value_varchar\":\"brotinn\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":16499,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"8178\",\"id_entity\":16499,\"value_varchar\":\"Brotinn\",\"code\":\"comment_date_end\",\"name_is\":\"Athugasemd
+        endadagsetningar\",\"description_is\":\"Athugasemd vi\xF0 endadagsetningar
+        t\xE6kis\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":16515,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"7502\",\"id_entity\":16515,\"value_varchar\":\"Brotinn\",\"code\":\"comment_date_end\",\"name_is\":\"Athugasemd
+        endadagsetningar\",\"description_is\":\"Athugasemd vi\xF0 endadagsetningar
+        t\xE6kis\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":16972,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2019111401\",\"id_entity\":16972,\"value_varchar\":\"Frosti
+        \",\"code\":\"model\",\"name_is\":\"Tegund t\xE6kis\",\"description_is\":\"Tegund
+        t\xE6kis\",\"distance\":11},{\"id_lvl_one\":5381,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xC1sbjarnarsta\xF0ir\",\"id_lvl_two\":5382,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"\xC1sbjarnarsta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":5382,\"value_varchar\":\"\xC1sbjarnarsta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":11},{\"id_lvl_one\":5381,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xC1sbjarnarsta\xF0ir\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":5381,\"value_varchar\":\"\xC1sbjarnarsta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":11},{\"id_lvl_one\":5397,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Brettingssta\xF0ir\",\"id_lvl_two\":5398,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Brettingssta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":5398,\"value_varchar\":\"Brettingssta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":11},{\"id_lvl_one\":5397,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Brettingssta\xF0ir\",\"id_lvl_two\":16357,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Brettingssta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":16357,\"value_varchar\":\"Brettingssta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":11},{\"id_lvl_one\":5397,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Brettingssta\xF0ir\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":5397,\"value_varchar\":\"Brettingssta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":11},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":5880,\"type_lvl_three\":\"innvi\xF0ir\",\"subtype_lvl_three\":\"Staur\",\"name_lvl_three\":null,\"id_entity\":5880,\"value_varchar\":\"Tr\xE9staur\",\"code\":\"subtype\",\"name_is\":\"Undirtegund\",\"description_is\":\"Undirtegund
+        innvi\xF0a\",\"distance\":12},{\"id_lvl_one\":18278,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Sey\xF0isfj\xF6r\xF0ur
+        Botnar\",\"id_lvl_two\":19533,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Botnar-tengist\xF6\xF0\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":19533,\"value_varchar\":\"Botnar-tengist\xF6\xF0\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":12},{\"id_lvl_one\":251,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"H\xF3lar
+        \xED D\xFDrafir\xF0i\",\"id_lvl_two\":252,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"H\xF3lar
+        \xED D\xFDrafir\xF0i\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":252,\"value_varchar\":\"vf
+        fyrst\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 st\xF6\xF0\",\"distance\":12},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":5881,\"type_lvl_three\":\"innvi\xF0ir\",\"subtype_lvl_three\":\"Staur\",\"name_lvl_three\":null,\"id_entity\":5881,\"value_varchar\":\"Tr\xE9staur\",\"code\":\"subtype\",\"name_is\":\"Undirtegund\",\"description_is\":\"Undirtegund
+        innvi\xF0a\",\"distance\":12},{\"id_lvl_one\":444,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Sta\xF0arh\xF3ll\",\"id_lvl_two\":924,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Sta\xF0arh\xF3ll\",\"id_lvl_three\":5909,\"type_lvl_three\":\"innvi\xF0ir\",\"subtype_lvl_three\":\"Staur\",\"name_lvl_three\":null,\"id_entity\":5909,\"value_varchar\":\"Tr\xE9staur\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 innvi\xF0i\",\"distance\":12},{\"id_lvl_one\":55,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Skjald\xFEingssta\xF0ir\",\"id_lvl_two\":989,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Skjald\xFEingssta\xF0ir\",\"id_lvl_three\":5920,\"type_lvl_three\":\"innvi\xF0ir\",\"subtype_lvl_three\":\"Staur\",\"name_lvl_three\":null,\"id_entity\":5920,\"value_varchar\":\"tr\xE9staur\",\"code\":\"type\",\"name_is\":\"Ger\xF0\",\"description_is\":\"Ger\xF0
+        innvi\xF0a\",\"distance\":12},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2900,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"83/03\",\"id_entity\":2900,\"value_varchar\":\"brotna\xF0i\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":12},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2745,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"813193\",\"id_entity\":2745,\"value_varchar\":\"brotna\xF0i\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":12},{\"id_lvl_one\":16080,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Sv\xEDnafellshei\xF0i\",\"id_lvl_two\":16083,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Svarthamragil\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":16083,\"value_varchar\":\"SRS
+        st\xF6\xF0\",\"code\":\"subtype\",\"name_is\":\"Undirtegund\",\"description_is\":\"Undirtegund
+        st\xF6\xF0var, l\xFDsir samsetningu e\xF0a vi\xF0fangsefni m\xE6linga\",\"distance\":12},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":5,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Vatn\",\"id_lvl_three\":14775,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Vatnshiti\",\"name_lvl_three\":\"19535\",\"id_entity\":14775,\"value_varchar\":\"RBR
+        Ltd.\",\"code\":\"manufacturer\",\"name_is\":\"Framlei\xF0andi\",\"description_is\":\"Framlei\xF0andi
+        t\xE6kis\",\"distance\":12},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":16220,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"5014/05\",\"id_entity\":16220,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":20917,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0aland\",\"id_lvl_two\":20918,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Gr\xE1steinn\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":20918,\"value_varchar\":\"Gr\xE1steinn\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":13},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":19053,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"4002/06\",\"id_entity\":19053,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":19146,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Vindhra\xF0a-
+        og vind\xE1ttarm\xE6lir - sk\xE1lam\xE6lir\",\"name_lvl_three\":\"881218.0009\",\"id_entity\":19146,\"value_varchar\":\"Lambrecht\",\"code\":\"manufacturer\",\"name_is\":\"Framlei\xF0andi\",\"description_is\":\"Framlei\xF0andi
+        t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":16920,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Verkst\xE6\xF0i - Ve\xF0ur\",\"id_lvl_three\":20224,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"4BY307V6\",\"id_entity\":20224,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":3521,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"3989/06\",\"id_entity\":3521,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":16984,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"3984/06\",\"id_entity\":16984,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":4307,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmsfjall\",\"id_lvl_two\":5427,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmsfjall\",\"id_lvl_three\":18069,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Vefmyndav\xE9l\",\"name_lvl_three\":\"10.15.14.176\",\"id_entity\":18069,\"value_varchar\":\"Gr\xEDmsv\xF6tn\",\"code\":\"view_target\",\"name_is\":\"Horfir
+        \xE1\",\"description_is\":\"Sta\xF0ur sem vefmyndav\xE9lin horfir \xE1, t.d.
+        Hekla, J\xF6kuls\xE1 \xE1 S\xF3lheimasandi\",\"distance\":13},{\"id_lvl_one\":4307,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmsfjall\",\"id_lvl_two\":5427,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmsfjall\",\"id_lvl_three\":18069,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Vefmyndav\xE9l\",\"name_lvl_three\":\"10.15.14.176\",\"id_entity\":18069,\"value_varchar\":\"Gr\xEDmsv\xF6tn\",\"code\":\"view_target_secondary\",\"name_is\":\"Horfir
+        \xE1 (\xF6nnur linsa)\",\"description_is\":\"Sta\xF0ur sem \xF6nnur linsa
+        vefmyndav\xE9lar horfir \xE1, t.d. Hekla, J\xF6kuls\xE1 \xE1 S\xF3lheimasandi\",\"distance\":13},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":17978,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitariti\",\"name_lvl_three\":\"340033\",\"id_entity\":17978,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":17028,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Skei\xF0ar\xE1rsandur\",\"id_lvl_two\":17046,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Skei\xF0ar\xE1rsandur-tengist\xF6\xF0\",\"id_lvl_three\":17027,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Vefmyndav\xE9l\",\"name_lvl_three\":\"b8:27:eb:e7:85:68\",\"id_entity\":17027,\"value_varchar\":\"Gr\xEDmsv\xF6tn\",\"code\":\"view_target\",\"name_is\":\"Horfir
+        \xE1\",\"description_is\":\"Sta\xF0ur sem vefmyndav\xE9lin horfir \xE1, t.d.
+        Hekla, J\xF6kuls\xE1 \xE1 S\xF3lheimasandi\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":16228,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"4004/06\",\"id_entity\":16228,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":19316,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Hlj\xF3msk\xE1lagar\xF0ur\",\"id_lvl_two\":19317,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Reykjav\xEDk
+        Hlj\xF3msk\xE1lagar\xF0ur\",\"id_lvl_three\":19554,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2023011702\",\"id_entity\":19554,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":20437,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Langam\xFDri
+        Skagafir\xF0i\",\"id_lvl_two\":20438,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Langam\xFDri
+        s\xF3lgeislunarst\xF6\xF0\",\"id_lvl_three\":20580,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2024060502\",\"id_entity\":20580,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":464,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":980,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir
+        \xE1 Fj\xF6llum\",\"id_lvl_three\":21485,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Raka-
+        og hitam\xE6lir + loftvog\",\"name_lvl_three\":\"H7B35C.0004\",\"id_entity\":21485,\"value_varchar\":\"Lambrecht\",\"code\":\"manufacturer\",\"name_is\":\"Framlei\xF0andi\",\"description_is\":\"Framlei\xF0andi
+        t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":21476,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"\xDArkomum\xE6lir
+        - vippa\",\"name_lvl_three\":\"H63C7D.0017\",\"id_entity\":21476,\"value_varchar\":\"Lambrecht\",\"code\":\"manufacturer\",\"name_is\":\"Framlei\xF0andi\",\"description_is\":\"Framlei\xF0andi
+        t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":20319,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"1222/06\",\"id_entity\":20319,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":19747,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"1188/06\",\"id_entity\":19747,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":19147,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Vind\xE1ttarm\xE6lir\",\"name_lvl_three\":\"881645.0006\",\"id_entity\":19147,\"value_varchar\":\"Lambrecht\",\"code\":\"manufacturer\",\"name_is\":\"Framlei\xF0andi\",\"description_is\":\"Framlei\xF0andi
+        t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":17989,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitariti\",\"name_lvl_three\":\"351763\",\"id_entity\":17989,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":17841,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Vindhra\xF0a-
+        og vind\xE1ttarm\xE6lir - sk\xE1lam\xE6lir\",\"name_lvl_three\":\"331423\",\"id_entity\":17841,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":754,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Keflav\xEDkurflugv\xF6llur\",\"id_lvl_two\":755,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Keflav\xEDkurflugv\xF6llur\",\"id_lvl_three\":18990,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"3949/06\",\"id_entity\":18990,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":776,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Reykjav\xEDkurflugv\xF6llur\",\"id_lvl_two\":777,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Reykjav\xEDkurflugv\xF6llur\",\"id_lvl_three\":16354,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2019082101\",\"id_entity\":16354,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":16218,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"5016/05\",\"id_entity\":16218,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":789,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Bl\xE1fjallask\xE1li\",\"id_lvl_two\":790,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Bl\xE1fjallask\xE1li\",\"id_lvl_three\":20329,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"10027894C0W02XK\",\"id_entity\":20329,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":17791,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitariti\",\"name_lvl_three\":\"620-4475\",\"id_entity\":17791,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":818,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Skar\xF0shei\xF0i
+        Mi\xF0fitjah\xF3ll\",\"id_lvl_two\":819,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Skar\xF0shei\xF0i
+        Mi\xF0fitjah\xF3ll\",\"id_lvl_three\":21729,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2026080703\",\"id_entity\":21729,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":829,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xD3lafsv\xEDk\",\"id_lvl_two\":830,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"\xD3lafsv\xEDk\",\"id_lvl_three\":19552,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2023012602\",\"id_entity\":19552,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":2761,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"\xDArkomum\xE6lir
+        - vippa\",\"name_lvl_three\":\"642306.0005\",\"id_entity\":2761,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":2293,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"Pt1005800129051\",\"id_entity\":2293,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":849,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"T\xE1lknafj\xF6r\xF0ur\",\"id_lvl_two\":850,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"T\xE1lknafj\xF6r\xF0ur\",\"id_lvl_three\":19660,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Raka-
+        og hitam\xE6lir\",\"name_lvl_three\":\"049086.0003\",\"id_entity\":19660,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":17468,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitariti\",\"name_lvl_three\":\"351759\",\"id_entity\":17468,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":17467,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitariti\",\"name_lvl_three\":\"332518\",\"id_entity\":17467,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":929,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xD3lafsfj\xF6r\xF0ur\",\"id_lvl_two\":930,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"\xD3lafsfj\xF6r\xF0ur\",\"id_lvl_three\":20797,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2024060601\",\"id_entity\":20797,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":969,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Egilssta\xF0aflugv\xF6llur\",\"id_lvl_two\":970,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Egilssta\xF0aflugv\xF6llur\",\"id_lvl_three\":2762,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"\xDArkomum\xE6lir
+        - vippa\",\"name_lvl_three\":\"691795.0009\",\"id_entity\":2762,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1093,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xC1rnes\",\"id_lvl_two\":1094,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"\xC1rnes\",\"id_lvl_three\":19555,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2023012701\",\"id_entity\":19555,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1553,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Sj\xF3r\",\"name_lvl_one\":\"Br\xFAarfoss\",\"id_lvl_two\":1554,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Skip\",\"name_lvl_two\":\"Br\xFAarfoss\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":1554,\"value_varchar\":\"Br\xFAarfoss\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":13},{\"id_lvl_one\":1553,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Sj\xF3r\",\"name_lvl_one\":\"Br\xFAarfoss\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":1553,\"value_varchar\":\"Br\xFAarfoss\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":13},{\"id_lvl_one\":4244,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Brennisteinsfj\xF6ll\",\"id_lvl_two\":4245,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Brennisteinsfj\xF6ll\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":4245,\"value_varchar\":\"Brennisteinsfj\xF6ll\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":13},{\"id_lvl_one\":4244,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Brennisteinsfj\xF6ll\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":4244,\"value_varchar\":\"Brennisteinsfj\xF6ll\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":13},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21478,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"\xDArkomum\xE6lir
+        - vippa\",\"name_lvl_three\":\"H63C7D.0020\",\"id_entity\":21478,\"value_varchar\":\"Lambrecht\",\"code\":\"manufacturer\",\"name_is\":\"Framlei\xF0andi\",\"description_is\":\"Framlei\xF0andi
+        t\xE6kis\",\"distance\":13},{\"id_lvl_one\":32,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Reykjav\xEDk\",\"id_lvl_two\":16388,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Reykjav\xEDk
+        Geirsnef\",\"id_lvl_three\":16356,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2019082201\",\"id_entity\":16356,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":32,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Reykjav\xEDk\",\"id_lvl_two\":18514,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Reykjav\xEDk\",\"id_lvl_three\":16355,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2019082102\",\"id_entity\":16355,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":16920,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Verkst\xE6\xF0i - Ve\xF0ur\",\"id_lvl_three\":18917,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2021090301\",\"id_entity\":18917,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":32,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Reykjav\xEDk\",\"id_lvl_two\":18514,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Reykjav\xEDk\",\"id_lvl_three\":19843,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"\xDArkomum\xE6lir
+        - vippa\",\"name_lvl_three\":\"881416.0005\",\"id_entity\":19843,\"value_varchar\":\"Lambrecht\",\"code\":\"manufacturer\",\"name_is\":\"Framlei\xF0andi\",\"description_is\":\"Framlei\xF0andi
+        t\xE6kis\",\"distance\":13},{\"id_lvl_one\":32,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Reykjav\xEDk\",\"id_lvl_two\":18514,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Reykjav\xEDk
+        H\xE1ahl\xED\xF0\",\"id_lvl_three\":16355,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2019082102\",\"id_entity\":16355,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":32,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Reykjav\xEDk\",\"id_lvl_two\":18514,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Reykjav\xEDk
+        H\xE1ahl\xED\xF0\",\"id_lvl_three\":19843,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"\xDArkomum\xE6lir
+        - vippa\",\"name_lvl_three\":\"881416.0005\",\"id_entity\":19843,\"value_varchar\":\"Lambrecht\",\"code\":\"manufacturer\",\"name_is\":\"Framlei\xF0andi\",\"description_is\":\"Framlei\xF0andi
+        t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":2290,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"6017920004\",\"id_entity\":2290,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"Ve\xF0urstofa
+        - \xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":21478,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"\xDArkomum\xE6lir
+        - vippa\",\"name_lvl_three\":\"H63C7D.0020\",\"id_entity\":21478,\"value_varchar\":\"Lambrecht\",\"code\":\"manufacturer\",\"name_is\":\"Framlei\xF0andi\",\"description_is\":\"Framlei\xF0andi
+        t\xE6kis\",\"distance\":13},{\"id_lvl_one\":49,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"M\xF6\xF0ruvellir\",\"id_lvl_two\":914,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"M\xF6\xF0ruvellir\",\"id_lvl_three\":2782,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"\xDArkomum\xE6lir
+        - vippa\",\"name_lvl_three\":\"720159.0006\",\"id_entity\":2782,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":50,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Akureyri
+        l\xF6greglust\xF6\xF0\",\"id_lvl_two\":397,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Akureyri\",\"id_lvl_three\":16528,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"3987/06\",\"id_entity\":16528,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":16219,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"5006/05\",\"id_entity\":16219,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":53,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Dalatangi\",\"id_lvl_two\":550,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Dalatangi\",\"id_lvl_three\":16227,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"4003/06\",\"id_entity\":16227,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":3026,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"4000/06\",\"id_entity\":3026,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":21776,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2026082804\",\"id_entity\":21776,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":9197,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"ytra
+        l\xF3n vi\xF0 rif\",\"id_lvl_two\":15960,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Rif
+        \xE1 Melrakkasl\xE9ttu\",\"id_lvl_three\":15965,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2018080801\",\"id_entity\":15965,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":9197,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"ytra
+        l\xF3n vi\xF0 rif\",\"id_lvl_two\":15960,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Rif
+        Melrakkasl\xE9ttu\",\"id_lvl_three\":15965,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2018080801\",\"id_entity\":15965,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":3011,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"3946/06\",\"id_entity\":3011,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":21775,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2026082803\",\"id_entity\":21775,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":21732,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2026080706\",\"id_entity\":21732,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":21731,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2026080705\",\"id_entity\":21731,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":120,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Skrauth\xF3lar\",\"id_lvl_two\":808,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Skrauth\xF3lar\",\"id_lvl_three\":20342,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"10027894BY307VI\",\"id_entity\":20342,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":143,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Hvanneyri\",\"id_lvl_two\":19340,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Hvanneyri
+        akur\",\"id_lvl_three\":19553,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2023012601\",\"id_entity\":19553,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":21730,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2026080704\",\"id_entity\":21730,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":21727,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2026080701\",\"id_entity\":21727,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":21486,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Raka-
+        og hitam\xE6lir + loftvog\",\"name_lvl_three\":\"H7B35C.0005\",\"id_entity\":21486,\"value_varchar\":\"Lambrecht\",\"code\":\"manufacturer\",\"name_is\":\"Framlei\xF0andi\",\"description_is\":\"Framlei\xF0andi
+        t\xE6kis\",\"distance\":13},{\"id_lvl_one\":459,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xC1sbyrgi\",\"id_lvl_two\":996,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"\xC1sbyrgi\",\"id_lvl_three\":21728,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2026080702\",\"id_entity\":21728,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":464,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":465,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_three\":16730,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"9356/06\",\"id_entity\":16730,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":2839,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"5013/05\",\"id_entity\":2839,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":21479,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"\xDArkomum\xE6lir
+        - vippa\",\"name_lvl_three\":\"H63C7D.0018\",\"id_entity\":21479,\"value_varchar\":\"Lambrecht\",\"code\":\"manufacturer\",\"name_is\":\"Framlei\xF0andi\",\"description_is\":\"Framlei\xF0andi
+        t\xE6kis\",\"distance\":13},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":21477,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"\xDArkomum\xE6lir
+        - vippa\",\"name_lvl_three\":\"H63C7D.0019\",\"id_entity\":21477,\"value_varchar\":\"Lambrecht\",\"code\":\"manufacturer\",\"name_is\":\"Framlei\xF0andi\",\"description_is\":\"Framlei\xF0andi
+        t\xE6kis\",\"distance\":13},{\"id_lvl_one\":464,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":980,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir
+        \xE1 Fj\xF6llum\",\"id_lvl_three\":21441,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"071579.0001\",\"id_entity\":21441,\"value_varchar\":\"Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":13},{\"id_lvl_one\":464,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":980,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir
+        \xE1 Fj\xF6llum\",\"id_lvl_three\":21475,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"\xDArkomum\xE6lir
+        - vippa\",\"name_lvl_three\":\"H63C7D.0016\",\"id_entity\":21475,\"value_varchar\":\"Lambrecht\",\"code\":\"manufacturer\",\"name_is\":\"Framlei\xF0andi\",\"description_is\":\"Framlei\xF0andi
+        t\xE6kis\",\"distance\":13},{\"id_lvl_one\":16073,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Morasta\xF0ir\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":16073,\"value_varchar\":\"Morasta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":14},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":4,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - J\xF6r\xF0\",\"id_lvl_three\":18156,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Vindmylla\",\"name_lvl_three\":\"Ampair-stf\",\"id_entity\":18156,\"value_varchar\":\"Ampair-stf\",\"code\":\"serial_number\",\"name_is\":\"Ra\xF0n\xFAmer\",\"description_is\":\"Ra\xF0n\xFAmer\",\"distance\":14},{\"id_lvl_one\":554,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Neskaupsta\xF0ur\",\"id_lvl_two\":555,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Neskaupsta\xF0ur\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":555,\"value_varchar\":\"\xDArkomust\xF6\xF0\",\"code\":\"subtype\",\"name_is\":\"Undirtegund\",\"description_is\":\"Undirtegund
+        st\xF6\xF0var, l\xFDsir samsetningu e\xF0a vi\xF0fangsefni m\xE6linga\",\"distance\":14},{\"id_lvl_one\":9247,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Fremstaver\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":9247,\"value_varchar\":\"Fremstaver\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":14},{\"id_lvl_one\":6403,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"br\xFA,
+        Vi\xF0v\xEDkursveit\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":6403,\"value_varchar\":\"br\xFA,
+        Vi\xF0v\xEDkursveit\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":14},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":21506,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"10027894BSN053Q\",\"id_entity\":21506,\"value_varchar\":\"Lambrecht
+        \",\"code\":\"model\",\"name_is\":\"Tegund t\xE6kis\",\"description_is\":\"Tegund
+        t\xE6kis\",\"distance\":14},{\"id_lvl_one\":9485,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Bjarnasta\xF0ahl\xED\xF0
+        II\",\"id_lvl_two\":9486,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Vatnam\xE6lingast\xF6\xF0\",\"name_lvl_two\":\"Bjarnasta\xF0ahl\xED\xF0
+        II\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":9486,\"value_varchar\":\"Bjarnasta\xF0ahl\xED\xF0
+        II\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn st\xF6\xF0var\",\"distance\":14},{\"id_lvl_one\":9219,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xDEj\xF3rs\xE1rt\xFAn\",\"id_lvl_two\":9220,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Vatnam\xE6lingast\xF6\xF0\",\"name_lvl_two\":\"\xDEj\xF3rs\xE1rt\xFAn\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":9220,\"value_varchar\":\"\xDEj\xF3rs\xE1rt\xFAn\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":14},{\"id_lvl_one\":438,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Reykjahl\xED\xF0\",\"id_lvl_two\":439,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Reykjahl\xED\xF0\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":439,\"value_varchar\":\"\xDArkomust\xF6\xF0\",\"code\":\"subtype\",\"name_is\":\"Undirtegund\",\"description_is\":\"Undirtegund
+        st\xF6\xF0var, l\xFDsir samsetningu e\xF0a vi\xF0fangsefni m\xE6linga\",\"distance\":14},{\"id_lvl_one\":9219,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xDEj\xF3rs\xE1rt\xFAn\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":9219,\"value_varchar\":\"\xDEj\xF3rs\xE1rt\xFAn\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":14},{\"id_lvl_one\":9247,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Fremstaver\",\"id_lvl_two\":9248,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Vatnam\xE6lingast\xF6\xF0\",\"name_lvl_two\":\"Fremstaver\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":9248,\"value_varchar\":\"Fremstaver\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":14},{\"id_lvl_one\":9485,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Bjarnasta\xF0ahl\xED\xF0
+        II\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":9485,\"value_varchar\":\"Bjarnasta\xF0ahl\xED\xF0
+        II\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn sta\xF0setningar\",\"distance\":14},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":16924,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"4BPV0204\",\"id_entity\":16924,\"value_varchar\":\"Lambrecht
+        \",\"code\":\"model\",\"name_is\":\"Tegund t\xE6kis\",\"description_is\":\"Tegund
+        t\xE6kis\",\"distance\":14},{\"id_lvl_one\":40,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Bl\xE1feldur\",\"id_lvl_two\":184,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Bl\xE1feldur\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":184,\"value_varchar\":\"\xDArkomust\xF6\xF0\",\"code\":\"subtype\",\"name_is\":\"Undirtegund\",\"description_is\":\"Undirtegund
+        st\xF6\xF0var, l\xFDsir samsetningu e\xF0a vi\xF0fangsefni m\xE6linga\",\"distance\":14},{\"id_lvl_one\":67,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Hjar\xF0arland\",\"id_lvl_two\":711,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Hjar\xF0arland\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":711,\"value_varchar\":\"\xDArkomust\xF6\xF0\",\"code\":\"subtype\",\"name_is\":\"Undirtegund\",\"description_is\":\"Undirtegund
+        st\xF6\xF0var, l\xFDsir samsetningu e\xF0a vi\xF0fangsefni m\xE6linga\",\"distance\":14},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2284,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Hg\",\"name_lvl_three\":\"4810\",\"id_entity\":2284,\"value_varchar\":\"brotinn
+        \xE1  st. 303\",\"code\":\"comment_date_end\",\"name_is\":\"Athugasemd endadagsetningar\",\"description_is\":\"Athugasemd
+        vi\xF0 endadagsetningar t\xE6kis\",\"distance\":14},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":16939,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2019082101\",\"id_entity\":16939,\"value_varchar\":\"Lambrecht
+        \",\"code\":\"model\",\"name_is\":\"Tegund t\xE6kis\",\"description_is\":\"Tegund
+        t\xE6kis\",\"distance\":14},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2617,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"4628\",\"id_entity\":2617,\"value_varchar\":\"brotinn
+        \xE1 st\xF6\xF0 293\",\"code\":\"comment_date_end\",\"name_is\":\"Athugasemd
+        endadagsetningar\",\"description_is\":\"Athugasemd vi\xF0 endadagsetningar
+        t\xE6kis\",\"distance\":14},{\"id_lvl_one\":50,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Akureyri
+        l\xF6greglust\xF6\xF0\",\"id_lvl_two\":397,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Akureyri\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":397,\"value_varchar\":\"\xDArkomust\xF6\xF0\",\"code\":\"subtype\",\"name_is\":\"Undirtegund\",\"description_is\":\"Undirtegund
+        st\xF6\xF0var, l\xFDsir samsetningu e\xF0a vi\xF0fangsefni m\xE6linga\",\"distance\":14},{\"id_lvl_one\":16073,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Morasta\xF0ir\",\"id_lvl_two\":16074,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Morasta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":16074,\"value_varchar\":\"Morasta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":14},{\"id_lvl_one\":486,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Mi\xF0fjar\xF0arnes\",\"id_lvl_two\":487,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Mi\xF0fjar\xF0arnes\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":487,\"value_varchar\":\"\xDArkomust\xF6\xF0\",\"code\":\"subtype\",\"name_is\":\"Undirtegund\",\"description_is\":\"Undirtegund
+        st\xF6\xF0var, l\xFDsir samsetningu e\xF0a vi\xF0fangsefni m\xE6linga\",\"distance\":14},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":16313,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"3198/15\",\"id_entity\":16313,\"value_varchar\":\"N\xFDr
+        \xE1 st\xF6\xF0\",\"code\":\"comment\",\"name_is\":\"Athugasemd\",\"description_is\":\"Athugasemd
+        vi\xF0 t\xE6ki\",\"distance\":14},{\"id_lvl_one\":55,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Skjald\xFEingssta\xF0ir\",\"id_lvl_two\":496,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Skjald\xFEingssta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":496,\"value_varchar\":\"\xDArkomust\xF6\xF0\",\"code\":\"subtype\",\"name_is\":\"Undirtegund\",\"description_is\":\"Undirtegund
+        st\xF6\xF0var, l\xFDsir samsetningu e\xF0a vi\xF0fangsefni m\xE6linga\",\"distance\":14},{\"id_lvl_one\":14091,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"OO-20\",\"id_lvl_two\":14092,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Vatnam\xE6lingast\xF6\xF0\",\"name_lvl_two\":\"OO-20\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":14092,\"value_varchar\":\"Grasatangi\",\"code\":\"description\",\"name_is\":\"L\xFDsing\",\"description_is\":\"L\xFDsing\",\"distance\":14},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":21505,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"10027894BN103Y6\",\"id_entity\":21505,\"value_varchar\":\"Lambrecht
+        \",\"code\":\"model\",\"name_is\":\"Tegund t\xE6kis\",\"description_is\":\"Tegund
+        t\xE6kis\",\"distance\":14},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":3223,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Vindhra\xF0a-
+        og vind\xE1ttarm\xE6lir - skr\xFAfum\xE6lir\",\"name_lvl_three\":\"95999\",\"id_entity\":3223,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":3253,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Vindhra\xF0a-
+        og vind\xE1ttarm\xE6lir - skr\xFAfum\xE6lir\",\"name_lvl_three\":\"E$#5829540034\",\"id_entity\":3253,\"value_varchar\":\"W-Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":15},{\"id_lvl_one\":9221,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xC1rb\xE6jarfoss\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":9221,\"value_varchar\":\"\xC1rb\xE6jarfoss\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":3616,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"\xDArkomum\xE6lir
+        - vippa\",\"name_lvl_three\":\"810763.0002\",\"id_entity\":3616,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":3294,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Skr\xE1ningart\xE6ki\",\"name_lvl_three\":\"4676\",\"id_entity\":3294,\"value_varchar\":\"Tengibretti\",\"code\":\"category\",\"name_is\":\"Flokkur\",\"description_is\":\"Flokkur
+        t\xE6kis, l\xFDsir m\xE6li\xF3\xF0ali e\xF0a megin tilgangi\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":3294,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Skr\xE1ningart\xE6ki\",\"name_lvl_three\":\"?\",\"id_entity\":3294,\"value_varchar\":\"Tengibretti\",\"code\":\"category\",\"name_is\":\"Flokkur\",\"description_is\":\"Flokkur
+        t\xE6kis, l\xFDsir m\xE6li\xF3\xF0ali e\xF0a megin tilgangi\",\"distance\":15},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":16110,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - L\xE1gmarksm\xE6lir - Spritt\",\"name_lvl_three\":\"5694/92\",\"id_entity\":16110,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":16116,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"6898/87\",\"id_entity\":16116,\"value_varchar\":\"H\xE1markshiti\",\"code\":\"operational_function\",\"name_is\":\"Hlutverk\",\"description_is\":\"Hlutverk
+        t\xE6kis, t.d. Votur hitam\xE6lir, Varahitam\xE6lir\",\"distance\":15},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":16212,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - H\xE1marksm\xE6lir - Hg\",\"name_lvl_three\":\"5930/94\",\"id_entity\":16212,\"value_varchar\":\"H\xE1markshiti\",\"code\":\"operational_function\",\"name_is\":\"Hlutverk\",\"description_is\":\"Hlutverk
+        t\xE6kis, t.d. Votur hitam\xE6lir, Varahitam\xE6lir\",\"distance\":15},{\"id_lvl_one\":16802,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xDEorbj\xF6rn
+        vi\xF0 Grindav\xEDk\",\"id_lvl_two\":20089,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"\xDEorbj\xF6rn
+        Nor\xF0austan\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":20089,\"value_varchar\":\"\xDEorbj\xF6rn
+        Nor\xF0austan\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":15},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":18084,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Pyranometer\",\"name_lvl_three\":\"58270\",\"id_entity\":18084,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":16920,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Verkst\xE6\xF0i - Ve\xF0ur\",\"id_lvl_three\":3075,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Raka-
+        og hitam\xE6lir\",\"name_lvl_three\":\"6027887\",\"id_entity\":3075,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":16920,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Verkst\xE6\xF0i - Ve\xF0ur\",\"id_lvl_three\":2378,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Vindhra\xF0a-
+        og vind\xE1ttarm\xE6lir - skr\xFAfum\xE6lir\",\"name_lvl_three\":\"50762\",\"id_entity\":2378,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":4,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - J\xF6r\xF0\",\"id_lvl_three\":18159,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Solar
+        panel\",\"name_lvl_three\":\"solar-stf-1\",\"id_entity\":18159,\"value_varchar\":\"solar-stf-1\",\"code\":\"serial_number\",\"name_is\":\"Ra\xF0n\xFAmer\",\"description_is\":\"Ra\xF0n\xFAmer\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":4,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - J\xF6r\xF0\",\"id_lvl_three\":16862,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Stafsetjari\",\"name_lvl_three\":\"A6890\",\"id_entity\":16862,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":38,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gufusk\xE1lar\",\"id_lvl_two\":828,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Gufusk\xE1lar\",\"id_lvl_three\":18083,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Radiometer\",\"name_lvl_three\":\"1186\",\"id_entity\":18083,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":4,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - J\xF6r\xF0\",\"id_lvl_three\":4527,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Loftnet\",\"name_lvl_three\":\"262509\",\"id_entity\":4527,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":464,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":465,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":465,\"value_varchar\":\"Gr\xEDmssta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":3,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Kjallari - Ve\xF0ur\",\"id_lvl_three\":20850,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"2024060501\",\"id_entity\":20850,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":464,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":464,\"value_varchar\":\"Gr\xEDmssta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":15},{\"id_lvl_one\":660,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gunnarsholt\",\"id_lvl_two\":16047,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Gunnarsholt\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":16047,\"value_varchar\":\"Gunnarsholt\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":15},{\"id_lvl_one\":660,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gunnarsholt\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":660,\"value_varchar\":\"Gunnarsholt\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":15},{\"id_lvl_one\":785,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Bl\xE1fj\xF6ll
+        \xFArkomust\xF6\xF0\",\"id_lvl_two\":786,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Bl\xE1fj\xF6ll
+        \xFArkomust\xF6\xF0\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":786,\"value_varchar\":\"Bl\xE1fj\xF6ll
+        \xFArkomust\xF6\xF0\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":15},{\"id_lvl_one\":785,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Bl\xE1fj\xF6ll
+        \xFArkomust\xF6\xF0\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":785,\"value_varchar\":\"Bl\xE1fj\xF6ll
+        \xFArkomust\xF6\xF0\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":15},{\"id_lvl_one\":840,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Bjargtangar\",\"id_lvl_two\":841,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Ve\xF0urst\xF6\xF0\",\"name_lvl_two\":\"Bjargtangar\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":841,\"value_varchar\":\"Bjargtangar\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":15},{\"id_lvl_one\":840,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Bjargtangar\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":840,\"value_varchar\":\"Bjargtangar\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":15},{\"id_lvl_one\":4250,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Hamarinn\",\"id_lvl_two\":5440,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Hamarinn\",\"id_lvl_three\":21550,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Skj\xE1lftanemi\",\"name_lvl_three\":\"AB724\",\"id_entity\":21550,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":4305,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Granasta\xF0ir\",\"id_lvl_two\":4306,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Granasta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":4306,\"value_varchar\":\"Granasta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":15},{\"id_lvl_one\":4305,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Granasta\xF0ir\",\"id_lvl_two\":5426,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Granasta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":5426,\"value_varchar\":\"Granasta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":15},{\"id_lvl_one\":4305,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Granasta\xF0ir\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":4305,\"value_varchar\":\"Granasta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":15},{\"id_lvl_one\":4339,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Innri
+        Sk\xFAti\",\"id_lvl_two\":4340,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Innri
+        Sk\xFAti\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":4340,\"value_varchar\":\"Innri
+        Sk\xFAti\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":15},{\"id_lvl_one\":4339,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Innri
+        Sk\xFAti\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":4339,\"value_varchar\":\"Innri
+        Sk\xFAti\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":15},{\"id_lvl_one\":5430,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":5431,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":5431,\"value_varchar\":\"Gr\xEDmssta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":15},{\"id_lvl_one\":5430,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":5430,\"value_varchar\":\"Gr\xEDmssta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":15},{\"id_lvl_one\":5515,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"St\xE9lbrattur\",\"id_lvl_two\":5516,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Jar\xF0e\xF0lisst\xF6\xF0\",\"name_lvl_two\":\"St\xE9lbrattur\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":5516,\"value_varchar\":\"St\xE9lbrattur\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":15},{\"id_lvl_one\":5515,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"St\xE9lbrattur\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":5515,\"value_varchar\":\"St\xE9lbrattur\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":15},{\"id_lvl_one\":5540,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gunnarsholt\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":5540,\"value_varchar\":\"Gunnarsholt\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":15},{\"id_lvl_one\":8809,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":8810,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Vatnam\xE6lingast\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":8810,\"value_varchar\":\"Gr\xEDmssta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":15},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":18871,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Snj\xF3d\xFDptarm\xE6lir
+        - \xDAltras\xF3n\xEDskur\",\"name_lvl_three\":\"37200407\",\"id_entity\":18871,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":19062,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"Villa
+        - Ey\xF0a\",\"id_lvl_three\":21551,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Skj\xE1lftanemi\",\"name_lvl_three\":\"AB724\",\"id_entity\":21551,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":6,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"\xCDsafj\xF6r\xF0ur\",\"id_lvl_two\":7,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"Ve\xF0urstofa
+        - \xCDsafj\xF6r\xF0ur\",\"id_lvl_three\":18871,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Snj\xF3d\xFDptarm\xE6lir
+        - \xDAltras\xF3n\xEDskur\",\"name_lvl_three\":\"37200407\",\"id_entity\":18871,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":16920,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Verkst\xE6\xF0i - Ve\xF0ur\",\"id_lvl_three\":20019,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Aflgjafi\",\"name_lvl_three\":\"1SVR427014R0000\",\"id_entity\":20019,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":16920,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Verkst\xE6\xF0i - Ve\xF0ur\",\"id_lvl_three\":20010,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Aflgjafi\",\"name_lvl_three\":\"9230\",\"id_entity\":20010,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":16920,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Verkst\xE6\xF0i - Ve\xF0ur\",\"id_lvl_three\":16938,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Vindhra\xF0a-
+        og vind\xE1ttarm\xE6lir - skr\xFAfum\xE6lir\",\"name_lvl_three\":\"174487\",\"id_entity\":16938,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":16920,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Verkst\xE6\xF0i - Ve\xF0ur\",\"id_lvl_three\":15803,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Raka-
+        og hitam\xE6lir\",\"name_lvl_three\":\"637801\",\"id_entity\":15803,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":16920,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Verkst\xE6\xF0i - Ve\xF0ur\",\"id_lvl_three\":15623,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Vindhra\xF0a-
+        og vind\xE1ttarm\xE6lir - skr\xFAfum\xE6lir\",\"name_lvl_three\":\"62747\",\"id_entity\":15623,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":1,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"B9\",\"id_lvl_two\":16920,\"type_lvl_two\":\"v\xF6ruh\xFAs\",\"subtype_lvl_two\":\"Lager\",\"name_lvl_two\":\"B9
+        - Verkst\xE6\xF0i - Ve\xF0ur\",\"id_lvl_three\":3215,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Vindhra\xF0a-
+        og vind\xE1ttarm\xE6lir - skr\xFAfum\xE6lir\",\"name_lvl_three\":\"86175\",\"id_entity\":3215,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2071,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Loftvog
+        - rafeinda\",\"name_lvl_three\":\"A0350007\",\"id_entity\":2071,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2072,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Loftvog
+        - rafeinda\",\"name_lvl_three\":\"W1230009\",\"id_entity\":2072,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":2298,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Hitam\xE6lir
+        - Plat\xEDnu\",\"name_lvl_three\":\"0042-02\",\"id_entity\":2298,\"value_varchar\":\"grunsamlegt\",\"code\":\"status\",\"name_is\":\"Sta\xF0a\",\"description_is\":\"Sta\xF0a
+        t\xE6kis: virkt, bila\xF0, \xED vi\xF0ger\xF0, \xF3kvar\xF0a\xF0, grunsamlegt\",\"distance\":15},{\"id_lvl_one\":8809,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":8809,\"value_varchar\":\"Gr\xEDmssta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":15},{\"id_lvl_one\":8981,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Kirkjub\xE6jarklaustur\",\"id_lvl_two\":8982,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Vatnam\xE6lingast\xF6\xF0\",\"name_lvl_two\":\"Kirkjub\xE6jarklaustur\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":8982,\"value_varchar\":\"Kirkjub\xE6jarklaustur\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":15},{\"id_lvl_one\":8981,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Kirkjub\xE6jarklaustur\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":8981,\"value_varchar\":\"Kirkjub\xE6jarklaustur\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":15},{\"id_lvl_one\":9147,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":9148,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Vatnam\xE6lingast\xF6\xF0\",\"name_lvl_two\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":9148,\"value_varchar\":\"Gr\xEDmssta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":15},{\"id_lvl_one\":9147,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Gr\xEDmssta\xF0ir\",\"id_lvl_two\":null,\"type_lvl_two\":null,\"subtype_lvl_two\":null,\"name_lvl_two\":null,\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":9147,\"value_varchar\":\"Gr\xEDmssta\xF0ir\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        sta\xF0setningar\",\"distance\":15},{\"id_lvl_one\":9155,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"Upptyppingar
+        II\",\"id_lvl_two\":9156,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Vatnam\xE6lingast\xF6\xF0\",\"name_lvl_two\":\"Upptyppingar
+        II\",\"id_lvl_three\":15753,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Lei\xF0ni-
+        og hitakanni\",\"name_lvl_three\":\"6722\",\"id_entity\":15753,\"value_varchar\":\"H\xE1markshiti\",\"code\":\"operational_function\",\"name_is\":\"Hlutverk\",\"description_is\":\"Hlutverk
+        t\xE6kis, t.d. Votur hitam\xE6lir, Varahitam\xE6lir\",\"distance\":15},{\"id_lvl_one\":9221,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Land\",\"name_lvl_one\":\"\xC1rb\xE6jarfoss\",\"id_lvl_two\":9222,\"type_lvl_two\":\"st\xF6\xF0\",\"subtype_lvl_two\":\"Vatnam\xE6lingast\xF6\xF0\",\"name_lvl_two\":\"\xC1rb\xE6jarfoss\",\"id_lvl_three\":null,\"type_lvl_three\":null,\"subtype_lvl_three\":null,\"name_lvl_three\":null,\"id_entity\":9222,\"value_varchar\":\"\xC1rb\xE6jarfoss\",\"code\":\"name\",\"name_is\":\"Nafn\",\"description_is\":\"Nafn
+        st\xF6\xF0var\",\"distance\":15},{\"id_lvl_one\":8,\"type_lvl_one\":\"sta\xF0setning\",\"subtype_lvl_one\":\"Lager\",\"name_lvl_one\":\"Vagnh\xF6f\xF0i\",\"id_lvl_two\":14,\"type_lvl_two\":\"aflagt\",\"subtype_lvl_two\":\"Hent\",\"name_lvl_two\":\"Hent\",\"id_lvl_three\":3253,\"type_lvl_three\":\"t\xE6ki\",\"subtype_lvl_three\":\"Vindhra\xF0a-
+        og vind\xE1ttarm\xE6lir - skr\xFAfum\xE6lir\",\"name_lvl_three\":\"5829540034\",\"id_entity\":3253,\"value_varchar\":\"W-Lambrecht\",\"code\":\"model\",\"name_is\":\"Tegund
+        t\xE6kis\",\"description_is\":\"Tegund t\xE6kis\",\"distance\":15}]"
+    headers:
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:46:20 GMT
+      Vary:
+      - Accept-Encoding
+      X-Request-Id:
+      - a2194d20-a6b3-455a-8834-8713df471aee
+      content-length:
+      - '119142'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.34.2
+    method: GET
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/646
+  response:
+    body:
+      string: "{\"attributes\":[{\"attribute_datatype_code\":\"numeric\",\"code\":\"lat\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        latitude in decimal degrees\",\"description_is\":\"Breiddargr\xE1\xF0a st\xF6\xF0var
+        \xED tugabrotsgr\xE1\xF0um\",\"id_attribute_value\":5616,\"name_en\":\"Latitude\",\"name_is\":\"Breiddargr\xE1\xF0a\",\"python_constraint\":\"^\\\\d{1,2}\\\\.\\\\d{1,5}\",\"sort_order\":110,\"value\":\"63.867\"},{\"attribute_datatype_code\":\"text\",\"code\":\"marker\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        marker\",\"description_is\":\"Au\xF0kenni st\xF6\xF0var, venjulega fimm stafa
+        skammst\xF6fun me\xF0 enskum l\xE1gst\xF6fum\",\"id_attribute_value\":5613,\"name_en\":\"Marker\",\"name_is\":\"Au\xF0kenni\",\"python_constraint\":\"^[a-z0-9]{3,6}|^[A-Z]\\\\d{1,6}\",\"sort_order\":10,\"value\":\"brst\"},{\"attribute_datatype_code\":\"text\",\"code\":\"forecast_area\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        forecast area\",\"description_is\":\"Sp\xE1sv\xE6\xF0i sem st\xF6\xF0in tilheyrir\",\"id_attribute_value\":5620,\"name_en\":\"Forecast
+        area\",\"name_is\":\"Sp\xE1sv\xE6\xF0i\",\"python_constraint\":\".*\",\"sort_order\":80,\"value\":\"Su\xF0urland\"},{\"attribute_datatype_code\":\"timestamp\",\"code\":\"date_end\",\"date_from\":\"1941-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        end date\",\"description_is\":\"Lokadagsetning\",\"id_attribute_value\":5622,\"name_en\":\"End
+        date\",\"name_is\":\"Lokadagsetning\",\"python_constraint\":\".*\",\"sort_order\":210,\"value\":\"1941-01-01
+        00:00:00\"},{\"attribute_datatype_code\":\"text\",\"code\":\"landscape\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Description
+        of landscape, e.g. moors, fjord, hillside\",\"description_is\":\"L\xFDsing
+        landslags, t.d. hei\xF0i, fj\xF6r\xF0ur, hl\xED\xF0\",\"id_attribute_value\":5624,\"name_en\":\"Landscape\",\"name_is\":\"Landslag\",\"python_constraint\":\".*\",\"sort_order\":100,\"value\":\"Innsveit\"},{\"attribute_datatype_code\":\"timestamp\",\"code\":\"date_legacy\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Date
+        of oldest recorded data before regular operations start according to the start
+        date\",\"description_is\":\"Dagsetning elstu skr\xE1\xF0u gagna \xE1\xF0ur
+        en reglulegur rekstur hefst samkv\xE6mt upphafsdagsetningu\",\"id_attribute_value\":5623,\"name_en\":\"Legacy
+        start date\",\"name_is\":\"Fyrndardagsetning\",\"python_constraint\":\".*\",\"sort_order\":220,\"value\":\"1939-01-01
+        00:00:00\"},{\"attribute_datatype_code\":\"text\",\"code\":\"name_short\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Short
+        name for external applications\",\"description_is\":\"Stutt nafn fyrir ytri
+        kerfi\",\"id_attribute_value\":108140,\"name_en\":\"Name short\",\"name_is\":\"Nafn
+        stutt\",\"python_constraint\":\".*\",\"sort_order\":9999,\"value\":\"Brst\"},{\"attribute_datatype_code\":\"text\",\"code\":\"subtype\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        subtype, indicates composition or subject of the measurements\",\"description_is\":\"Undirtegund
+        st\xF6\xF0var, l\xFDsir samsetningu e\xF0a vi\xF0fangsefni m\xE6linga\",\"id_attribute_value\":5619,\"name_en\":\"Subtype\",\"name_is\":\"Undirtegund\",\"python_constraint\":\".*\",\"sort_order\":60,\"value\":\"Ve\xF0urfarsst\xF6\xF0\"},{\"attribute_datatype_code\":\"timestamp\",\"code\":\"date_start\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        start date\",\"description_is\":\"Upphafsdagsetning\",\"id_attribute_value\":5621,\"name_en\":\"Start
+        date\",\"name_is\":\"Upphafsdagsetning\",\"python_constraint\":\".*\",\"sort_order\":200,\"value\":\"1939-01-01
+        00:00:00\"},{\"attribute_datatype_code\":\"text\",\"code\":\"name\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        name\",\"description_is\":\"Nafn st\xF6\xF0var\",\"id_attribute_value\":5615,\"name_en\":\"Name\",\"name_is\":\"Nafn\",\"python_constraint\":\".*\",\"sort_order\":50,\"value\":\"Berusta\xF0ir
+        \xED \xC1sum\"},{\"attribute_datatype_code\":\"numeric\",\"code\":\"altitude\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        altitude in meters\",\"description_is\":\"H\xE6\xF0 st\xF6\xF0var yfir sj\xE1varm\xE1li
+        \xED metrum\",\"id_attribute_value\":5618,\"name_en\":\"Altitude\",\"name_is\":\"H\xE6\xF0\",\"python_constraint\":\".*\",\"sort_order\":130,\"value\":\"20.0\"},{\"attribute_datatype_code\":\"numeric\",\"code\":\"lon\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        longitude in decimal degrees\",\"description_is\":\"Lengdargr\xE1\xF0a st\xF6\xF0var
+        \xED tugabrotsgr\xE1\xF0um\",\"id_attribute_value\":5617,\"name_en\":\"Longitude\",\"name_is\":\"Lengdargr\xE1\xF0a\",\"python_constraint\":\"^-\\\\d{1,2}\\\\.\\\\d{1,5}\",\"sort_order\":120,\"value\":\"-20.55\"},{\"attribute_datatype_code\":\"integer\",\"code\":\"imo\",\"date_from\":\"1939-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        meteorological IMO number\",\"description_is\":\"N\xFAmer samkv\xE6mt ve\xF0urst\xF6\xF0van\xFAmerakerfi
+        V\xCD\",\"id_attribute_value\":5614,\"name_en\":\"IMO number\",\"name_is\":\"V\xCD
+        ve\xF0urst\xF6\xF0van\xFAmer\",\"python_constraint\":\".*\",\"sort_order\":20,\"value\":\"829\"}],\"children_connections\":null,\"code_entity_subtype\":\"meteorological\",\"entity_subtype_description_en\":\"Automatic
+        weather stations, synoptic, precipitation and other weather measurement stations\",\"entity_subtype_description_is\":\"Sj\xE1lfvirkar
+        ve\xF0urst\xF6\xF0var, skeytast\xF6\xF0var, \xFArkomust\xF6\xF0var og a\xF0rar
+        ve\xF0urm\xE6list\xF6\xF0var\",\"entity_subtype_name_en\":\"Meteorological
+        station\",\"entity_subtype_name_is\":\"Ve\xF0urst\xF6\xF0\",\"entity_type_name_en\":\"station\",\"entity_type_name_is\":\"st\xF6\xF0\",\"id_entity\":646,\"id_entity_parent\":645,\"id_entity_subtype\":113}"
+    headers:
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:46:18 GMT
+      Vary:
+      - Accept-Encoding
+      X-Request-Id:
+      - 39ca7cb0-591a-4113-ace2-c4b73d56bd89
+      content-length:
+      - '5295'
+    status:
+      code: 200
+      message: OK
+version: 1

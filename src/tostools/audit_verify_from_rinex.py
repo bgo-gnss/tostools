@@ -482,6 +482,7 @@ def audit_station_verify_from_rinex(
     archive_root: Optional[Path] = None,
     min_gap_days: float = 30.0,
     check_current_receiver: bool = True,
+    id_entity: Optional[int] = None,
 ) -> StationRinexReport:
     """Cross-check one station's TOS state against the cold RINEX archive.
 
@@ -497,6 +498,11 @@ def audit_station_verify_from_rinex(
     min_gap_days
         Minimum gap duration to flag (default 30; below ~7 the report
         fills with date-rounding noise).
+    id_entity
+        Pre-resolved station id. ``station`` is still used for archive
+        paths and report labels — this only skips the marker lookup, which
+        is how a caller guarantees every audit in a triage run grades the
+        SAME entity.
     check_current_receiver
         When True (default) also build the RINEX-header receiver timeline
         and compare its current install against TOS's open receiver join
@@ -545,7 +551,7 @@ def audit_station_verify_from_rinex(
     # `tos device list`. Resolution failures yield an empty receivers
     # list rather than raising; the operator still sees the archive
     # side of the picture.
-    parent_id = _resolve_station_id(client, station)
+    parent_id = _resolve_station_id(client, station, id_entity=id_entity)
     receivers: List[TOSReceiverVerdict] = []
     # Fields of the currently-OPEN gnss_receiver join (time_to is None) — the
     # receiver-level current-install check below compares the archive's current
@@ -657,14 +663,34 @@ def audit_station_verify_from_rinex(
     )
 
 
-def _resolve_station_id(client: TOSClient, station: str) -> Optional[int]:
+def _resolve_station_id(
+    client: TOSClient,
+    station: str,
+    *,
+    id_entity: Optional[int] = None,
+) -> Optional[int]:
     """Resolve a station marker → id via basic_search.
 
     Tiny wrapper that mirrors ``_resolve_parent_id`` in tos.py but
     lives here so this module stays import-graph-tidy (no circular
     dep on tos.py). Same matching contract: marker, exact, type
     ``stöð``.
+
+    ``id_entity`` short-circuits the lookup entirely — that is what lets
+    ``station triage`` resolve the marker **once** and hand every audit the
+    same entity. It used to be unable to, and the consequence was live:
+    ``tos station triage SOHO`` audited 4416 here (basic_search order) and
+    5356 in every other audit, producing one triage file describing two
+    different stations.
+
+    This resolver takes NO predicate, deliberately. Every caller that needs
+    the GPS filter now pre-resolves at the CLI boundary and passes
+    ``id_entity``, so a predicate here would be an orphaned abstraction —
+    exported, plausible, and reached by nobody, which is how this codebase
+    has grown logic that silently drifts from the live path.
     """
+    if id_entity is not None:
+        return int(id_entity)
     if not station:
         return None
     needle = station.lower()

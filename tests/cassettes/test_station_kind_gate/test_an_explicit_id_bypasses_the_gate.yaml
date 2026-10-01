@@ -1,0 +1,75 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br, zstd
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-requests/2.34.2
+    method: GET
+    uri: https://vi-api.vedur.is/tos/internal/history/entity/96
+  response:
+    body:
+      string: "{\"attributes\":[{\"attribute_datatype_code\":\"timestamp\",\"code\":\"date_start\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        start date\",\"description_is\":\"Upphafsdagsetning\",\"id_attribute_value\":459,\"name_en\":\"Start
+        date\",\"name_is\":\"Upphafsdagsetning\",\"python_constraint\":\".*\",\"sort_order\":200,\"value\":\"1963-01-01
+        00:00:00\"},{\"attribute_datatype_code\":\"text\",\"code\":\"name_short\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Short
+        name for external applications\",\"description_is\":\"Stutt nafn fyrir ytri
+        kerfi\",\"id_attribute_value\":107838,\"name_en\":\"Name short\",\"name_is\":\"Nafn
+        stutt\",\"python_constraint\":\".*\",\"sort_order\":9999,\"value\":\"Vlfs\"},{\"attribute_datatype_code\":\"timestamp\",\"code\":\"date_legacy\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Date
+        of oldest recorded data before regular operations start according to the start
+        date\",\"description_is\":\"Dagsetning elstu skr\xE1\xF0u gagna \xE1\xF0ur
+        en reglulegur rekstur hefst samkv\xE6mt upphafsdagsetningu\",\"id_attribute_value\":461,\"name_en\":\"Legacy
+        start date\",\"name_is\":\"Fyrndardagsetning\",\"python_constraint\":\".*\",\"sort_order\":220,\"value\":\"1910-01-01
+        00:00:00\"},{\"attribute_datatype_code\":\"text\",\"code\":\"name\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        name\",\"description_is\":\"Nafn st\xF6\xF0var\",\"id_attribute_value\":453,\"name_en\":\"Name\",\"name_is\":\"Nafn\",\"python_constraint\":\".*\",\"sort_order\":50,\"value\":\"V\xEDfilssta\xF0ir\"},{\"attribute_datatype_code\":\"text\",\"code\":\"subtype\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        subtype, indicates composition or subject of the measurements\",\"description_is\":\"Undirtegund
+        st\xF6\xF0var, l\xFDsir samsetningu e\xF0a vi\xF0fangsefni m\xE6linga\",\"id_attribute_value\":457,\"name_en\":\"Subtype\",\"name_is\":\"Undirtegund\",\"python_constraint\":\".*\",\"sort_order\":60,\"value\":\"\xDArkomust\xF6\xF0\"},{\"attribute_datatype_code\":\"timestamp\",\"code\":\"date_end\",\"date_from\":\"2000-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        end date\",\"description_is\":\"Lokadagsetning\",\"id_attribute_value\":460,\"name_en\":\"End
+        date\",\"name_is\":\"Lokadagsetning\",\"python_constraint\":\".*\",\"sort_order\":210,\"value\":\"2000-01-01
+        00:00:00\"},{\"attribute_datatype_code\":\"numeric\",\"code\":\"lon\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        longitude in decimal degrees\",\"description_is\":\"Lengdargr\xE1\xF0a st\xF6\xF0var
+        \xED tugabrotsgr\xE1\xF0um\",\"id_attribute_value\":455,\"name_en\":\"Longitude\",\"name_is\":\"Lengdargr\xE1\xF0a\",\"python_constraint\":\"^-\\\\d{1,2}\\\\.\\\\d{1,5}\",\"sort_order\":120,\"value\":\"-21.883\"},{\"attribute_datatype_code\":\"text\",\"code\":\"environment\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Description
+        of the environment, e.g. surrounded by houses, open area, forested\",\"description_is\":\"L\xFDsing
+        umhverfis, t.d. umkringt h\xFAsum, opi\xF0 sv\xE6\xF0i, umkringt sk\xF3gi\",\"id_attribute_value\":463,\"name_en\":\"Environment\",\"name_is\":\"Umhverfi\",\"python_constraint\":\".*\",\"sort_order\":90,\"value\":\"Opi\xF0
+        sv\xE6\xF0i\"},{\"attribute_datatype_code\":\"numeric\",\"code\":\"lat\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        latitude in decimal degrees\",\"description_is\":\"Breiddargr\xE1\xF0a st\xF6\xF0var
+        \xED tugabrotsgr\xE1\xF0um\",\"id_attribute_value\":454,\"name_en\":\"Latitude\",\"name_is\":\"Breiddargr\xE1\xF0a\",\"python_constraint\":\"^\\\\d{1,2}\\\\.\\\\d{1,5}\",\"sort_order\":110,\"value\":\"64.083\"},{\"attribute_datatype_code\":\"text\",\"code\":\"marker\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        marker\",\"description_is\":\"Au\xF0kenni st\xF6\xF0var, venjulega fimm stafa
+        skammst\xF6fun me\xF0 enskum l\xE1gst\xF6fum\",\"id_attribute_value\":451,\"name_en\":\"Marker\",\"name_is\":\"Au\xF0kenni\",\"python_constraint\":\"^[a-z0-9]{3,6}|^[A-Z]\\\\d{1,6}\",\"sort_order\":10,\"value\":\"vlfs\"},{\"attribute_datatype_code\":\"text\",\"code\":\"forecast_area\",\"date_from\":\"2025-07-23T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        forecast area\",\"description_is\":\"Sp\xE1sv\xE6\xF0i sem st\xF6\xF0in tilheyrir\",\"id_attribute_value\":148795,\"name_en\":\"Forecast
+        area\",\"name_is\":\"Sp\xE1sv\xE6\xF0i\",\"python_constraint\":\".*\",\"sort_order\":80,\"value\":\"H\xF6fu\xF0borgarsv\xE6\xF0i\xF0\"},{\"attribute_datatype_code\":\"integer\",\"code\":\"imo\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        meteorological IMO number\",\"description_is\":\"N\xFAmer samkv\xE6mt ve\xF0urst\xF6\xF0van\xFAmerakerfi
+        V\xCD\",\"id_attribute_value\":452,\"name_en\":\"IMO number\",\"name_is\":\"V\xCD
+        ve\xF0urst\xF6\xF0van\xFAmer\",\"python_constraint\":\".*\",\"sort_order\":20,\"value\":\"15\"},{\"attribute_datatype_code\":\"text\",\"code\":\"comment\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        comment\",\"description_is\":\"Athugasemd vi\xF0 st\xF6\xF0\",\"id_attribute_value\":462,\"name_en\":\"Comment\",\"name_is\":\"Athugasemd\",\"python_constraint\":\".*\",\"sort_order\":9999,\"value\":\"Eldra
+        1910-1920\"},{\"attribute_datatype_code\":\"text\",\"code\":\"forecast_area\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":\"2025-07-23T00:00:00\",\"description_en\":\"Station
+        forecast area\",\"description_is\":\"Sp\xE1sv\xE6\xF0i sem st\xF6\xF0in tilheyrir\",\"id_attribute_value\":458,\"name_en\":\"Forecast
+        area\",\"name_is\":\"Sp\xE1sv\xE6\xF0i\",\"python_constraint\":\".*\",\"sort_order\":80,\"value\":\"Faxafl\xF3i\"},{\"attribute_datatype_code\":\"numeric\",\"code\":\"altitude\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Station
+        altitude in meters\",\"description_is\":\"H\xE6\xF0 st\xF6\xF0var yfir sj\xE1varm\xE1li
+        \xED metrum\",\"id_attribute_value\":456,\"name_en\":\"Altitude\",\"name_is\":\"H\xE6\xF0\",\"python_constraint\":\".*\",\"sort_order\":130,\"value\":\"62.0\"},{\"attribute_datatype_code\":\"text\",\"code\":\"landscape\",\"date_from\":\"1963-01-01T00:00:00\",\"date_to\":null,\"description_en\":\"Description
+        of landscape, e.g. moors, fjord, hillside\",\"description_is\":\"L\xFDsing
+        landslags, t.d. hei\xF0i, fj\xF6r\xF0ur, hl\xED\xF0\",\"id_attribute_value\":464,\"name_en\":\"Landscape\",\"name_is\":\"Landslag\",\"python_constraint\":\".*\",\"sort_order\":100,\"value\":\"Str\xF6nd\"}],\"children_connections\":null,\"code_entity_subtype\":\"meteorological\",\"entity_subtype_description_en\":\"Automatic
+        weather stations, synoptic, precipitation and other weather measurement stations\",\"entity_subtype_description_is\":\"Sj\xE1lfvirkar
+        ve\xF0urst\xF6\xF0var, skeytast\xF6\xF0var, \xFArkomust\xF6\xF0var og a\xF0rar
+        ve\xF0urm\xE6list\xF6\xF0var\",\"entity_subtype_name_en\":\"Meteorological
+        station\",\"entity_subtype_name_is\":\"Ve\xF0urst\xF6\xF0\",\"entity_type_name_en\":\"station\",\"entity_type_name_is\":\"st\xF6\xF0\",\"id_entity\":96,\"id_entity_parent\":95,\"id_entity_subtype\":113}"
+    headers:
+      Content-Type:
+      - application/json
+      Date:
+      - Thu, 01 Oct 2026 22:46:25 GMT
+      Vary:
+      - Accept-Encoding
+      X-Request-Id:
+      - 54bef8cb-082e-4092-bfff-b30a9d9b8a44
+      content-length:
+      - '6385'
+    status:
+      code: 200
+      message: OK
+version: 1

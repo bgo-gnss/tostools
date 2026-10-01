@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .search import ANY_DEVICE, DEVICE_SUBTYPE_ALIASES, device_in_namespace
+from .station_kind import all_attribute_values, open_attribute
 from .utils.logging import get_logger
 
 logger = get_logger(__name__, logging.WARNING)
@@ -79,6 +80,10 @@ class Profile:
     subtype: str
     station: Dict[str, bool] = field(default_factory=dict)
     devices: Dict[str, Dict[str, bool]] = field(default_factory=dict)
+    #: TOS ``code_entity_subtype`` values this discipline's stations live
+    #: under, read off the catalog's own ``subtype.applies_to``. Empty
+    #: means "don't check the entity type" — never "admit nothing".
+    entity_scopes: tuple = ()
 
     def allows_station(self, code: str) -> bool:
         return code in self.station
@@ -103,6 +108,38 @@ class Profile:
     def subtypes(self) -> List[str]:
         """Device subtypes this profile curates anything for."""
         return sorted(s for s, codes in self.devices.items() if codes)
+
+    def admits_station(self, entity: Dict[str, Any]) -> bool:
+        """Is ``entity`` a station of this discipline?
+
+        Both levels, because neither alone is sound (see
+        :mod:`tostools.station_kind`): the ``code_entity_subtype`` must be
+        in :attr:`entity_scopes` — SIL seismic and DOAS gas stations are
+        ``geophysical`` too, so this only rules out other disciplines —
+        **and** the open ``subtype`` attribute must equal
+        :attr:`subtype` or be **absent**.
+
+        The absent-leniency is deliberate and load-bearing. ``subtype`` is
+        itself audited by ``missing-attributes``; requiring it here would
+        make the gate pre-empt the audit that exists to report it, and
+        would lock a real GPS station out of its own verify run for the
+        very defect the run should surface.
+
+        But absent means **never set**, not merely "not set right now". A
+        station whose only ``subtype`` period is a CLOSED ``DOAS`` is a
+        decommissioned gas station, and treating a closed period as absent
+        would quietly hand it to the GPS audits. So when no period is open,
+        the station is admitted only if it never carried a subtype at all,
+        or if one of the values it carried was ours.
+        """
+        if self.entity_scopes:
+            if entity.get("code_entity_subtype") not in self.entity_scopes:
+                return False
+        found = open_attribute(entity, "subtype")
+        if found is not None:
+            return found == self.subtype
+        ever = all_attribute_values(entity, "subtype")
+        return not ever or self.subtype in ever
 
 
 def gps_profile(catalog=None) -> Profile:
@@ -136,7 +173,21 @@ def gps_profile(catalog=None) -> Profile:
             if subtype in devices:
                 devices[subtype][code] = subtype in required
 
-    return Profile(name="GPS", subtype="GPS stöð", station=station, devices=devices)
+    # Both halves of the station gate come from this one catalog entry:
+    # `applies_to` is the entity-type scope, `default_value` the subtype
+    # label. Deriving them beats hardcoding — the catalog is already the
+    # source `station` and `devices` above are read from.
+    subtype_entry = ((cat.get("stations") or {}).get("subtype")) or {}
+    scopes = tuple(subtype_entry.get("applies_to") or ("geophysical",))
+    label = subtype_entry.get("default_value") or "GPS stöð"
+
+    return Profile(
+        name="GPS",
+        subtype=label,
+        station=station,
+        devices=devices,
+        entity_scopes=scopes,
+    )
 
 
 def canonical_subtypes() -> List[str]:
