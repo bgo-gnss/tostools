@@ -135,11 +135,12 @@ def all_attribute_values(entity: Mapping[str, Any], code: str) -> List[str]:
 
 
 def describe_entity(entity: Mapping[str, Any]) -> str:
-    """A short human label for an entity, for refusal messages.
+    """A short human label for an entity, for diagnostics.
 
     ``"meteorological 'Vífilsstaðir' (Úrkomustöð, id_entity=96)"`` — the
-    three facts an operator needs to see that the refusal is right: which
-    discipline, which place, which kind of station.
+    three facts an operator needs in order to check a verdict: which
+    discipline, which place, which kind of station. Used by
+    :class:`AmbiguousStation`, and by tests asserting what was excluded.
     """
     name = open_attribute(entity, "name")
     subtype = open_attribute(entity, "subtype")

@@ -38,7 +38,13 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SRC = REPO / "src" / "tostools"
-TESTS = "tests/test_station_kind_gate.py"
+#: Both files, because the fleet wiring has no cassette and therefore no
+#: dispatch-level coverage — its mutations can only be caught offline.
+TESTS = (
+    "tests/test_station_kind_gate.py",
+    "tests/test_fleet_ops.py",
+    "tests/test_gps_profile.py",
+)
 
 
 @dataclass(frozen=True)
@@ -162,6 +168,43 @@ MUTATIONS = [
     ),
     # ======================= the predicate =======================
     Mutation(
+        name="fleet-main-drops-the-predicate",
+        path="tos.py",
+        old="    _fleet_predicate = profile.admits_station if profile is not None else None",
+        new="    _fleet_predicate = None",
+        why=(
+            "`tosGPS fleet` would enumerate the whole of TOS unfiltered. The "
+            "fleet_ops tests all drive the runner DIRECTLY, so every one of "
+            "them stays green when this line goes — only a test of the call "
+            "site catches it. Exactly the 'mutate the wiring' trap."
+        ),
+        expect_red="fleet_main_threads",
+    ),
+    Mutation(
+        name="fleet-enumeration-drops-the-predicate",
+        path="fleet_ops.py",
+        old="                resolve_marker_to_entity_id(client, marker, predicate=predicate)",
+        new="                resolve_marker_to_entity_id(client, marker)",
+        why=(
+            "The filter is applied per marker during enumeration; without it "
+            "SOHO enumerates as the DOAS gas station and SIL stations join "
+            "the GNSS fleet."
+        ),
+        expect_red="enumeration_under_the_filter",
+    ),
+    Mutation(
+        name="fleet-discards-the-resolved-id",
+        path="fleet_ops.py",
+        old="                id_entity=(parent.id_entity if predicate is not None else None),",
+        new="                id_entity=None,",
+        why=(
+            "Enumeration resolves each marker and then throws the id away, so "
+            "every audit re-resolves it — which is how `fleet` reached 4416 "
+            "and then graded 5356."
+        ),
+        expect_red="hands_the_resolved_id",
+    ),
+    Mutation(
         name="select-takes-the-first-candidate",
         path="station_kind.py",
         old="    admitted = [c for c in cands if predicate(c)]",
@@ -248,7 +291,7 @@ def _pytest(selector: str) -> subprocess.CompletedProcess:
             sys.executable,
             "-m",
             "pytest",
-            TESTS,
+            *TESTS,
             "-q",
             "-p",
             "no:randomly",

@@ -275,10 +275,12 @@ def generate_station_triage(
     }
 
     if predicate is not None and id_entity is None:
-        # Resolved BEFORE any audit runs, deliberately: every audit below is
-        # wrapped in `except Exception`, so a refusal raised inside one would
-        # surface as "N audits failed" (exit 2) instead of as the refusal it
-        # is. Raising here lets the CLI report it as a refusal, exit 1.
+        # Resolved BEFORE any audit runs, deliberately. Every audit below is
+        # wrapped in `except Exception`, so a lookup miss raised inside one
+        # would be reported as "N audits failed" — the audits blamed for a
+        # station that was never theirs to grade. Resolving up front lets the
+        # CLI say "no GPS station with marker X" once, and also guarantees
+        # every audit grades the SAME entity.
         from .audit import _resolve_station_entity
 
         gated = _resolve_station_entity(

@@ -319,7 +319,7 @@ def resolve_marker_to_entity_id(
     and :func:`enumerate_known_parents` below **must** keep that default:
     its parent list deliberately includes warehouses and the device
     graveyard, which are not stations of any discipline and would be
-    refused by a GPS gate.
+    filtered out — silently, since the filter answers "not found".
     """
     target = marker.lower()
     candidate_ids: List[int] = []

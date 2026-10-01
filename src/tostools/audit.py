@@ -563,14 +563,13 @@ def _resolve_station_entity(
     that distinction is not cosmetic. ``None`` (the default, and what every
     ``tos`` caller passes) means no gate and behaviour identical to before,
     down to the request sequence. ``tosGPS`` passes
-    :meth:`Profile.admits_station`, which makes this refuse a
-    meteorological station instead of vacuously passing it, and makes
-    ``SOHO`` resolve to the GPS station (4416) rather than the DOAS gas
-    station (5356) that happens to be the first hit.
+    :meth:`Profile.admits_station`, which makes a meteorological station
+    simply NOT FOUND here instead of vacuously passing the GPS audits, and
+    makes ``SOHO`` resolve to the GPS station (4416) rather than the DOAS
+    gas station (5356) that happens to be the first hit.
 
-    An explicit ``id_entity`` is **never** gated: it is the operator
-    naming an entity outright, and is the documented escape hatch the
-    refusal message points at.
+    An explicit ``id_entity`` is **never** gated: that is the operator
+    naming an entity outright.
     """
     if id_entity is not None:
         history = client.get_entity_history(int(id_entity))
@@ -646,9 +645,12 @@ def _resolve_station_entity(
                 marker_candidate_ids.append(int(entity_id))
 
     if predicate is not None and marker_candidate_ids:
-        # A marker match is definitive, so this either returns the one
-        # admitted candidate or raises — it never falls through to the name
-        # path below, which would answer a different question.
+        # A marker match that admits exactly one candidate returns here. If
+        # NONE is admitted, select_station answers None and we DO fall
+        # through to the name path below — which for a 4-char marker finds
+        # nothing and ends in the usual not-found LookupError. That is the
+        # intended answer: under the filter, a non-GPS station is invisible,
+        # not rejected.
         resolved: List[Dict[str, Any]] = []
         for eid in marker_candidate_ids:
             history = client.get_entity_history(eid)

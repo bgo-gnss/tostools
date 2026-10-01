@@ -960,3 +960,197 @@ def test_contact_date_violation_carries_per_time_to():
     ):
         report = audit_station_contact_dates(TOSClient(), name="NBIO")
     assert report.violations[0].per_time_to == "2025-09-08T15:19:43"
+
+
+# ---------------------------------------------------------------------------
+# The fleet verbs under the tosGPS station filter
+# ---------------------------------------------------------------------------
+#
+# These exist because the fleet wiring was, for a while, the one gated path
+# with NO test: `tosGPS fleet` threaded the predicate and nothing would have
+# noticed if that line were deleted. The mutation harness
+# (scripts/dev/mutate_station_gate.py) cannot cover fleet through the
+# dispatch-level tests either, because fleet has no cassette.
+#
+# SOHO is the case worth modelling: marker `soho` carries TWO geophysical
+# entities — 5356 (`DOAS`, volcanic gas) and 4416 (`GPS stöð`, the real GPS
+# station). The existing `code_entity_subtype == geophysical` filter in the
+# enumerator cannot separate them, which is the whole reason the station
+# `subtype` ATTRIBUTE is needed as a second level.
+
+
+def _soho_candidates():
+    """The real marker collision, as `resolve_marker_to_entity_id` sees it."""
+
+    def _ent(eid, subtype):
+        return {
+            "id_entity": eid,
+            "code_entity_subtype": "geophysical",
+            "attributes": [
+                {"code": "subtype", "value": subtype, "date_to": None},
+                {"code": "name", "value": "Sólheimaheiði", "date_to": None},
+            ],
+        }
+
+    return [_ent(5356, "DOAS"), _ent(4416, "GPS stöð")]
+
+
+def _sil_candidates():
+    return [
+        {
+            "id_entity": 7777,
+            "code_entity_subtype": "geophysical",
+            "attributes": [{"code": "subtype", "value": "SIL stöð", "date_to": None}],
+        }
+    ]
+
+
+@contextmanager
+def _mock_filtered_enumeration():
+    """Enumeration over a fleet of SOHO + a SIL station, predicate-aware.
+
+    The resolver stand-in mirrors the production one: it filters the marker's
+    CANDIDATES through the predicate rather than post-checking a first hit.
+    """
+    from tostools.station_kind import select_station
+
+    by_marker = {"SOHO": _soho_candidates(), "SILX": _sil_candidates()}
+    histories = {c["id_entity"]: c for cands in by_marker.values() for c in cands}
+
+    class _Client:
+        def get_entity_history(self, eid):
+            return histories.get(eid)
+
+    def _resolve(_client, marker, predicate=None):
+        chosen = select_station(marker, by_marker.get(marker.upper(), []), predicate)
+        return int(chosen["id_entity"]) if chosen else None
+
+    with (
+        patch(
+            "tostools.fleet_ops.default_station_cfg_path",
+            return_value="/dev/null",
+        ),
+        patch(
+            "tostools.fleet_ops.read_station_markers",
+            return_value=["SOHO", "SILX"],
+        ),
+        patch(
+            "tostools.fleet_ops.resolve_marker_to_entity_id",
+            side_effect=_resolve,
+        ),
+    ):
+        yield _Client()
+
+
+def test_fleet_enumeration_without_a_predicate_keeps_the_first_hit():
+    """`tos fleet` is unchanged: SOHO resolves to the DOAS station and the
+    SIL station is enumerated as if it were a GNSS site, because
+    `code_entity_subtype` cannot tell them apart."""
+    with _mock_filtered_enumeration() as client:
+        out = enumerate_fleet_stations(client)  # type: ignore[arg-type]
+    assert [p.id_entity for p in out] == [5356, 7777]
+
+
+def test_fleet_enumeration_under_the_filter_picks_the_gps_entity():
+    """`tosGPS fleet` enumerates SOHO's GPS station and drops the SIL one.
+
+    If the `predicate=_fleet_predicate` threading in `_fleet_main` is ever
+    removed, this is the test that goes red.
+    """
+    from tostools.search_selectors import gps_profile
+
+    with _mock_filtered_enumeration() as client:
+        out = enumerate_fleet_stations(
+            client,  # type: ignore[arg-type]
+            predicate=gps_profile().admits_station,
+        )
+    assert [p.id_entity for p in out] == [4416]
+
+
+def test_fleet_hands_the_resolved_id_to_the_per_station_triage(tmp_path):
+    """The fan-out half: enumeration already resolved the marker, so each
+    station's audits must be given that id rather than re-resolving it.
+
+    Without this, `fleet` resolved SOHO to 4416 and then
+    `generate_station_triage` re-resolved the same marker to 5356 — the
+    enumeration's answer was thrown away.
+    """
+    from tostools.search_selectors import gps_profile
+
+    seen = {}
+
+    def _gen(station, **kwargs):
+        seen[station] = kwargs.get("id_entity")
+        return _clean_report(station, 4416)
+
+    stations = [_station(4416, "SOHO")]
+    with _patched_generators(_gen):
+        run_fleet_triage(
+            object(),  # type: ignore[arg-type]
+            stations=stations,
+            out_dir=tmp_path,
+            generated_at=FROZEN_TS,
+            predicate=gps_profile().admits_station,
+        )
+    assert seen["SOHO"] == 4416
+
+
+def test_fleet_without_a_predicate_does_not_pass_an_id(tmp_path):
+    """`tos fleet` keeps re-resolving, so its output stays byte-identical —
+    including on SOHO, where that output is wrong. Reported, not fixed."""
+    seen = {}
+
+    def _gen(station, **kwargs):
+        seen[station] = kwargs.get("id_entity")
+        return _clean_report(station, 5356)
+
+    with _patched_generators(_gen):
+        run_fleet_triage(
+            object(),  # type: ignore[arg-type]
+            stations=[_station(5356, "SOHO")],
+            out_dir=tmp_path,
+            generated_at=FROZEN_TS,
+        )
+    assert seen["SOHO"] is None
+
+
+def test_fleet_main_threads_the_predicate_into_the_runner():
+    """The WIRING, not the runner.
+
+    The tests above drive `enumerate_fleet_stations` / `run_fleet_triage`
+    directly, so every one of them stays green if `_fleet_main`'s
+    `_fleet_predicate` derivation is deleted — the live code would run
+    unfiltered while the suite reported success. This asserts the call site.
+    """
+    import tostools.tos as tos_mod
+    from tostools.search_selectors import gps_profile
+
+    captured = {}
+
+    def _fake_verify(_client, **kwargs):
+        captured.update(kwargs)
+        return FleetRunSummary(run_kind="status", generated_at=FROZEN_TS, results=[])
+
+    with patch("tostools.fleet_ops.run_fleet_verify", side_effect=_fake_verify):
+        tos_mod._fleet_main(["status"], profile=gps_profile())
+
+    assert captured.get("predicate") is not None, (
+        "_fleet_main did not pass the GPS filter down — `tosGPS fleet` would "
+        "enumerate the whole of TOS unfiltered"
+    )
+
+
+def test_fleet_main_passes_no_predicate_without_a_profile():
+    """`tos fleet` must keep calling the runner exactly as before."""
+    import tostools.tos as tos_mod
+
+    captured = {}
+
+    def _fake_verify(_client, **kwargs):
+        captured.update(kwargs)
+        return FleetRunSummary(run_kind="status", generated_at=FROZEN_TS, results=[])
+
+    with patch("tostools.fleet_ops.run_fleet_verify", side_effect=_fake_verify):
+        tos_mod._fleet_main(["status"])
+
+    assert captured.get("predicate") is None

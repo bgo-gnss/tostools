@@ -567,11 +567,11 @@ def _gate_audit_station(client, args, predicate) -> bool:
     """Pre-resolve `tos audit <kind> <STN>`'s marker and pin it on ``args``.
 
     Resolving ONCE here, rather than letting each audit resolve its own
-    marker, is what makes the gate uniform across nine verbs — and it is also
-    the only way the refusal reaches the CLI as a refusal: the audit verbs
-    catch ``LookupError`` and return 2, and a refusal IS a ``LookupError``
-    subclass, so raised any deeper it would be reported as an audit failure
-    rather than as "this is not a GPS station".
+    marker, is what makes the filter uniform across nine verbs — and it is
+    also what keeps the diagnosis honest: the audit verbs catch
+    ``LookupError`` and return 2, so a miss raised any deeper would be
+    reported as "the audit failed" rather than as "there is no GPS station
+    under that marker".
 
     Returns ``True`` to proceed. ``False`` means no GPS station carries the
     marker, and the caller must NOT fall through to the verb — the audit
@@ -3563,7 +3563,9 @@ def _station_main(argv, profile=None):
     if args.verb == "describe":
         return _station_describe_main(args, predicate=predicate)
     if args.verb == "add":
-        return _station_add_main(args, predicate=predicate)
+        # Ungated on purpose — see the duplicate-marker guard in
+        # _station_add_main.
+        return _station_add_main(args)
 
     return 2
 
@@ -5051,7 +5053,7 @@ def _filter_contacts(
     return out
 
 
-def _station_add_main(args, *, predicate=None) -> int:
+def _station_add_main(args) -> int:
     """Create a geophysical station shell + find-or-create its land site + join.
 
     Station-shell only (devices added afterwards via ``tos device add`` +
@@ -5102,31 +5104,22 @@ def _station_add_main(args, *, predicate=None) -> int:
     writer = TOSWriter(base_url=base_url, dry_run=dry_run)
 
     # ---- Pre-flight: duplicate-marker guard ------------------------------
-    # Under tosGPS the question is "is there already a GPS STATION on this
-    # marker?". A station of another discipline sharing it is normal — AUST,
-    # HLFJ, HOFN, KVSK and SOHO all do — and must not block a real GPS
-    # station, which is exactly what used to happen: `station add BRST` was
-    # refused because entity 646, the Berustaðir weather station, carries
-    # marker `brst`. The cross-discipline hit is still worth saying out loud,
-    # so it is reported rather than dropped.
-    # The predicate kwarg is passed ONLY when gated. "Ungated behaves exactly
-    # as before" has to include the CALL SIGNATURE: find_station_by_marker is
-    # duck-typed and the station-add tests supply a _FakeWriter, which an
-    # unexpected keyword breaks outright.
-    existing_marker_id = (
-        writer.find_station_by_marker(args.marker, predicate=predicate)
-        if predicate is not None
-        else writer.find_station_by_marker(args.marker)
-    )
-    if predicate is not None and existing_marker_id is None:
-        other_discipline_id = writer.find_station_by_marker(args.marker)
-        if other_discipline_id is not None:
-            print(
-                f"note: marker {args.marker!r} is also carried by "
-                f"id_entity={other_discipline_id} in another discipline — "
-                f"that does not block a GPS station here.",
-                file=sys.stderr,
-            )
+    # DELIBERATELY UNGATED, pending a decision from bgo.
+    #
+    # Filtering here would be a change in the PERMISSIVE direction, and the
+    # land site this verb creates is not deletable. Today `station add BRST`
+    # is REFUSED because entity 646, the Berustaðir weather station, carries
+    # marker `brst` — arguably wrong, since cross-discipline marker sharing
+    # is normal in this fleet (AUST, HLFJ, HOFN, KVSK and SOHO all do it), so
+    # a weather station should not block a real GPS station. But refusing is
+    # the SAFE error, and loosening a create path is not something to slip
+    # into a branch about narrowing reads.
+    #
+    # Worth recording while we are here: `station add` only ever REFUSES on a
+    # cross-discipline marker. It never attaches to the other discipline's
+    # entity. The severe "attaches a device to the wrong station" form of this
+    # bug lives in `receivers` (`cfg move-device --to SOHO` resolves 5356).
+    existing_marker_id = writer.find_station_by_marker(args.marker)
     if existing_marker_id is not None and not args.force:
         print(
             f"A station with marker {args.marker!r} already exists "
@@ -7907,10 +7900,12 @@ def _fleet_main(argv, profile=None):
     )
     from .station_triage import STATUS_MARK
 
-    # The GPS gate for the fleet verbs. Applied per MARKER during enumeration,
-    # where a refusal is already caught and the station skipped with a warning
-    # — one non-GPS marker in stations.cfg (BRST, which resolves to the
-    # Berustaðir weather station) must not abort a 200-station run.
+    # The GPS filter for the fleet verbs, applied per MARKER during
+    # enumeration: a marker with no admitted candidate resolves to None and
+    # that station is skipped, exactly as a marker absent from TOS already
+    # was. SOHO is the case that changes — it enumerates to the GPS station
+    # (4416) instead of the DOAS one. (BRST never reached this: fleet drops
+    # `is_reference_site` markers before resolution.)
     _fleet_predicate = profile.admits_station if profile is not None else None
 
     client = TOSClient()
