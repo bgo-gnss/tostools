@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional
 
 from .api.tos_client import TOSClient
 from .receiver_timeline import ReceiverHeader
+from .station_kind import StationPredicate, select_station
 
 logger = logging.getLogger(__name__)
 
@@ -657,17 +658,36 @@ def audit_station_verify_from_rinex(
     )
 
 
-def _resolve_station_id(client: TOSClient, station: str) -> Optional[int]:
+def _resolve_station_id(
+    client: TOSClient,
+    station: str,
+    *,
+    predicate: Optional[StationPredicate] = None,
+    id_entity: Optional[int] = None,
+) -> Optional[int]:
     """Resolve a station marker → id via basic_search.
 
     Tiny wrapper that mirrors ``_resolve_parent_id`` in tos.py but
     lives here so this module stays import-graph-tidy (no circular
     dep on tos.py). Same matching contract: marker, exact, type
     ``stöð``.
+
+    ``id_entity`` short-circuits the lookup entirely — that is what lets
+    ``station triage`` resolve the marker **once** and hand every audit the
+    same entity. It used to be unable to, and the consequence was live:
+    ``tos station triage SOHO`` audited 4416 here (basic_search order) and
+    5356 in every other audit, producing one triage file describing two
+    different stations.
+
+    ``predicate`` gates which candidate is chosen when several carry the
+    marker; ``None`` keeps the previous first-hit behaviour exactly.
     """
+    if id_entity is not None:
+        return int(id_entity)
     if not station:
         return None
     needle = station.lower()
+    candidate_ids: List[int] = []
     for hit in client.basic_search(needle):
         if hit.get("code") != "marker":
             continue
@@ -679,8 +699,22 @@ def _resolve_station_id(client: TOSClient, station: str) -> Optional[int]:
             continue
         entity_id = hit.get("id_entity") or hit.get("id_lvl_two")
         if entity_id:
-            return int(entity_id)
-    return None
+            if predicate is None:
+                return int(entity_id)
+            if int(entity_id) not in candidate_ids:
+                candidate_ids.append(int(entity_id))
+    if predicate is None or not candidate_ids:
+        return None
+    resolved = []
+    for eid in candidate_ids:
+        history = client.get_entity_history(eid)
+        if history:
+            history.setdefault("id_entity", eid)
+            resolved.append(history)
+    if not resolved:
+        return None
+    chosen = select_station(station, resolved, predicate)
+    return int(chosen["id_entity"]) if chosen else None
 
 
 def format_triage_file(

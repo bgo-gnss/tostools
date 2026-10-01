@@ -55,6 +55,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
 from .api.tos_client import TOSClient
+from .station_kind import StationPredicate, select_station
 
 # B9 - Kjallari - Jörð — the virtual warehouse for GPS gear (design doc I3).
 B9_JORD_ID_ENTITY: int = 4
@@ -546,6 +547,7 @@ def _resolve_station_entity(
     *,
     name: Optional[str],
     id_entity: Optional[int],
+    predicate: Optional[StationPredicate] = None,
 ) -> Dict[str, Any]:
     """Look up a station entity by id, marker, or display name.
 
@@ -555,6 +557,20 @@ def _resolve_station_entity(
     The display name (``code='name'``) is the long Icelandic name
     (``Raufarhöfn``). We try marker first, then fall back to name, so the
     common case (``tos audit station RHOF``) just works.
+
+    ``predicate`` gates **which candidate is chosen**, not whether the one
+    already chosen is acceptable — see :mod:`tostools.station_kind` for why
+    that distinction is not cosmetic. ``None`` (the default, and what every
+    ``tos`` caller passes) means no gate and behaviour identical to before,
+    down to the request sequence. ``tosGPS`` passes
+    :meth:`Profile.admits_station`, which makes this refuse a
+    meteorological station instead of vacuously passing it, and makes
+    ``SOHO`` resolve to the GPS station (4416) rather than the DOAS gas
+    station (5356) that happens to be the first hit.
+
+    An explicit ``id_entity`` is **never** gated: it is the operator
+    naming an entity outright, and is the documented escape hatch the
+    refusal message points at.
     """
     if id_entity is not None:
         history = client.get_entity_history(int(id_entity))
@@ -571,6 +587,12 @@ def _resolve_station_entity(
     # verify path could not resolve it while find_station_by_marker (already
     # migrated to the live endpoint for the VOTT case) could. Mirror that
     # migration here: live marker search first, legacy fuzzy index as fallback.
+    #: Marker candidates, in resolver preference order (live index first,
+    #: then the legacy fuzzy one). Only populated when a predicate is in
+    #: play; ungated, the loops below still return on the first hit so the
+    #: request sequence is unchanged.
+    marker_candidate_ids: List[int] = []
+
     for hit in client.search_stations(name):
         hit_marker = next(
             (
@@ -581,9 +603,12 @@ def _resolve_station_entity(
             None,
         )
         if hit_marker and hit_marker.lower() == name.lower() and hit.get("id_entity"):
-            history = client.get_entity_history(int(hit["id_entity"]))
-            if history:
-                return history
+            if predicate is None:
+                history = client.get_entity_history(int(hit["id_entity"]))
+                if history:
+                    return history
+            else:
+                marker_candidate_ids.append(int(hit["id_entity"]))
 
     hits = client.basic_search(name)
     # TOS stores station markers as lowercase ("rhof") regardless of how
@@ -602,13 +627,38 @@ def _resolve_station_entity(
                 matches.append(hit)
         return matches
 
-    # 1. Markers are intended to be globally unique; first marker match wins.
+    # 1. Markers are NOT globally unique in TOS — the comment that used to
+    #    stand here said they were and let "first marker match wins" look
+    #    safe. Measured 2026-10-01: marker `soho` carries TWO geophysical
+    #    entities (5356 DOAS, 4416 GPS stöð) and AUST/HLFJ/HOFN/KVSK each
+    #    share theirs with a precipitation gauge. First-match is therefore
+    #    a coin toss that `soho` loses. Ungated we keep it, bug and all,
+    #    because `tos` must stay byte-identical; gated, every match becomes
+    #    a candidate and the predicate picks.
     for hit in _exact("marker"):
         entity_id = hit.get("id_entity")
         if entity_id:
-            history = client.get_entity_history(int(entity_id))
+            if predicate is None:
+                history = client.get_entity_history(int(entity_id))
+                if history:
+                    return history
+            elif int(entity_id) not in marker_candidate_ids:
+                marker_candidate_ids.append(int(entity_id))
+
+    if predicate is not None and marker_candidate_ids:
+        # A marker match is definitive, so this either returns the one
+        # admitted candidate or raises — it never falls through to the name
+        # path below, which would answer a different question.
+        resolved: List[Dict[str, Any]] = []
+        for eid in marker_candidate_ids:
+            history = client.get_entity_history(eid)
             if history:
-                return history
+                history.setdefault("id_entity", eid)
+                resolved.append(history)
+        if resolved:
+            chosen = select_station(name, resolved, predicate)
+            if chosen is not None:
+                return dict(chosen)
 
     # 2. Names can collide (e.g. "Raufarhöfn" has a weather station entity
     #    AND a geophysical station entity AND a couple of parent entities).
@@ -620,6 +670,22 @@ def _resolve_station_entity(
         entity_id = hit.get("id_entity")
         if entity_id:
             by_id.setdefault(int(entity_id), hit)
+
+    if predicate is not None and by_id:
+        # Same rule as the marker path: the predicate replaces the
+        # `subtype_lvl_two == "Jarðeðlisstöð"` heuristic below, which is a
+        # coarser proxy for the same question and cannot tell a GPS station
+        # from a SIL or DOAS one.
+        resolved_by_name: List[Dict[str, Any]] = []
+        for eid in by_id:
+            history = client.get_entity_history(eid)
+            if history:
+                history.setdefault("id_entity", eid)
+                resolved_by_name.append(history)
+        if resolved_by_name:
+            chosen = select_station(name, resolved_by_name, predicate)
+            if chosen is not None:
+                return dict(chosen)
 
     if len(by_id) == 1:
         chosen_id = next(iter(by_id))

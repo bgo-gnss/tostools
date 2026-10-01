@@ -57,6 +57,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from .api.tos_client import TOSClient
+from .station_kind import select_station
 
 logger = logging.getLogger(__name__)
 
@@ -296,7 +297,12 @@ def read_reference_sites(cfg_path: str) -> set:
     }
 
 
-def resolve_marker_to_entity_id(client: TOSClient, marker: str) -> Optional[int]:
+def resolve_marker_to_entity_id(
+    client: TOSClient,
+    marker: str,
+    *,
+    predicate=None,
+) -> Optional[int]:
     """Resolve a 4-letter station marker to its TOS ``id_entity``.
 
     Uses ``basic_search`` and accepts only hits where:
@@ -307,8 +313,16 @@ def resolve_marker_to_entity_id(client: TOSClient, marker: str) -> Optional[int]
 
     Returns ``None`` if no exact match is found (e.g. for markers that
     are in ``stations.cfg`` but not yet in TOS).
+
+    ``predicate`` (see :mod:`tostools.station_kind`) filters candidates when
+    several entities carry the marker. It defaults to ``None`` — no gate —
+    and :func:`enumerate_known_parents` below **must** keep that default:
+    its parent list deliberately includes warehouses and the device
+    graveyard, which are not stations of any discipline and would be
+    refused by a GPS gate.
     """
     target = marker.lower()
+    candidate_ids: List[int] = []
     for h in client.basic_search(marker):
         if h.get("code") != "marker":
             continue
@@ -319,8 +333,22 @@ def resolve_marker_to_entity_id(client: TOSClient, marker: str) -> Optional[int]
             continue
         eid = h.get("id_entity") or h.get("id_lvl_three")
         if eid:
-            return int(eid)
-    return None
+            if predicate is None:
+                return int(eid)
+            if int(eid) not in candidate_ids:
+                candidate_ids.append(int(eid))
+    if predicate is None or not candidate_ids:
+        return None
+    resolved = []
+    for eid in candidate_ids:
+        hist = client.get_entity_history(eid)
+        if hist:
+            hist.setdefault("id_entity", eid)
+            resolved.append(hist)
+    if not resolved:
+        return None
+    chosen = select_station(marker, resolved, predicate)
+    return int(chosen["id_entity"]) if chosen else None
 
 
 def enumerate_known_parents(

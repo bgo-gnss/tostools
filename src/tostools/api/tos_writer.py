@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from ..station_kind import select_station
 from ..utils.logging import get_logger
 from ._http import canonical_tos_url
 
@@ -1744,6 +1745,8 @@ class TOSWriter:
         self,
         marker: str,
         type_filter: str = "stöð",
+        *,
+        predicate=None,
     ) -> Optional[int]:
         """Look up a GPS station entity by its 4-char marker code.
 
@@ -1768,12 +1771,21 @@ class TOSWriter:
                 ``/entity/search/station/`` endpoint already restricts to
                 stations; the value still gates the ``/basic_search/`` fallback.
 
+            predicate: Optional gate over the marker's candidates (see
+                :mod:`tostools.station_kind`). ``None`` — every current
+                caller — keeps the first-hit behaviour exactly, including
+                the domain order below, which is the reason ``soho``
+                resolves to the DOAS station 5356 rather than the GPS
+                station 4416: both are ``geophysical``, so searching that
+                domain first does not disambiguate them.
+
         Returns:
             The station's ``id_entity`` or ``None`` if no exact match.
         """
         if not marker:
             return None
         needle = marker.lower()
+        candidate_ids: List[int] = []
         for domain in ("geophysical", "meteorological", "hydrological"):
             try:
                 hits = self._request(
@@ -1800,16 +1812,32 @@ class TOSWriter:
                     None,
                 )
                 if hit_marker and hit_marker.lower() == needle and hit.get("id_entity"):
-                    return int(hit["id_entity"])
+                    if predicate is None:
+                        return int(hit["id_entity"])
+                    if int(hit["id_entity"]) not in candidate_ids:
+                        candidate_ids.append(int(hit["id_entity"]))
+        if predicate is not None and candidate_ids:
+            resolved = []
+            for eid in candidate_ids:
+                history = self.get_entity_history(eid)
+                if history:
+                    history.setdefault("id_entity", eid)
+                    resolved.append(history)
+            if resolved:
+                chosen = select_station(marker, resolved, predicate)
+                return int(chosen["id_entity"]) if chosen else None
         # Fallback: the legacy fuzzy index, for any edge case the live search
         # misses — preserves prior behavior so nothing that resolved before stops.
-        return self._find_station_by_marker_via_basic_search(needle, type_filter)
+        return self._find_station_by_marker_via_basic_search(
+            needle, type_filter, predicate=predicate
+        )
 
     def _find_station_by_marker_via_basic_search(
-        self, needle: str, type_filter: str
+        self, needle: str, type_filter: str, *, predicate=None
     ) -> Optional[int]:
         """Legacy ``/basic_search/`` marker lookup — fallback for
         :meth:`find_station_by_marker`. ``needle`` is already lowercased."""
+        candidate_ids: List[int] = []
         results = self._request(
             "POST",
             "/basic_search/",
@@ -1829,8 +1857,22 @@ class TOSWriter:
                 continue
             entity_id = hit.get("id_entity") or hit.get("id_lvl_two")
             if entity_id:
-                return int(entity_id)
-        return None
+                if predicate is None:
+                    return int(entity_id)
+                if int(entity_id) not in candidate_ids:
+                    candidate_ids.append(int(entity_id))
+        if predicate is None or not candidate_ids:
+            return None
+        resolved = []
+        for eid in candidate_ids:
+            history = self.get_entity_history(eid)
+            if history:
+                history.setdefault("id_entity", eid)
+                resolved.append(history)
+        if not resolved:
+            return None
+        chosen = select_station(needle, resolved, predicate)
+        return int(chosen["id_entity"]) if chosen else None
 
     def find_land_location_by_name(self, name: str) -> Optional[int]:
         """Look up a ``land`` site (location) entity by its ``name``.

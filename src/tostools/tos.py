@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from .exceptions import TOSConnectionError
+from .station_kind import select_station
 
 KNOWN_SUBCOMMANDS = {
     "owners",
@@ -485,11 +486,30 @@ def apply_visit_filters(
     return out
 
 
+def _select_gated_station(client, marker: str, entity_ids, predicate):
+    """Fetch each candidate's history and let ``predicate`` pick one.
+
+    ``basic_search`` hits carry no ``attributes``, so the predicate cannot
+    judge them in place — one ``/history/entity/<id>/`` per candidate is the
+    price of the gate, and it is paid **only** when a predicate is given.
+    """
+    resolved = []
+    for eid in entity_ids:
+        history = client.get_entity_history(int(eid))
+        if history:
+            history.setdefault("id_entity", int(eid))
+            resolved.append(history)
+    if not resolved:
+        return None
+    return select_station(marker, resolved, predicate)
+
+
 def _resolve_parent_id(
     client,
     *,
     station_marker: Optional[str] = None,
     location_name: Optional[str] = None,
+    predicate=None,
 ) -> Optional[int]:
     """Resolve a parent entity id from a station marker or a location name.
 
@@ -501,9 +521,18 @@ def _resolve_parent_id(
     ``project_tos_client_writer_read_duplication`` for the eventual
     consolidation plan.
 
+    ``predicate`` (see :mod:`tostools.station_kind`) filters the marker's
+    **candidates**; ``None`` — every ``tos`` caller — means no gate and the
+    exact previous behaviour, request sequence included.
+
     Returns the parent's ``id_entity`` or ``None`` if no exact match.
+
+    Raises:
+        WrongStationKind / AmbiguousStation: only when ``predicate`` is
+            given and the marker admits no candidate, or more than one.
     """
     if station_marker:
+        _candidate_ids: List[int] = []
         # Live station search first — /basic_search/'s fuzzy index mis-indexes
         # some markers (e.g. HELC, id 16095, marker 'helc' is absent from it),
         # mirroring the audit_station / find_station_by_marker migration.
@@ -521,7 +550,9 @@ def _resolve_parent_id(
                 and hit_marker.lower() == station_marker.lower()
                 and hit.get("id_entity")
             ):
-                return int(hit["id_entity"])
+                if predicate is None:
+                    return int(hit["id_entity"])
+                _candidate_ids.append(int(hit["id_entity"]))
 
         needle = station_marker.lower()
         for hit in client.basic_search(needle):
@@ -535,8 +566,17 @@ def _resolve_parent_id(
                 continue
             entity_id = hit.get("id_entity") or hit.get("id_lvl_two")
             if entity_id:
-                return int(entity_id)
-        return None
+                if predicate is None:
+                    return int(entity_id)
+                if int(entity_id) not in _candidate_ids:
+                    _candidate_ids.append(int(entity_id))
+
+        if predicate is None or not _candidate_ids:
+            return None
+        chosen = _select_gated_station(
+            client, station_marker, _candidate_ids, predicate
+        )
+        return int(chosen["id_entity"]) if chosen else None
     if location_name:
         for hit in client.basic_search(location_name):
             if hit.get("code") != "name":
