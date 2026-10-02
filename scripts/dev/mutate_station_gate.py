@@ -223,6 +223,33 @@ MUTATIONS = [
         ),
         expect_red="force_overrides_the_duplicate_guard",
     ),
+    Mutation(
+        name="subtype-is-not-validated",
+        path="tos.py",
+        old=(
+            "    effective_subtype = "
+            "station_helpers.resolve_station_subtype(requested_subtype)"
+        ),
+        new="    effective_subtype = requested_subtype",
+        why=(
+            "TOS accepts any string here, so an unvalidated typo creates a "
+            "station that every GPS verb then treats as NOT FOUND — "
+            "permanently, and silently."
+        ),
+        expect_red="rejects_an_unknown_subtype or folds_the_subtype",
+    ),
+    Mutation(
+        name="subtype-fold-drops-icelandic-handling",
+        path="station.py",
+        old='    ("ð", "d"),',
+        new='    ("ð", "ð"),',
+        why=(
+            "Folding ð is what lets a keyboard without the Icelandic layout "
+            "type 'GPS stod'. Without it the value is refused and the "
+            "operator has no way to proceed."
+        ),
+        expect_red="folding_resolves_a_missing_icelandic_letter",
+    ),
     # ======================= the predicate =======================
     Mutation(
         name="fleet-main-drops-the-predicate",

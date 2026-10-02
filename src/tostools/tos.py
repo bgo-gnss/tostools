@@ -5103,6 +5103,61 @@ def _station_add_main(args, *, profile=None) -> int:
         )
         return 2
 
+    # Validate the subtype against the vocabulary the fleet actually uses.
+    #
+    # TOS does not constrain this attribute — `/admin_attribute_rows` gives it
+    # `python_constraint: ".*"` and `autocomplete: true`, so the web UI
+    # completes from existing values and the fleet's 17 distinct values ARE
+    # the vocabulary. A mistyped subtype is therefore accepted silently and
+    # permanently, and creates a station every GPS verb then treats as NOT
+    # FOUND: the station filter is lenient about an ABSENT subtype, never a
+    # wrong one.
+    #
+    # Matching folds Icelandic diacritics, so a terminal or keyboard without
+    # the Icelandic layout can type 'GPS stod' and get 'GPS stöð'.
+    requested_subtype = effective_subtype
+    effective_subtype = station_helpers.resolve_station_subtype(requested_subtype)
+    if effective_subtype is None:
+        # Not in the offline floor — ask the live fleet before refusing, in
+        # case a new subtype has been introduced since. One bulk call, and
+        # only ever on this unhappy path, so the common case costs nothing.
+        vocabulary = station_helpers.KNOWN_STATION_SUBTYPES
+        try:
+            from .api.tos_client import TOSClient
+
+            _scheme = "https" if args.port == 443 else "http"
+            observed = station_helpers.observed_station_subtypes(
+                TOSClient(
+                    base_url=(f"{_scheme}://{args.server}:{args.port}/tos/internal")
+                )
+            )
+            if observed:
+                vocabulary = observed
+        except Exception:  # noqa: BLE001 — a failed lookup must not block
+            # Deliberately silent: the floor list is already a good answer,
+            # and a network warning here would only distract from the real
+            # message, which is "that subtype is not one we use".
+            pass
+        effective_subtype = station_helpers.resolve_station_subtype(
+            requested_subtype, vocabulary
+        )
+    if effective_subtype is None:
+        print(
+            f"tos station add: unknown --subtype {requested_subtype!r}. "
+            f"Known {entity_type} station kinds are: "
+            f"{', '.join(repr(v) for v in station_helpers.KNOWN_STATION_SUBTYPES)}. "
+            f"Icelandic characters are optional — 'GPS stod' resolves to "
+            f"'GPS stöð'. If this really is a new kind of station, add it in "
+            f"the TOS web UI first so the spelling is agreed.",
+            file=sys.stderr,
+        )
+        return 2
+    if effective_subtype != requested_subtype:
+        print(
+            f"--subtype {requested_subtype!r} → {effective_subtype!r}",
+            file=sys.stderr,
+        )
+
     # ---- Validate + shape station attributes -----------------------------
     try:
         date_start = station_helpers.normalize_date_start(args.date_start)

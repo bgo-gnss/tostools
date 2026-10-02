@@ -32,11 +32,136 @@ __all__ = [
     "validate_latitude",
     "validate_longitude",
     "validate_altitude",
+    "KNOWN_STATION_SUBTYPES",
+    "fold_subtype",
+    "observed_station_subtypes",
+    "resolve_station_subtype",
 ]
 
 # TOS ``code_entity_subtype`` for a GPS/geophysical station (id 111 in
 # ``GET /entity_subtypes/``, entity_type=station).
 STATION_SUBTYPE = "geophysical"
+
+#: The ``subtype`` values the geophysical fleet actually uses, observed
+#: 2026-10-02 across all 445 geophysical stations (``GPS stöð`` 219,
+#: ``SIL stöð`` 142, the rest in single or low double figures).
+#:
+#: TOS does NOT constrain this attribute — ``/admin_attribute_rows`` gives it
+#: ``python_constraint: ".*"`` and ``autocomplete: true``, so the web UI
+#: completes from whatever is already in the database. The fleet's values
+#: therefore ARE the vocabulary, and there is no authoritative enum to read.
+#:
+#: This list is the offline FLOOR; :func:`observed_station_subtypes` refreshes
+#: it from the live fleet when a value is not recognised. Being out of date
+#: can only cost a needless live lookup, never a wrong refusal.
+KNOWN_STATION_SUBTYPES = (
+    "GPS stöð",
+    "SIL stöð",
+    "Móða",
+    "SRS stöð",
+    "DOAS",
+    "Crowcon",
+    "Infrasound",
+    "Tengistöð",
+    "Jarðhitavöktun",
+    "Þenslumælistöð",
+    "Multigas",
+    "Togmælastöð",
+    "Endurvarpi",
+    "DissolvedCO2",
+    "Alstöð",
+    "Insar",
+)
+
+#: Icelandic letters that are not accented vowels, so NFKD leaves them alone.
+#: Folding them is the whole point of this comparison: a terminal or keyboard
+#: without the Icelandic layout types "GPS stod", and that must resolve to
+#: "GPS stöð" rather than silently create an 18th subtype that every GPS verb
+#: then treats as not found.
+_FOLD_PAIRS = (
+    ("ð", "d"),
+    ("þ", "th"),
+    ("æ", "ae"),
+    ("ø", "o"),
+)
+
+
+def fold_subtype(value: str) -> str:
+    """Casefold, strip, and remove Icelandic diacritics from ``value``.
+
+    Used only for COMPARISON — the canonical spelling is always what gets
+    written to TOS. Stripping also repairs real data: one station carries
+    ``'SRS stöð\t'``, with a trailing tab.
+    """
+    import unicodedata
+
+    out = (value or "").strip().casefold()
+    for src, dst in _FOLD_PAIRS:
+        out = out.replace(src, dst)
+    out = unicodedata.normalize("NFKD", out)
+    out = "".join(ch for ch in out if not unicodedata.combining(ch))
+    return " ".join(out.split())
+
+
+def observed_station_subtypes(client: Any, domain: str = STATION_SUBTYPE) -> List[str]:
+    """Distinct open ``subtype`` values across ``domain``'s stations.
+
+    One bulk call (:meth:`TOSClient.list_stations`). Whitespace-stripped and
+    deduplicated, so the ``'SRS stöð\t'`` row does not present itself as a
+    separate option.
+    """
+    seen: List[str] = []
+    for row in client.list_stations(domain) or []:
+        for attr in row.get("attributes") or []:
+            if attr.get("code") != "subtype" or attr.get("date_to") is not None:
+                continue
+            value = (attr.get("value") or "").strip()
+            if value and value not in seen:
+                seen.append(value)
+    return seen
+
+
+def resolve_station_subtype(
+    requested: str, known: "Any" = KNOWN_STATION_SUBTYPES
+) -> Optional[str]:
+    """Map ``requested`` onto ``known``'s spelling, or ``None``.
+
+    Three rungs, each stricter about what it will forgive than the next is:
+
+    1. exact
+    2. case- and whitespace-insensitive
+    3. **diacritic-folded** — ``"GPS stod"`` resolves to ``"GPS stöð"``
+
+    Rung 3 exists because the alternative is silent and permanent. TOS does
+    not constrain this attribute, so a mistyped subtype is accepted and
+    creates a station that every GPS verb then treats as NOT FOUND: the
+    station filter is lenient about an ABSENT subtype, never a wrong one.
+
+    Returns ``None`` when nothing matches, and also when two known values
+    fold together — guessing between them would be the same mistake the
+    station filter refuses to make.
+    """
+    if not requested:
+        return None
+    candidates = list(known)
+    for value in candidates:
+        if requested == value:
+            return value
+    target = (requested or "").strip().casefold()
+    for value in candidates:
+        if target == value.strip().casefold():
+            return value
+    folded = fold_subtype(requested)
+    matches = [v for v in candidates if fold_subtype(v) == folded]
+    # Dedupe by canonical spelling: 'SRS stöð' and 'SRS stöð\t' are one value.
+    unique = []
+    for value in matches:
+        if value.strip() not in [u.strip() for u in unique]:
+            unique.append(value)
+    if len(unique) == 1:
+        return unique[0].strip()
+    return None
+
 
 # Codes the CLI validates as coordinates before shaping.
 _COORD_VALIDATORS = {
