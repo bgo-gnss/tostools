@@ -568,3 +568,105 @@ def test_the_clash_check_follows_the_requested_subtype() -> None:
     }
     assert clash(gps) is False, "a GPS station must not block a SIL station"
     assert clash(sil) is True, "another SIL station on this marker IS a clash"
+
+
+# ---------------------------------------------------------------------------
+# --subtype is validated against the vocabulary the fleet actually uses
+# ---------------------------------------------------------------------------
+#
+# TOS does not constrain this attribute: /admin_attribute_rows gives it
+# `python_constraint: ".*"` and `autocomplete: true`, so the web UI completes
+# from existing values and the fleet's values ARE the vocabulary. Observed
+# 2026-10-02 across all 445 geophysical stations: 17 distinct values, led by
+# 'GPS stöð' (219) and 'SIL stöð' (142).
+#
+# A mistyped subtype would therefore be accepted silently and permanently,
+# and would create a station that every GPS verb then treats as NOT FOUND —
+# the station filter forgives an ABSENT subtype, never a wrong one.
+
+
+def test_folding_resolves_a_missing_icelandic_letter() -> None:
+    """A keyboard or terminal without the Icelandic layout must still work."""
+    from tostools.station import resolve_station_subtype
+
+    assert resolve_station_subtype("GPS stod") == "GPS stöð"
+    assert resolve_station_subtype("gps stod") == "GPS stöð"
+    assert resolve_station_subtype("  GPS STOD  ") == "GPS stöð"
+    assert resolve_station_subtype("SIL stod") == "SIL stöð"
+    # þ → th, æ → ae, ö → o, ð → d, all in one value
+    assert resolve_station_subtype("Thenslumaelistod") == "Þenslumælistöð"
+    assert resolve_station_subtype("Moda") == "Móða"
+
+
+def test_folding_does_not_forgive_an_actual_typo() -> None:
+    """The point is to drop diacritics, not to guess at misspellings."""
+    from tostools.station import resolve_station_subtype
+
+    assert resolve_station_subtype("GPS stoo") is None
+    assert resolve_station_subtype("GPS") is None
+    assert resolve_station_subtype("nonsense") is None
+    assert resolve_station_subtype("") is None
+
+
+def test_trailing_whitespace_in_a_fleet_value_is_not_a_separate_option() -> None:
+    """One station really does carry 'SRS stöð\\t', with a trailing tab."""
+    from tostools.station import observed_station_subtypes, resolve_station_subtype
+
+    class _Client:
+        def list_stations(self, domain="geophysical"):
+            return [
+                {
+                    "attributes": [
+                        {"code": "subtype", "value": "SRS stöð", "date_to": None}
+                    ]
+                },
+                {
+                    "attributes": [
+                        {"code": "subtype", "value": "SRS stöð\t", "date_to": None}
+                    ]
+                },
+            ]
+
+    assert observed_station_subtypes(_Client()) == ["SRS stöð"]
+    assert resolve_station_subtype("SRS stod", ["SRS stöð", "SRS stöð\t"]) == "SRS stöð"
+
+
+def test_two_values_that_fold_together_are_refused_not_guessed() -> None:
+    """Same principle as the station filter: refuse rather than pick one."""
+    from tostools.station import resolve_station_subtype
+
+    assert resolve_station_subtype("stod", ["Stöð", "Stoð"]) is None
+
+
+def test_cli_rejects_an_unknown_subtype(capsys) -> None:
+    argv = ["--subtype", "GPS stoo"] + [
+        a for a in _base_args() if a not in ("--subtype", "GPS stöð")
+    ]
+    rc = _run_cli(argv)
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "unknown --subtype" in err
+    assert "GPS stöð" in err, "the error must list the real vocabulary"
+    assert "Icelandic characters are optional" in err
+    assert _FakeWriter.last_instance is None or (
+        _FakeWriter.last_instance.create_calls == []
+    ), "nothing may be created under an unknown subtype"
+
+
+def test_cli_folds_the_subtype_and_writes_the_canonical_spelling(capsys) -> None:
+    """The canonical spelling reaches TOS, not what was typed — otherwise the
+    fold would merely move the problem into the database."""
+    argv = ["--subtype", "GPS stod"] + [
+        a for a in _base_args() if a not in ("--subtype", "GPS stöð")
+    ]
+    rc = _run_cli(argv, configure=lambda w: setattr(w, "land_id", 4360))
+    assert rc == 0
+    assert "→ 'GPS stöð'" in capsys.readouterr().err, "the swap must be announced"
+
+    created = [
+        attrs
+        for subtype, attrs in _FakeWriter.last_instance.create_calls
+        if subtype == "geophysical"
+    ]
+    rows = [a for a in created[0] if a.get("code") == "subtype"]
+    assert rows and rows[0]["value"] == "GPS stöð"
