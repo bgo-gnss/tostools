@@ -352,12 +352,26 @@ def is_synthetic_serial(value: Optional[str]) -> bool:
     return bool(_SYNTHETIC_SERIAL_RE.match(value.strip()))
 
 
+#: Valid GAMIT ``station.info`` height codes — the ``HtCod`` column vocabulary.
+#: ``antenna_reference_point`` feeds that column VERBATIM (see
+#: :func:`build_antenna_attributes`), so only these values may be stored.
+#: Measured across the 18,297-row canonical ``station.info.sopac.apr05``:
+#: DHARP 17,549 - DHPAB 471 - DHBCR 267 - DHTCR 4.
+GAMIT_HEIGHT_CODES = frozenset({"DHARP", "DHPAB", "DHBCR", "DHTCR"})
+
+#: What a new antenna gets when the caller does not say otherwise. Nearly the
+#: whole fleet is DHARP — the height is measured directly to the antenna
+#: reference point.
+DEFAULT_ANTENNA_REFERENCE_POINT = "DHARP"
+
+
 def build_antenna_attributes(
     serial: str,
     model: str,
     owner: str,
     date_start: str,
     antenna_height: Optional[str] = None,
+    antenna_reference_point: str = DEFAULT_ANTENNA_REFERENCE_POINT,
 ) -> List[Dict[str, Optional[str]]]:
     """Build the attribute list for a new ``antenna`` device.
 
@@ -375,10 +389,50 @@ def build_antenna_attributes(
         owner: Owner label (must match the TOS OwnersCache).
         date_start: Install date — ``YYYY-MM-DD`` or full ISO datetime.
         antenna_height: ARP height in metres as a string, or ``None`` to omit.
+        antenna_reference_point: GAMIT height code for the ``HtCod`` column.
+            Must be one of :data:`GAMIT_HEIGHT_CODES`. ALWAYS emitted.
+
+    Raises:
+        ValueError: ``antenna_reference_point`` is not a GAMIT height code —
+            the guard against the IGS vocabulary described below.
 
     Returns:
         Attribute-value dicts ready for :meth:`TOSWriter.create_device`.
+
+    Note:
+        **Why this attribute is emitted here, and why it is validated.** It was
+        previously left unset by every intake verb, so a new antenna carried
+        whatever a human typed into the TOS web UI — or nothing. Both break
+        GAMIT, because ``legacy.gps_metadata_functions.print_station_info``
+        (the renderer ``tosGPS syncMeta`` actually uses) copies this attribute
+        **verbatim** into ``station.info``'s ``HtCod`` column: unset renders
+        ``-----`` (VOTT carries that on 6 rows), and an IGS ARP code lands a
+        non-GAMIT token in a GAMIT field.
+
+        The latter happened on VFLS/VFLN, 2026-10-03: both antennas held
+        ``BPA`` and the GAMIT run failed. ``BPA`` is the **IGS site-log** ARP
+        code for their model — ``data/station_config/antenna_arp.list`` has
+        ``SEPVC6150L BPA NOM``, and that file's whole vocabulary (BAM, BPA,
+        TOP, BCR, TGP, TCR) comes from ``antenna.gra``. **One TOS attribute,
+        two incompatible vocabularies.**
+
+        The intended direction is the opposite: the site-log generator expects
+        ``DHARP`` stored and translates OUTWARD to the IGS code using that same
+        file (``if arp == "DHARP": arp = grep_line_aslist(antenna_arp.list,
+        device_type)[1]``). So the GAMIT code belongs in TOS and an IGS code
+        here is the outward form leaking back in — hence the refusal rather
+        than passing it through.
     """
+    arp = (antenna_reference_point or "").strip().upper()
+    if arp not in GAMIT_HEIGHT_CODES:
+        raise ValueError(
+            f"antenna_reference_point {antenna_reference_point!r} is not a GAMIT "
+            f"height code. Valid: {', '.join(sorted(GAMIT_HEIGHT_CODES))}. "
+            f"NOTE an IGS ARP code (BPA/BAM/BCR/TOP/TGP/TCR, from antenna.gra) "
+            f"is NOT valid here — station.info's HtCod column takes the GAMIT "
+            f"code, and the site log translates DHARP outward to the IGS form."
+        )
+
     attrs = build_required_attributes(serial, model, owner, date_start)
     if antenna_height is not None and str(antenna_height) != "":
         attrs.append(
@@ -389,6 +443,14 @@ def build_antenna_attributes(
                 "date_to": None,
             }
         )
+    attrs.append(
+        {
+            "code": "antenna_reference_point",
+            "value": arp,
+            "date_from": date_start,
+            "date_to": None,
+        }
+    )
     return attrs
 
 
