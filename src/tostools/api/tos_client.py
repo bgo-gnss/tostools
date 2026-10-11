@@ -458,6 +458,26 @@ class TOSClient:
                         station[code] = value
                     elif code == "in_network_epos":
                         station[code] = value
+                    elif code in ("operational_status", "external_data_type"):
+                        # The operational-status model (TOS station attributes,
+                        # created 2026-08-19 — see
+                        # docs/architecture/operational-status-model.md).
+                        #
+                        # ``operational_status`` (operated | external |
+                        # reference) is the canonical "who runs this station's
+                        # hardware" signal; it supersedes the hand-kept cfg
+                        # ``health_check = passive`` proxy that receivers has
+                        # been using. ``external_data_type`` accompanies it on
+                        # external stations (how their data arrives).
+                        #
+                        # Passthrough rather than a special case, mirroring the
+                        # `date_end` addition: without this the processed
+                        # station dict simply cannot answer the question, and
+                        # any consumer sees silence rather than a value.
+                        # Verified live 2026-10-11: 215 stations `operated`,
+                        # 4 `external` (KRAC/MYVA/THRC/TORK — exactly the cfg
+                        # `health_check = passive` set), 0 missing.
+                        station[code] = value
 
         # Add processed device history
         station["device_history"] = processed_history
