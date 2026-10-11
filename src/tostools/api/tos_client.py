@@ -454,6 +454,8 @@ class TOSClient:
                         station[code] = value
                     elif code == "date_start":
                         station[code] = value
+                    elif code == "date_end":
+                        station[code] = value
                     elif code == "in_network_epos":
                         station[code] = value
 

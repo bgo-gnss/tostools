@@ -1929,3 +1929,85 @@ def test_get_device_sessions_null_children_connections_no_crash():
     client = TOSClient()
     assert client.get_device_sessions({"children_connections": None}) == []
     assert client.get_device_sessions({}) == []
+
+
+# ---------------------------------------------------------------------------
+# _create_legacy_station_structure — date_end passthrough (2026-10-10)
+# ---------------------------------------------------------------------------
+
+
+def test_create_legacy_station_structure_passes_through_date_end():
+    """A discontinued station carries an open `date_end` attribute (verified
+    live against BLAL, 2026-10-10: `date_end = 2024-06-01`, same shape as
+    `date_start`). Before this, nothing downstream of
+    `get_complete_station_metadata` could see it at all — the receivers
+    package's lifecycle inference (station_status) depends on this field
+    existing in the processed structure.
+    """
+    client = TOSClient()
+    device_history = {
+        "id_entity": 19918,
+        "attributes": [
+            {
+                "code": "date_start",
+                "value": "2023-11-30T00:00:00",
+                "date_to": None,
+            },
+            {
+                "code": "date_end",
+                "value": "2024-06-01 00:00",
+                "date_to": None,
+            },
+        ],
+    }
+    station = client._create_legacy_station_structure(
+        station_data={"id_entity": 19918}, device_history=device_history,
+        processed_history=[],
+    )
+    assert station["date_start"] == "2023-11-30T00:00:00"
+    assert station["date_end"] == "2024-06-01 00:00"
+
+
+def test_create_legacy_station_structure_no_date_end_when_station_active():
+    """An active station (no `date_end` attribute at all) must not get a
+    fabricated key — absence means "not discontinued", and a spurious
+    `None`/empty value would be indistinguishable from a real one."""
+    client = TOSClient()
+    device_history = {
+        "id_entity": 4440,
+        "attributes": [
+            {
+                "code": "date_start",
+                "value": "1999-01-01T00:00:00",
+                "date_to": None,
+            },
+        ],
+    }
+    station = client._create_legacy_station_structure(
+        station_data={"id_entity": 4440}, device_history=device_history,
+        processed_history=[],
+    )
+    assert "date_end" not in station
+    assert station["date_start"] == "1999-01-01T00:00:00"
+
+
+def test_create_legacy_station_structure_ignores_closed_date_end_period():
+    """Only the OPEN `date_end` period counts (date_to is None) — matching
+    every other attribute's current-value handling in this function. A
+    closed/superseded `date_end` period must not leak through."""
+    client = TOSClient()
+    device_history = {
+        "id_entity": 19918,
+        "attributes": [
+            {
+                "code": "date_end",
+                "value": "2020-01-01",
+                "date_to": "2021-01-01T00:00:00",  # superseded, not current
+            },
+        ],
+    }
+    station = client._create_legacy_station_structure(
+        station_data={"id_entity": 19918}, device_history=device_history,
+        processed_history=[],
+    )
+    assert "date_end" not in station
