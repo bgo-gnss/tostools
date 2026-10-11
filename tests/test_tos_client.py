@@ -2011,3 +2011,91 @@ def test_create_legacy_station_structure_ignores_closed_date_end_period():
         processed_history=[],
     )
     assert "date_end" not in station
+
+
+# ---------------------------------------------------------------------------
+# _create_legacy_station_structure — operational-status passthrough (2026-10-11)
+# ---------------------------------------------------------------------------
+
+
+def test_create_legacy_station_structure_passes_through_operational_status():
+    """An external station carries `operational_status` and `external_data_type`.
+
+    Both are real, current station attributes (TOS ids 189/190, created
+    2026-08-19). Before this passthrough the processed station dict could not
+    answer "who runs this station's hardware?" at all, which is the signal that
+    supersedes receivers' hand-kept `health_check = passive` cfg proxy.
+    Verified live against MYVA (operational_status='external').
+    """
+    client = TOSClient()
+    device_history = {
+        "id_entity": 21700,
+        "attributes": [
+            {
+                "code": "operational_status",
+                "value": "external",
+                "date_to": None,
+            },
+            {"code": "external_data_type", "value": "rinex", "date_to": None},
+        ],
+    }
+    station = client._create_legacy_station_structure(
+        station_data={"id_entity": 21700}, device_history=device_history,
+        processed_history=[],
+    )
+    assert station["operational_status"] == "external"
+    assert station["external_data_type"] == "rinex"
+
+
+def test_create_legacy_station_structure_operated_passes_through():
+    """The common case: an operated station, 215 of the 219-wide fleet."""
+    client = TOSClient()
+    device_history = {
+        "id_entity": 4253,
+        "attributes": [
+            {"code": "operational_status", "value": "operated", "date_to": None},
+        ],
+    }
+    station = client._create_legacy_station_structure(
+        station_data={"id_entity": 4253}, device_history=device_history,
+        processed_history=[],
+    )
+    assert station["operational_status"] == "operated"
+    # absent, not fabricated — an operated station has no external_data_type
+    assert "external_data_type" not in station
+
+
+def test_create_legacy_station_structure_no_operational_status_when_absent():
+    """Absence must stay absence. A consumer switching to this signal has to be
+    able to distinguish "not present" from "present and operated" — the whole
+    point of the safe-fallback rule on the receivers side."""
+    client = TOSClient()
+    device_history = {
+        "id_entity": 4253,
+        "attributes": [{"code": "marker", "value": "hamr", "date_to": None}],
+    }
+    station = client._create_legacy_station_structure(
+        station_data={"id_entity": 4253}, device_history=device_history,
+        processed_history=[],
+    )
+    assert "operational_status" not in station
+
+
+def test_create_legacy_station_structure_ignores_closed_operational_status():
+    """Only the OPEN period is current, same rule as every other attribute."""
+    client = TOSClient()
+    device_history = {
+        "id_entity": 21700,
+        "attributes": [
+            {
+                "code": "operational_status",
+                "value": "external",
+                "date_to": "2026-01-01T00:00:00",  # superseded
+            },
+        ],
+    }
+    station = client._create_legacy_station_structure(
+        station_data={"id_entity": 21700}, device_history=device_history,
+        processed_history=[],
+    )
+    assert "operational_status" not in station
