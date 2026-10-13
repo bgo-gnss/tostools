@@ -55,6 +55,23 @@ REFERENCE_DATA_CONFIG = {
 }
 
 
+#: Where station.info lives inside the gps-config-data clone. This is the target the
+#: file is moving to, and what ``syncMeta --write-repo`` writes.
+REPO_STATION_INFO_REL = "gamit/station.info.sopac.apr05"
+
+#: Default clone location; overridden by --repo-path or $GPS_CONFIG_DATA_REPO.
+DEFAULT_CONFIG_DATA_REPO = "~/git/gps-config-data"
+
+
+def _resolve_config_data_repo(repo_path=None):
+    """Resolve the gps-config-data clone: --repo-path > $GPS_CONFIG_DATA_REPO > default."""
+    import os
+    from pathlib import Path
+
+    raw = repo_path or os.environ.get("GPS_CONFIG_DATA_REPO") or DEFAULT_CONFIG_DATA_REPO
+    return Path(os.path.expanduser(raw))
+
+
 def _select_synthesizer(args):
     """Return the gps_metadata function selected by ``--use-legacy-synthesis``.
 
@@ -978,6 +995,45 @@ Examples:
     )
     server_group.add_argument(
         "--list-servers", action="store_true", help="List configured servers"
+    )
+
+    # Where the file is written. Two mutually exclusive targets — see
+    # _write_station_info_to_repo for why the repo is the one to use.
+    target_group = sync_parser.add_argument_group("Write target")
+    target_group.add_argument(
+        "--write-repo",
+        action="store_true",
+        help=(
+            "Write and commit station.info into the gps-config-data clone instead of "
+            "scp-ing it to the GAMIT host. Requires --push. This is the target "
+            "direction: TOS -> repo here, repo -> host by the host's sync-config.sh."
+        ),
+    )
+    target_group.add_argument(
+        "--repo-path",
+        type=str,
+        help=(
+            "Path to the gps-config-data clone "
+            "(default: $GPS_CONFIG_DATA_REPO, else ~/git/gps-config-data)"
+        ),
+    )
+    target_group.add_argument(
+        "--push",
+        action="store_true",
+        help=(
+            "With --write-repo: push the commit. Required for a real write — a "
+            "local-only commit leaves the clone ahead of origin, which breaks the "
+            "host puller's fast-forward."
+        ),
+    )
+    target_group.add_argument(
+        "--allow-host-write",
+        action="store_true",
+        help=(
+            "Permit the legacy direct scp write to the GAMIT host. REFUSED by "
+            "default: with a host-side puller running, a direct write would be "
+            "reverted by the next pull. Use only for a deliberate one-off recovery."
+        ),
     )
 
     # Comparison and output options
@@ -2297,6 +2353,10 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
                 backup_required=args.backup or True,  # Default to backup for safety
                 production_mode=getattr(args, "production_mode", False),
                 synthesizer=synthesizer,
+                write_repo=getattr(args, "write_repo", False),
+                repo_path=getattr(args, "repo_path", None),
+                push=getattr(args, "push", False),
+                allow_host_write=getattr(args, "allow_host_write", False),
             )
 
             # Convert workflow result to expected format
@@ -3123,13 +3183,19 @@ def _generate_sync_summary(results, metadata_types, stations):
     if total_failed > 0:
         print(f"Stations failed: {total_failed}", file=sys.stderr)
 
-        # Report errors
-        for metadata_type, result in results.items():
-            errors = result.get("errors", [])
-            if errors:
-                print(f"\n{metadata_type} errors:", file=sys.stderr)
-                for error in errors:
-                    print(f"  - {error}", file=sys.stderr)
+    # Report failures. Gate on the errors themselves, NOT on "stations_failed":
+    # the safe-update workflow populates "errors" but never that key, so gating on
+    # it collected every failure and printed none of them — a refused write exited
+    # 1 with no visible reason, which is how a closed write path stays silent.
+    for metadata_type, result in results.items():
+        errors = result.get("errors") or []
+        if not errors and result.get("success", True):
+            continue
+        print(f"\n❌ {metadata_type} FAILED:", file=sys.stderr)
+        for error in errors:
+            print(f"  - {error}", file=sys.stderr)
+        if not errors:
+            print("  (no detail reported)", file=sys.stderr)
 
 
 # ============================================================================
@@ -4141,12 +4207,158 @@ def _generate_change_report(verification_result, work_info, update_result):
 # ============================================================================
 
 
+def _write_station_info_to_repo(
+    work_file, stations, *, repo_path=None, push=False, dry_run=False, rel_path=None
+):
+    """Write the updated station.info into the gps-config-data clone, commit, push.
+
+    Routing through the repo means exactly ONE writer touches each artefact, so
+    they cannot fight:
+
+        syncMeta --write-repo    TOS  -> repo    (this function)
+        host sync-config.sh      repo -> host    (convergent pull)
+
+    The alternative — this writing the GAMIT host directly while the host also
+    pulls the repo — is a race: whichever ran last would win, and a host pull
+    would SILENTLY revert a direct write. SKDA made that concrete: the committed
+    file still held the pre-swap open NetRS row, so a puller enabled while the
+    direct path was live would have undone the swap record within one tick.
+
+    Refuses to write unless the clone is even with origin, and requires ``push``
+    for a real write: a local-only commit leaves the clone AHEAD of origin, and an
+    ahead-of-origin clone breaks the host puller's fast-forward.
+
+    Returns a result dict (``success``, ``changed``, ``error``, ``commit``, ...).
+    """
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    logger = get_logger(__name__)
+    rel = rel_path or REPO_STATION_INFO_REL
+    repo = _resolve_config_data_repo(repo_path)
+    dest = repo / rel
+    stations = [s.upper() for s in stations]
+
+    result = {
+        "success": False,
+        "changed": False,
+        "dry_run": dry_run,
+        "repo": str(repo),
+        "path": str(dest),
+        "stations": stations,
+    }
+
+    def _git(*args, check=True, timeout=180):
+        return subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            text=True,
+            check=check,
+            timeout=timeout,
+        )
+
+    if not (repo / ".git").is_dir():
+        result["error"] = (
+            f"not a git clone: {repo} (set --repo-path or $GPS_CONFIG_DATA_REPO)"
+        )
+        return result
+
+    work = Path(work_file)
+    if not work.exists():
+        result["error"] = f"work file missing: {work}"
+        return result
+
+    # --- divergence preflight, BEFORE any write -------------------------------
+    # Mirrors receivers cfg --global --push: a clone that is not even with origin
+    # must be resolved by a human, not papered over with another commit.
+    try:
+        _git("fetch", "--quiet", "origin")
+    except Exception as e:
+        result["error"] = f"git fetch failed in {repo}: {e}"
+        return result
+
+    try:
+        head = _git("rev-parse", "HEAD").stdout.strip()
+        upstream = _git("rev-parse", "@{u}").stdout.strip()
+    except Exception:
+        result["error"] = (
+            f"clone at {repo} has no upstream branch to compare with — refusing"
+        )
+        return result
+
+    if head != upstream:
+        behind = _git("rev-list", "--count", "HEAD..@{u}").stdout.strip()
+        ahead = _git("rev-list", "--count", "@{u}..HEAD").stdout.strip()
+        result["error"] = (
+            f"clone at {repo} is not even with origin "
+            f"(ahead {ahead}, behind {behind}, HEAD {head[:8]}) — push or reset it "
+            "first; refusing to write"
+        )
+        return result
+
+    # --- idempotence: identical bytes must never create an empty commit -------
+    if dest.exists() and dest.read_bytes() == work.read_bytes():
+        result.update(success=True, changed=False)
+        result["note"] = "repo file already identical — nothing to commit"
+        return result
+
+    if dry_run:
+        result.update(success=True, changed=True)
+        result["note"] = "would write and commit (dry run)"
+        return result
+
+    if not push:
+        result["error"] = (
+            "--write-repo without --push would leave the clone AHEAD of origin, which "
+            "breaks the host puller's fast-forward pull. Pass --push, or use --dry-run."
+        )
+        return result
+
+    # --- write, commit, push --------------------------------------------------
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(work, dest)
+        _git("add", "--", rel)
+        msg = "station.info: update from TOS\n\n" + "\n".join(
+            f"  {sid}" for sid in sorted(stations)
+        )
+        commit = _git("commit", "-m", msg, check=False)
+        if commit.returncode != 0:
+            # Nothing staged: a no-op, not an error.
+            if "nothing to commit" in (commit.stdout + commit.stderr).lower():
+                result.update(success=True, changed=False)
+                result["note"] = "no content change after all — no commit created"
+                return result
+            result["error"] = f"git commit failed: {commit.stderr.strip()}"
+            return result
+
+        commit_sha = _git("rev-parse", "--short", "HEAD").stdout.strip()
+        branch = _git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        _git("push", "origin", f"HEAD:{branch}")
+        result.update(success=True, changed=True, commit=commit_sha, branch=branch)
+        logger.info(
+            "station.info committed and pushed to gps-config-data",
+            extra={
+                "workflow": "write_repo",
+                "repo": str(repo),
+                "path": rel,
+                "commit": commit_sha,
+                "stations": stations,
+            },
+        )
+    except Exception as e:
+        result["error"] = f"failed to write/commit/push station.info: {e}"
+    return result
+
+
 def _safe_upload_with_rollback(
     local_file,
     remote_config,
     backup_info,
     metadata_type="gamit-station-info",
     dry_run=False,
+    allow_host_write=False,
 ):
     """
     Upload file with rollback capability.
@@ -4172,6 +4384,23 @@ def _safe_upload_with_rollback(
         return {"success": False, "error": "Local file not found"}
 
     if metadata_type == "gamit-station-info":
+        # --- cutover guard ---------------------------------------------------
+        # station.info is maintained in gps-config-data now, and the GAMIT host
+        # pulls it. A direct scp write here would be REVERTED by the host's next
+        # pull, so it is refused unless explicitly forced. Failures of that kind
+        # are silent, which is exactly why this is a hard stop.
+        if not allow_host_write:
+            return {
+                "success": False,
+                "error": (
+                    "direct host write is disabled (cutover): station.info is now "
+                    "maintained in gps-config-data and deployed by the host's own "
+                    "sync-config.sh. Use --write-repo (with --push), or pass "
+                    "--allow-host-write for a deliberate one-off recovery."
+                ),
+                "error_kind": "host_write_disabled",
+            }
+
         config = REFERENCE_DATA_CONFIG["station-info"]
         remote_path = config["remote_path"]
         remote_host = config["remote_host"]
@@ -4386,6 +4615,10 @@ def _safe_update_workflow(
     backup_required=True,
     production_mode=False,
     synthesizer=None,
+    write_repo=False,
+    repo_path=None,
+    push=False,
+    allow_host_write=False,
 ):
     """
     Main safe update workflow orchestrator.
@@ -4626,13 +4859,46 @@ def _safe_update_workflow(
                     return workflow_result
 
             try:
-                upload_result = _safe_upload_with_rollback(
-                    work_info["work_path"],
-                    {},
-                    backup_info,
-                    metadata_type=metadata_type,
-                    dry_run=dry_run,
-                )
+                if write_repo:
+                    # Target direction: TOS -> repo. Deploying to the host is the
+                    # host's own puller, so nothing is pushed to a host from here.
+                    print(
+                        "📦 Step 7: Committing to gps-config-data...", file=sys.stderr
+                    )
+                    upload_result = _write_station_info_to_repo(
+                        work_info["work_path"],
+                        list(station_updates.keys()),
+                        repo_path=repo_path,
+                        push=push,
+                        dry_run=dry_run,
+                    )
+                    if upload_result.get("success"):
+                        if upload_result.get("changed"):
+                            if dry_run:
+                                print(
+                                    f"🧪 DRY RUN: would write {upload_result['path']}",
+                                    file=sys.stderr,
+                                )
+                            else:
+                                print(
+                                    f"✓ committed {upload_result.get('commit')} "
+                                    f"on {upload_result.get('branch')} and pushed",
+                                    file=sys.stderr,
+                                )
+                        else:
+                            print(
+                                f"ℹ️  {upload_result.get('note', 'no change')}",
+                                file=sys.stderr,
+                            )
+                else:
+                    upload_result = _safe_upload_with_rollback(
+                        work_info["work_path"],
+                        {},
+                        backup_info,
+                        metadata_type=metadata_type,
+                        dry_run=dry_run,
+                        allow_host_write=allow_host_write,
+                    )
 
                 workflow_result["workflow_steps"].append(
                     {
@@ -4684,10 +4950,17 @@ def _safe_update_workflow(
                     workflow_result["errors"].append(
                         f"Upload failed: {upload_result.get('error')}"
                     )
+                    # Say it at the point of failure too: the summary prints errors,
+                    # but a failure must not depend on a later reporting step.
+                    print(
+                        f"❌ Step 7 FAILED: {upload_result.get('error')}",
+                        file=sys.stderr,
+                    )
                     return workflow_result
 
             except Exception as e:
                 workflow_result["errors"].append(f"Upload step failed: {e}")
+                print(f"❌ Step 7 FAILED: {e}", file=sys.stderr)
                 return workflow_result
 
         # Step 8: Cleanup
