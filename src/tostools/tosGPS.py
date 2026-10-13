@@ -2268,6 +2268,12 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
 
     for metadata_type in metadata_types:
         print(f"\n=== Processing {metadata_type} ===", file=sys.stderr)
+        # State the file up front for station.info — otherwise "would this change
+        # anything?" cannot be answered from the output (and a stale local copy is
+        # indistinguishable from live data).
+        if metadata_type == "gamit-station-info":
+            for line in _describe_station_info_files(writing=bool(getattr(args, "update", False))):
+                print(line, file=sys.stderr)
 
         # Use new safe update workflow if update mode is enabled and safe features are requested
         if args.update and (
@@ -3048,6 +3054,51 @@ def _periods_differ_significantly(tos_session, ref_session):
     return False
 
 
+def _describe_station_info_files(writing=False):
+    """Name the station.info file being compared, and the one a write would change.
+
+    WHY THIS EXISTS: the reference file used to be implicit. syncMeta compares TOS
+    against a LOCAL copy (``data/station_config/station.info.sopac.apr05``) and
+    uploads to a hard-coded remote, and nothing in the output said which. Two things
+    make that untenable:
+
+      * the file is moving to gps-config-data, so "which file?" stops being obvious;
+      * comparing against a stale local copy looks EXACTLY like comparing against
+        live data. Measured 2026-10-13: the local copy was 2 days old and differed
+        from okada's live file by sha256, so a "dry-run" was not a forecast of what
+        ``--update`` would write.
+
+    So every run states the file, when it was fetched, and the write target.
+    """
+    config = REFERENCE_DATA_CONFIG["station-info"]
+    remote = f"{config['remote_host']}:{config['remote_path']}"
+    local = _get_station_config_dir() / config["local_filename"]
+
+    lines = [f"Reference : TOS  vs  {remote}"]
+    if local.exists():
+        fetched = datetime.fromtimestamp(local.stat().st_mtime)
+        age_s = max(0.0, (datetime.now() - fetched).total_seconds())
+        if age_s < 3600:
+            age = f"{age_s / 60:.0f} min"
+        elif age_s < 86400:
+            age = f"{age_s / 3600:.1f} h"
+        else:
+            age = f"{age_s / 86400:.1f} d"
+        stale = "   <-- STALE, re-fetch with --force-download" if age_s > 86400 else ""
+        lines.append(f"  read from : {local}")
+        lines.append(f"  fetched   : {fetched:%Y-%m-%d %H:%M} ({age} ago){stale}")
+    else:
+        lines.append(f"  read from : {local}  (MISSING — will be fetched from the remote)")
+
+    if writing:
+        lines.append(f"  target    : {remote}   <-- this is the file that changes")
+    else:
+        lines.append(
+            f"  target    : {remote}   (--update only; this run changes nothing)"
+        )
+    return lines
+
+
 def _generate_sync_summary(results, metadata_types, stations):
     """Generate a summary report of the sync operation."""
     total_processed = sum(r.get("stations_processed", 0) for r in results.values())
@@ -3056,6 +3107,16 @@ def _generate_sync_summary(results, metadata_types, stations):
 
     print("\n=== Sync Summary ===", file=sys.stderr)
     print(f"Metadata types: {len(metadata_types)}", file=sys.stderr)
+    # Name the file, so the summary is unambiguous about WHAT was compared and what
+    # a write would touch. Deliberately one line: the full block is printed once when
+    # the type is processed (see _describe_station_info_files).
+    if "gamit-station-info" in metadata_types:
+        _cfg = REFERENCE_DATA_CONFIG["station-info"]
+        print(
+            f"File: {_cfg['remote_host']}:{_cfg['remote_path']}"
+            "   (the station.info a write would modify)",
+            file=sys.stderr,
+        )
     print(f"Stations processed: {total_processed}", file=sys.stderr)
     print(f"Stations updated: {total_updated}", file=sys.stderr)
 
