@@ -2328,7 +2328,11 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
         # anything?" cannot be answered from the output (and a stale local copy is
         # indistinguishable from live data).
         if metadata_type == "gamit-station-info":
-            for line in _describe_station_info_files(writing=bool(getattr(args, "update", False))):
+            for line in _describe_station_info_files(
+                writing=bool(getattr(args, "update", False)),
+                write_repo=bool(getattr(args, "write_repo", False)),
+                repo_path=getattr(args, "repo_path", None),
+            ):
                 print(line, file=sys.stderr)
 
         # Use new safe update workflow if update mode is enabled and safe features are requested
@@ -2393,7 +2397,13 @@ def _handle_sync_meta_subcommand(args, stations, url, log_level, parser):
             overall_success = False
 
     # Generate summary report
-    _generate_sync_summary(results, metadata_types, stations)
+    _generate_sync_summary(
+        results,
+        metadata_types,
+        stations,
+        write_repo=getattr(args, "write_repo", False),
+        repo_path=getattr(args, "repo_path", None),
+    )
 
     # Exit with appropriate code for operational monitoring
     if not overall_success:
@@ -3114,7 +3124,7 @@ def _periods_differ_significantly(tos_session, ref_session):
     return False
 
 
-def _describe_station_info_files(writing=False):
+def _describe_station_info_files(writing=False, write_repo=False, repo_path=None):
     """Name the station.info file being compared, and the one a write would change.
 
     WHY THIS EXISTS: the reference file used to be implicit. syncMeta compares TOS
@@ -3128,7 +3138,9 @@ def _describe_station_info_files(writing=False):
         from okada's live file by sha256, so a "dry-run" was not a forecast of what
         ``--update`` would write.
 
-    So every run states the file, when it was fetched, and the write target.
+    ``write_repo`` matters here: with it the write target is the REPO file, not the
+    GAMIT host, and reporting the host path then is simply wrong — it names a file
+    this run will never touch.
     """
     config = REFERENCE_DATA_CONFIG["station-info"]
     remote = f"{config['remote_host']}:{config['remote_path']}"
@@ -3150,16 +3162,24 @@ def _describe_station_info_files(writing=False):
     else:
         lines.append(f"  read from : {local}  (MISSING — will be fetched from the remote)")
 
-    if writing:
-        lines.append(f"  target    : {remote}   <-- this is the file that changes")
+    if write_repo:
+        target = str(_resolve_config_data_repo(repo_path) / REPO_STATION_INFO_REL)
     else:
-        lines.append(
-            f"  target    : {remote}   (--update only; this run changes nothing)"
+        target = remote
+    lines.append(
+        f"  target    : {target}"
+        + (
+            "   <-- this is the file that changes"
+            if writing
+            else "   (--update only; this run changes nothing)"
         )
+    )
     return lines
 
 
-def _generate_sync_summary(results, metadata_types, stations):
+def _generate_sync_summary(
+    results, metadata_types, stations, write_repo=False, repo_path=None
+):
     """Generate a summary report of the sync operation."""
     total_processed = sum(r.get("stations_processed", 0) for r in results.values())
     total_updated = sum(r.get("stations_updated", 0) for r in results.values())
@@ -3171,10 +3191,16 @@ def _generate_sync_summary(results, metadata_types, stations):
     # a write would touch. Deliberately one line: the full block is printed once when
     # the type is processed (see _describe_station_info_files).
     if "gamit-station-info" in metadata_types:
-        _cfg = REFERENCE_DATA_CONFIG["station-info"]
+        # Must reflect the ACTUAL target: with --write-repo the file that changes is
+        # in the repo, not on the GAMIT host, and naming the host here would point at
+        # a file this run never touches.
+        if write_repo:
+            _target = str(_resolve_config_data_repo(repo_path) / REPO_STATION_INFO_REL)
+        else:
+            _cfg = REFERENCE_DATA_CONFIG["station-info"]
+            _target = f"{_cfg['remote_host']}:{_cfg['remote_path']}"
         print(
-            f"File: {_cfg['remote_host']}:{_cfg['remote_path']}"
-            "   (the station.info a write would modify)",
+            f"File: {_target}   (the station.info a write would modify)",
             file=sys.stderr,
         )
     print(f"Stations processed: {total_processed}", file=sys.stderr)

@@ -28,6 +28,8 @@ import pytest
 
 from tostools.tosGPS import (
     REPO_STATION_INFO_REL,
+    _describe_station_info_files,
+    _generate_sync_summary,
     _resolve_config_data_repo,
     _safe_upload_with_rollback,
     _write_station_info_to_repo,
@@ -259,3 +261,95 @@ def test_guard_is_bypassed_only_explicitly(tmp_path):
     )
     # reaches the simulated upload rather than the guard
     assert result.get("error_kind") != "host_write_disabled"
+
+
+# ---------------------------------------------------------------------------
+# the reported target must follow --write-repo
+# ---------------------------------------------------------------------------
+
+
+def _target_line(lines) -> str:
+    return next(ln for ln in lines if ln.strip().startswith("target"))
+
+
+def test_file_report_names_the_repo_under_write_repo(tmp_path):
+    """Regression: the report named okada even when writing to the repo.
+
+    That is the exact confusion the reporting was added to remove — the output
+    pointed at a file the run would never touch.
+    """
+    lines = _describe_station_info_files(
+        writing=True, write_repo=True, repo_path=str(tmp_path)
+    )
+    target = _target_line(lines)
+    assert str(tmp_path) in target
+    assert REPO_STATION_INFO_REL in target
+    assert "okada" not in target, "must not name a host that is not the target"
+    assert "this is the file that changes" in target
+
+
+def test_file_report_names_the_host_without_write_repo():
+    target = _target_line(_describe_station_info_files(writing=True))
+    assert "okada" in target
+    assert REPO_STATION_INFO_REL not in target
+    assert "this is the file that changes" in target
+
+
+def test_file_report_says_nothing_changes_without_update():
+    """A read-only run must not read as if it would write."""
+    target = _target_line(_describe_station_info_files(writing=False))
+    assert "--update only" in target
+    assert "this is the file that changes" not in target
+
+
+def test_summary_file_line_follows_the_target(tmp_path, capsys):
+    results = {
+        "gamit-station-info": {
+            "success": True,
+            "stations_processed": 1,
+            "stations_updated": 0,
+        }
+    }
+    _generate_sync_summary(
+        results, ["gamit-station-info"], ["SKDA"],
+        write_repo=True, repo_path=str(tmp_path),
+    )
+    err = capsys.readouterr().err
+    assert str(tmp_path) in err
+    assert "okada" not in err
+
+
+def test_summary_reports_errors_without_stations_failed(capsys):
+    """Regression: gating on 'stations_failed' discarded every workflow error.
+
+    The safe-update workflow populates 'errors' but never 'stations_failed', so a
+    refused or failed write exited 1 with no visible reason — which is how a
+    closed write path stays silent.
+    """
+    results = {
+        "gamit-station-info": {
+            "success": False,
+            "errors": ["direct host write is disabled (cutover)"],
+            "stations_processed": 1,
+            "stations_updated": 0,
+        }
+    }
+    _generate_sync_summary(results, ["gamit-station-info"], ["SKDA"])
+    err = capsys.readouterr().err
+    assert "FAILED" in err
+    assert "direct host write is disabled" in err
+
+
+def test_summary_is_quiet_when_everything_succeeded(capsys):
+    """The fix must not turn every successful run into a warning."""
+    results = {
+        "gamit-station-info": {
+            "success": True,
+            "errors": [],
+            "stations_processed": 1,
+            "stations_updated": 1,
+        }
+    }
+    _generate_sync_summary(results, ["gamit-station-info"], ["SKDA"])
+    err = capsys.readouterr().err
+    assert "FAILED" not in err
