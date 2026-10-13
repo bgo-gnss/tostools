@@ -3138,17 +3138,27 @@ def _describe_station_info_files(writing=False, write_repo=False, repo_path=None
         from okada's live file by sha256, so a "dry-run" was not a forecast of what
         ``--update`` would write.
 
-    ``write_repo`` matters here: with it the write target is the REPO file, not the
-    GAMIT host, and reporting the host path then is simply wrong — it names a file
-    this run will never touch.
+    ``write_repo`` matters here: with it BOTH the reference and the target are the
+    repo file, not the GAMIT host, so a report naming okada would be wrong twice —
+    it would name a file the run neither reads nor writes.
     """
     config = REFERENCE_DATA_CONFIG["station-info"]
     remote = f"{config['remote_host']}:{config['remote_path']}"
-    local = _get_station_config_dir() / config["local_filename"]
 
-    lines = [f"Reference : TOS  vs  {remote}"]
-    if local.exists():
-        fetched = datetime.fromtimestamp(local.stat().st_mtime)
+    if write_repo:
+        # Read and write are the same file in this mode, exactly as the legacy path
+        # had both on okada.
+        ref_path = _resolve_config_data_repo(repo_path) / REPO_STATION_INFO_REL
+        source_label = str(ref_path)
+        target = str(ref_path)
+    else:
+        source_label = remote
+        ref_path = _get_station_config_dir() / config["local_filename"]
+        target = remote
+
+    lines = [f"Reference : TOS  vs  {source_label}"]
+    if ref_path.exists():
+        fetched = datetime.fromtimestamp(ref_path.stat().st_mtime)
         age_s = max(0.0, (datetime.now() - fetched).total_seconds())
         if age_s < 3600:
             age = f"{age_s / 60:.0f} min"
@@ -3156,16 +3166,17 @@ def _describe_station_info_files(writing=False, write_repo=False, repo_path=None
             age = f"{age_s / 3600:.1f} h"
         else:
             age = f"{age_s / 86400:.1f} d"
-        stale = "   <-- STALE, re-fetch with --force-download" if age_s > 86400 else ""
-        lines.append(f"  read from : {local}")
+        # Only meaningful for the local mirror; in write-repo mode the repo file IS
+        # the source of truth, so "stale" would be meaningless noise.
+        stale = ""
+        if not write_repo and age_s > 86400:
+            stale = "   <-- STALE, re-fetch with --force-download"
+        lines.append(f"  read from : {ref_path}")
         lines.append(f"  fetched   : {fetched:%Y-%m-%d %H:%M} ({age} ago){stale}")
     else:
-        lines.append(f"  read from : {local}  (MISSING — will be fetched from the remote)")
+        tail = "" if write_repo else " — will be fetched from the remote"
+        lines.append(f"  read from : {ref_path}  (MISSING{tail})")
 
-    if write_repo:
-        target = str(_resolve_config_data_repo(repo_path) / REPO_STATION_INFO_REL)
-    else:
-        target = remote
     lines.append(
         f"  target    : {target}"
         + (
@@ -3418,6 +3429,58 @@ def _restore_from_backup(backup_id, target_path=None):
 # ============================================================================
 # SAFE UPDATE SYSTEM - Download and Verification
 # ============================================================================
+
+
+def _reference_from_repo(metadata_type, repo_path, temp_dir):
+    """Step-1 equivalent that takes the reference from the gps-config-data clone.
+
+    In ``--write-repo`` mode the maintained file IS the repo file, so the reference
+    must come from there too. Reading the reference from okada instead derives the
+    result from a DIFFERENT file than the one being maintained: the repo holds a
+    merge (okada's IMO rows plus p01's global/campaign rows) while okada holds only
+    its own, so layering TOS onto okada and writing that back would silently drop
+    the p01 half — measured 2026-10-13 as 92 markers / 494 occupations.
+
+    Reading here also removes the pointless ssh to the GAMIT host in this mode.
+
+    Returns the same dict shape as :func:`_download_fresh_reference` so the rest of
+    the workflow is unchanged.
+    """
+    import hashlib
+    import shutil
+    from datetime import datetime
+    from pathlib import Path
+
+    repo = _resolve_config_data_repo(repo_path)
+    src = repo / REPO_STATION_INFO_REL
+    if not src.exists():
+        return {
+            "success": False,
+            "error": f"no station.info in the repo clone at {src}",
+        }
+
+    temp_dir = Path(temp_dir)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    temp_path = temp_dir / f"station.info.sopac.apr05.repo.{stamp}"
+    shutil.copy2(src, temp_path)
+
+    data = temp_path.read_bytes()
+    checksum = hashlib.sha256(data).hexdigest()
+    return {
+        "success": True,
+        "temp_path": str(temp_path),
+        "file_size": len(data),
+        "checksum": checksum,
+        "local_checksum": checksum,
+        "changed": False,
+        "download_time": datetime.now().isoformat(),
+        "metadata": {
+            "metadata_type": metadata_type,
+            "source_host": "gps-config-data",
+            "source_path": str(src),
+        },
+    }
 
 
 def _download_fresh_reference(
@@ -4233,6 +4296,23 @@ def _generate_change_report(verification_result, work_info, update_result):
 # ============================================================================
 
 
+def _markers_in(path):
+    """Marker set from a station.info, via the RAW column slice (line[1:5]).
+
+    Deliberately not the parser: real files carry genuinely malformed rows that
+    ``parse_line`` rejects (the BARC/BAC* class), and those rows are part of the
+    record — counting them as "missing" would be wrong.
+    """
+    out = set()
+    with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+        for line in fh:
+            if line.startswith(" ") and len(line) > 5:
+                m = line[1:5].strip().upper()
+                if m:
+                    out.add(m)
+    return out
+
+
 def _write_station_info_to_repo(
     work_file, stations, *, repo_path=None, push=False, dry_run=False, rel_path=None
 ):
@@ -4328,6 +4408,27 @@ def _write_station_info_to_repo(
         result.update(success=True, changed=False)
         result["note"] = "repo file already identical — nothing to commit"
         return result
+
+    # --- marker-loss guard ----------------------------------------------------
+    # A merge file and a host file differ in ways a writer cannot see: the repo
+    # holds okada's IMO rows PLUS p01's global/campaign rows, while a host-derived
+    # candidate holds only one side. Writing such a candidate would silently drop
+    # the other side — on the first attempt, 92 markers / 494 occupations. This
+    # makes that whole class of regression impossible to commit, whatever produced
+    # the candidate. Runs before the dry-run return so a dry run reports it too.
+    if dest.exists():
+        existing_markers = _markers_in(dest)
+        candidate_markers = _markers_in(work)
+        lost = sorted(existing_markers - candidate_markers)
+        if lost:
+            result["error"] = (
+                f"refusing to write: {len(lost)} marker(s) present in the repo would "
+                f"disappear (e.g. {', '.join(lost[:10])}"
+                f"{' ...' if len(lost) > 10 else ''}) — this normally means the "
+                "candidate was derived from a host file instead of the repo file"
+            )
+            result["lost_markers"] = lost
+            return result
 
     if dry_run:
         result.update(success=True, changed=True)
@@ -4716,13 +4817,22 @@ def _safe_update_workflow(
                 emoji = step_emoji.get(step_num, "🔧")
                 print(f"{emoji} Step {step_num}: {description}...", file=sys.stderr)
 
-        # Step 1: Download fresh reference data
-        log_step(1, "Downloading fresh reference data")
+        # Step 1: Load the reference. In --write-repo mode read and write must point
+        # at the SAME file (the repo), exactly as the legacy path had read and write
+        # both on okada — reading okada while writing the repo derives the result
+        # from a different file than the one being maintained.
+        if write_repo:
+            log_step(1, "Reading reference from gps-config-data")
+        else:
+            log_step(1, "Downloading fresh reference data")
 
         station_config_dir = _get_station_config_dir()
         temp_dir = station_config_dir / "cache"
 
-        fresh_download = _download_fresh_reference(metadata_type, {}, temp_dir)
+        if write_repo:
+            fresh_download = _reference_from_repo(metadata_type, repo_path, temp_dir)
+        else:
+            fresh_download = _download_fresh_reference(metadata_type, {}, temp_dir)
         workflow_result["workflow_steps"].append(
             {
                 "step": "fresh_download",

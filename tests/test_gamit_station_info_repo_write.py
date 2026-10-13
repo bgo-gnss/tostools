@@ -30,6 +30,7 @@ from tostools.tosGPS import (
     REPO_STATION_INFO_REL,
     _describe_station_info_files,
     _generate_sync_summary,
+    _reference_from_repo,
     _resolve_config_data_repo,
     _safe_upload_with_rollback,
     _write_station_info_to_repo,
@@ -134,7 +135,8 @@ def test_refuses_when_clone_is_behind_origin(tmp_path):
 def test_refuses_real_write_without_push(tmp_path):
     """A local-only commit leaves the clone ahead — refuse rather than half-do it."""
     repo, dest = _make_clone(tmp_path)
-    work = _work_file(tmp_path, " CHANGED\n")
+    # same marker set as the repo: this test is about --push, not about content
+    work = _work_file(tmp_path, " SKDA  changed\n")
 
     result = _write_station_info_to_repo(work, ["SKDA"], repo_path=str(repo), push=False)
 
@@ -164,7 +166,7 @@ def test_identical_content_is_a_no_op(tmp_path):
 def test_dry_run_writes_nothing(tmp_path):
     repo, dest = _make_clone(tmp_path)
     before = _git(repo, "rev-parse", "HEAD").stdout.strip()
-    work = _work_file(tmp_path, " CHANGED\n")
+    work = _work_file(tmp_path, " SKDA  changed\n")
 
     result = _write_station_info_to_repo(
         work, ["SKDA"], repo_path=str(repo), push=True, dry_run=True
@@ -205,7 +207,7 @@ def test_writes_commits_and_pushes(tmp_path):
 
 def test_commit_message_names_the_stations(tmp_path):
     repo, _ = _make_clone(tmp_path)
-    work = _work_file(tmp_path, " X\n")
+    work = _work_file(tmp_path, " SKDA  new\n")
     _write_station_info_to_repo(work, ["skda"], repo_path=str(repo), push=True)
     body = _git(repo, "log", "-1", "--format=%B").stdout
     assert "SKDA" in body, "the commit must say which stations changed"
@@ -353,3 +355,72 @@ def test_summary_is_quiet_when_everything_succeeded(capsys):
     _generate_sync_summary(results, ["gamit-station-info"], ["SKDA"])
     err = capsys.readouterr().err
     assert "FAILED" not in err
+
+
+# ---------------------------------------------------------------------------
+# read and write must point at the SAME file in --write-repo mode
+# ---------------------------------------------------------------------------
+
+
+def test_reference_comes_from_the_repo(tmp_path):
+    """In --write-repo the reference must be the repo file, not the GAMIT host.
+
+    Reading okada while writing the repo derives the result from a different file
+    than the one being maintained.
+    """
+    repo, _ = _make_clone(tmp_path, content=" SKDA  repo-side\n")
+    src = _reference_from_repo("gamit-station-info", str(repo), tmp_path / "cache")
+    assert src["success"] is True, src.get("error")
+    assert src["metadata"]["source_host"] == "gps-config-data"
+    assert Path(src["temp_path"]).read_text() == " SKDA  repo-side\n"
+    assert src["file_size"] == len(" SKDA  repo-side\n")
+
+
+def test_reference_fails_cleanly_without_a_repo_file(tmp_path):
+    repo, dest = _make_clone(tmp_path)
+    dest.unlink()
+    src = _reference_from_repo("gamit-station-info", str(repo), tmp_path / "cache")
+    assert src["success"] is False
+    assert "no station.info in the repo" in src["error"]
+
+
+# ---------------------------------------------------------------------------
+# the marker-loss guard: a merge file and a host file differ invisibly
+# ---------------------------------------------------------------------------
+
+
+def test_refuses_to_drop_markers_present_in_the_repo(tmp_path):
+    """The regression this exists for: a host-derived candidate drops the other half.
+
+    Measured on the real files: 92 markers / 494 occupations would have vanished.
+    """
+    repo, dest = _make_clone(tmp_path, content=" AAAA  one\n BBBB  two\n")
+    work = _work_file(tmp_path, " AAAA  one\n")  # BBBB absent
+
+    result = _write_station_info_to_repo(work, ["SKDA"], repo_path=str(repo), push=True)
+
+    assert result["success"] is False
+    assert "would disappear" in result["error"]
+    assert result["lost_markers"] == ["BBBB"]
+    assert dest.read_text() == " AAAA  one\n BBBB  two\n", "must not write"
+
+
+def test_marker_guard_also_fires_on_a_dry_run(tmp_path):
+    """A dry run must surface the refusal, not report a clean write."""
+    repo, dest = _make_clone(tmp_path, content=" AAAA  one\n BBBB  two\n")
+    work = _work_file(tmp_path, " AAAA  one\n")
+    result = _write_station_info_to_repo(
+        work, ["SKDA"], repo_path=str(repo), push=True, dry_run=True
+    )
+    assert result["success"] is False
+    assert result["lost_markers"] == ["BBBB"]
+    assert dest.read_text() == " AAAA  one\n BBBB  two\n"
+
+
+def test_gaining_markers_is_allowed(tmp_path):
+    """The guard is one-directional: new markers are normal, lost ones are not."""
+    repo, dest = _make_clone(tmp_path, content=" AAAA  one\n")
+    work = _work_file(tmp_path, " AAAA  one\n BBBB  new\n")
+    result = _write_station_info_to_repo(work, ["SKDA"], repo_path=str(repo), push=True)
+    assert result["success"] is True, result.get("error")
+    assert "BBBB" in dest.read_text()
