@@ -2271,9 +2271,7 @@ class TestCoordColumns:
 
     @staticmethod
     def _station_by_marker(result, marker):
-        return next(
-            s for s in result.stations if open_value(s, "marker") == marker
-        )
+        return next(s for s in result.stations if open_value(s, "marker") == marker)
 
     def test_engine_coord_columns_and_values(self):
         client = FakeClient(self._fleet())
@@ -2463,7 +2461,9 @@ class TestSplitExpressionList:
         import pytest
 
         with pytest.raises(ValueError):
-            split_expression_list('receiver.firmware != 5.7.0", receiver.model ~ "SEPT POLARX5"')
+            split_expression_list(
+                'receiver.firmware != 5.7.0", receiver.model ~ "SEPT POLARX5"'
+            )
 
 
 class TestCommaSeparatedExpressionCli:
@@ -2487,11 +2487,66 @@ class TestCommaSeparatedExpressionCli:
 
     def test_two_filters_one_argument(self, capsys):
         rc, out = _run_cli(
-            ['in_network_epos = true, tectonic_plate ~ "Eurasia"',
-             "--show", "marker,name,tectonic_plate"],
+            [
+                'in_network_epos = true, tectonic_plate ~ "Eurasia"',
+                "--show",
+                "marker,name,tectonic_plate",
+            ],
             self._fleet(),
             capsys=capsys,
         )
         assert rc == 0
         assert "VMEY" in out
         assert "RHOF" not in out
+
+
+# ---------------------------------------------------------------------------
+# Library call: search_from_argv (gpsplot map --tos-search)
+# ---------------------------------------------------------------------------
+
+
+class TestSearchFromArgv:
+    def _fleet(self):
+        sil = _station(3, "SILA", "Sílastöð", in_epos="true")
+        sil["attributes"] = [
+            a if a["code"] != "subtype" else _attr("subtype", "SIL stöð")
+            for a in sil["attributes"]
+        ]
+        return [
+            _station(1, "AKUR", "Akureyri", in_epos="true"),
+            _station(2, "HVER", "Hveravellir", in_epos="false"),
+            sil,
+        ]
+
+    def _search(self, argv, **kw):
+        from tostools.tos import search_from_argv
+
+        with patch(
+            "tostools.api.tos_client.TOSClient", return_value=FakeClient(self._fleet())
+        ):
+            result = search_from_argv(["--no-cache", *argv], **kw)
+        return sorted(open_value(s, "marker") for s in result.stations)
+
+    def test_sugar_flags_and_expressions_as_on_the_command_line(self):
+        assert self._search(["--epos"]) == ["AKUR", "SILA"]
+        assert self._search(["--epos", "name ~ Akur*"]) == ["AKUR"]
+
+    def test_default_subtype_unless_the_search_names_one(self):
+        gps = {"default_subtype": "GPS stöð"}
+        assert self._search(["--epos"], **gps) == ["AKUR"]
+        assert self._search(["subtype = SIL stöð"], **gps) == ["SILA"]
+        assert self._search(["subtype = all"], **gps) == ["AKUR", "HVER", "SILA"]
+
+    def test_usage_errors_raise_instead_of_exiting(self, capsys):
+        from tostools.tos import SearchUsage
+
+        for argv, match in [
+            (["--nope"], "unrecognized"),
+            (["--json"], "--json"),
+            (["--markers-only"], "--markers-only"),
+            (["nmae = x"], "did you mean name"),
+            (["--at", "2020-13-01"], "YYYY-MM-DD"),
+        ]:
+            with pytest.raises(SearchUsage, match=match):
+                self._search(argv)
+        assert capsys.readouterr().out == ""

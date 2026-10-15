@@ -15302,40 +15302,189 @@ def _print_station_report(report, *, verbose: bool = False):
             print("  (run with --verbose for what this means and how to fix)")
 
 
-def _search_main(argv, profile=None):
-    """Handle ``tos search`` — general fleet search by attribute + device.
+class SearchUsage(ValueError):
+    """A ``tos search`` usage error: a bad expression, selector or flag
+    (the command exits 2 with this message)."""
 
-    ``profile`` (a :class:`search_selectors.Profile`) narrows the command to
-    one discipline: the station subtype is pinned and any selector the
-    profile does not curate is refused. This is what makes ``tosGPS search``
-    a different tool from ``tos search`` rather than an alias.
 
-    One bulk fetch of every geophysical station (the TOS web UI search
-    endpoint, bodyless GET), then client-side filtering:
+@dataclass
+class SearchQuery:
+    """What a ``tos search`` command line asks for, before any fetch."""
 
-      - attribute predicates (positional expressions + ``--epos`` sugar)
-        match the station's **currently-open** attribute period — exactly
-        the Eigindi stöðvar panel in the UI;
-      - device specs (``--receiver`` / ``--device`` / negations) match the
-        station's **currently-joined** devices — the Tæki tengd stöð panel —
-        via a per-station history walk that only touches stations surviving
-        the attribute stage.
+    predicates: list
+    show_codes: list
+    coord_frames: list
+    show_order: list
+    device_must: list
+    device_must_not: list
 
-    Exit codes: 0 success (0 hits is still a valid answer), 1 fetch/walk
-    error or empty fleet, 2 usage error (bad expression / spec).
+
+def _search_query(args, profile, _prog) -> SearchQuery:
+    """The predicates, --show selectors and device specs of parsed
+    ``tos search`` arguments.
+
+    Raises:
+        SearchUsage: a bad expression, selector, device spec or date, or a
+            selector the profile does not curate.
     """
-    import json as _json
-
-    from rich.console import Console
-    from rich.table import Table
-
     from . import search as search_mod
-    from .api.tos_client import TOSClient
 
-    # Diagnostics must name the command the user actually typed — a
-    # 'tos search:' prefix under tosGPS sends them to the wrong --help.
-    _prog = f"tos{profile.name}" if profile else "tos"
+    # ---- Build predicates ----------------------------------------------
+    predicates = []
+    show_codes = []
+    coord_frames = []
+    show_order = []
+    try:
+        for expr in args.expressions:
+            for part in search_mod.split_expression_list(expr):
+                predicates.append(search_mod.parse_expression(part))
+        # --show takes the same selector grammar as an expression's LHS.
+        # Validate here so an unknown namespace is a usage error rather
+        # than an empty column. The 'coord.' namespace is projection-only
+        # and expands to a frame's three axes, so it is intercepted here
+        # rather than handed to parse_selector (which would reject it).
+        for entry in args.show or []:
+            # Attribute codes never contain a comma, so splitting is safe
+            # and lets --show take a list the way the sketch wanted.
+            for raw in entry.split(","):
+                raw = raw.strip()
+                if not raw:
+                    continue
+                frame = search_mod.parse_coord_selector(raw)
+                if frame is not None:
+                    if not frame:
+                        raise ValueError(
+                            f"selector {raw!r} has no frame after 'coords.'"
+                        )
+                    search_mod.coord_frame(frame)  # validates; raises KeyError
+                    if frame not in coord_frames:
+                        coord_frames.append(frame)
+                    show_order.append(("coord", frame))
+                    continue
+                namespace, code = search_mod.parse_selector(raw)
+                show_codes.append(f"{namespace}.{code}" if namespace else code)
+                if namespace is None:
+                    if code in ("marker", "name"):
+                        show_order.append((code,))
+                    else:
+                        show_order.append(("attr", code))
+                elif namespace == search_mod.VISIT_NAMESPACE:
+                    show_order.append(("visit", code))
+                elif namespace == search_mod.CONTACT_NAMESPACE:
+                    show_order.append(("contact", code))
+                else:
+                    show_order.append(("device", namespace, code))
+    except ValueError as exc:
+        raise SearchUsage(f"{_prog} search: {exc}")
+    except KeyError as exc:
+        raise SearchUsage(f"{_prog} search: {exc}")
+    except ImportError as exc:
+        raise SearchUsage(
+            f"{_prog} search: --show coord.* needs the geofunc package "
+            f"({exc}); it is not installed"
+        )
 
+    # ---- Profile gate -----------------------------------------------------
+    # Refuse anything the discipline does not curate, rather than silently
+    # answering a question about a field nobody maintains for it.
+    if profile is not None:
+        offenders = [
+            (p.namespace, p.code, p.selector)
+            for p in predicates
+            if p.namespace
+            not in (search_mod.VISIT_NAMESPACE, search_mod.CONTACT_NAMESPACE)
+            and not profile.allows(p.namespace, p.code)
+        ] + [
+            (ns, code, raw)
+            for raw in show_codes
+            for ns, code in [search_mod.parse_selector(raw)]
+            if ns not in (search_mod.VISIT_NAMESPACE, search_mod.CONTACT_NAMESPACE)
+            and not profile.allows(ns, code)
+        ]
+        if offenders:
+            raise SearchUsage(
+                "\n".join(
+                    f"{_prog} search: {_profile_reject(profile, ns, code, raw)}"
+                    for ns, code, raw in offenders
+                )
+            )
+
+    predicates.extend(search_mod.sugar_predicates(args))
+    for org in args.owner or []:
+        predicates.append(
+            search_mod.Predicate(
+                "owner", "~", org, namespace=search_mod.CONTACT_NAMESPACE
+            )
+        )
+    for org in args.no_owner or []:
+        predicates.append(
+            search_mod.Predicate(
+                "owner", "!~", org, namespace=search_mod.CONTACT_NAMESPACE
+            )
+        )
+
+    # Scope: ONLY a profile pins a subtype. Plain `tos search` is the entity
+    # layer and is deliberately unconstrained — it predates `tosGPS search`,
+    # which now owns the GPS pin, and keeping a silent 'subtype = GPS stöð'
+    # here made the layer split untrue: the doc called this the general fleet
+    # query while it answered only about 217 of 443 geophysical entities.
+    if profile is not None:
+        # A profile PINS the subtype: 'tosGPS search' answering about SIL
+        # stations would make the tool's name a lie. An explicit subtype
+        # expression is refused rather than quietly overridden.
+        explicit = [p for p in predicates if p.code == "subtype"]
+        conflicting = [
+            p
+            for p in explicit
+            if search_mod.norm_value(p.value) != search_mod.norm_value(profile.subtype)
+            or p.op != "="
+        ]
+        if conflicting:
+            raise SearchUsage(
+                f"{_prog} search: tos{profile.name} is pinned to "
+                f"'subtype = {profile.subtype}' — drop "
+                f"{conflicting[0].describe()!r}, or use plain 'tos search' "
+                "to query other station types."
+            )
+        if not explicit:
+            predicates.insert(0, search_mod.Predicate("subtype", "=", profile.subtype))
+
+    # ---- Build device specs ---------------------------------------------
+    device_must, device_must_not = [], []
+    try:
+        if args.receiver is not None:
+            device_must.append(
+                search_mod.parse_device_spec(f"receiver:{args.receiver}", negate=False)
+            )
+        if args.no_receiver:
+            device_must_not.append(
+                search_mod.parse_device_spec("receiver:any", negate=True)
+            )
+        for raw in args.device or []:
+            device_must.append(search_mod.parse_device_spec(raw))
+        for raw in args.no_device or []:
+            device_must_not.append(search_mod.parse_device_spec(raw, negate=True))
+    except ValueError as exc:
+        raise SearchUsage(f"{_prog} search: {exc}")
+
+    # ---- Time mode -------------------------------------------------------
+    if args.at and args.history:
+        raise SearchUsage(
+            f"{_prog} search: --at and --history are mutually exclusive (--at picks "
+            "ONE instant, --history spans them all)"
+        )
+    if args.at and not _is_iso_day(args.at):
+        raise SearchUsage(
+            f"{_prog} search: --at {args.at!r} is not a valid YYYY-MM-DD date"
+        )
+
+    return SearchQuery(
+        predicates, show_codes, coord_frames, show_order, device_must, device_must_not
+    )
+
+
+def _search_parser(_prog: str = "tos") -> argparse.ArgumentParser:
+    """The ``tos search`` argument parser (``_prog``: tos, tosGPS, …)."""
     p = argparse.ArgumentParser(
         prog=f"{_prog} search",
         description=(
@@ -15755,7 +15904,152 @@ def _search_main(argv, profile=None):
         action="store_true",
         help="Suppress the stderr device-walk progress line.",
     )
+    return p
 
+
+def _search_client(args):
+    """The TOS client of a ``tos search`` run: the --from-snapshot replay,
+    else the cached live client. Returns ``(client, cached, replay)``.
+
+    Raises:
+        SearchUsage: the snapshot cannot be read.
+    """
+    from .api.client_cache import CachingClient, SnapshotClient
+    from .api.tos_client import TOSClient
+
+    scheme = "https" if args.port == 443 else "http"
+    base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
+    if args.from_snapshot:  # a replay: nothing else may reach the wire
+        try:
+            replay = SnapshotClient.load(args.from_snapshot)
+        except (OSError, ValueError) as exc:
+            raise SearchUsage(f"tos search: {exc}") from exc
+        return replay, None, replay
+    cached = CachingClient(
+        TOSClient(base_url=base_url),
+        ttl=args.cache_ttl,
+        enabled=not args.no_cache,
+        refresh=args.refresh,
+        # Entity ids are unique only within one TOS instance — a shared
+        # cache dir would serve production rows to a test server.
+        server=f"{args.server}:{args.port}",
+    )
+    return cached, cached, None
+
+
+#: ``tos search`` options that shape the printed report or discover
+#: selectors; a library call returns the stations and refuses them
+SEARCH_REPORT_OPTIONS = {
+    "json": "--json",
+    "markers_only": "--markers-only",
+    "limit": "--limit",
+    "snapshot": "--snapshot",
+    "selectors": "--selectors",
+    "attribute_list": "--attribute-list",
+    "attribute": "--attribute",
+    "allowed_values": "--allowed-values",
+}
+
+
+def search_from_argv(argv, *, default_subtype=None, progress=None):
+    """Run a ``tos search`` command line as a library call.
+
+    ``argv`` is what follows ``tos search`` (expressions and flags:
+    ``["--epos", "subtype = GPS stöð"]``), parsed by the command's own
+    parser, so every expression, sugar flag (--epos, --active-gps, …),
+    device spec, --domain, --at and the cache options work alike.
+    ``default_subtype`` pins ``subtype = <it>`` unless the search names a
+    subtype itself (``'subtype = all'`` lifts it). Nothing is printed.
+
+    Returns:
+        The :class:`search.SearchResult`; ``.stations`` are the matching
+        entities, in the shape of ``TOSClient.list_stations`` rows.
+
+    Raises:
+        SearchUsage: a bad search (also for argparse errors and the
+            report-only options :data:`SEARCH_REPORT_OPTIONS`).
+        Exception: the TOS fetch failed.
+    """
+    from . import search as search_mod
+    from .api.client_cache import SnapshotMiss
+
+    def fail(message):
+        raise SearchUsage(f"tos search: {message}")
+
+    parser = _search_parser("tos")
+    parser.error = fail  # type: ignore[method-assign]  # raise, not exit
+    args = parser.parse_args(list(argv))
+    given = [flag for dest, flag in SEARCH_REPORT_OPTIONS.items()
+             if getattr(args, dest, None) not in (None, False)]  # fmt: skip
+    if given:
+        fail(f"{', '.join(given)} shape the printed report; not here")
+    query = _search_query(args, None, "tos")
+    predicates = list(query.predicates)
+    if default_subtype and not any(
+        p.code == "subtype" and p.namespace is None for p in predicates
+    ):
+        predicates.insert(0, search_mod.Predicate("subtype", "=", default_subtype))
+    client, _cached, _replay = _search_client(args)
+    try:
+        return search_mod.search_stations(
+            client,
+            predicates,
+            device_must=query.device_must,
+            device_must_not=query.device_must_not,
+            show_codes=query.show_codes,
+            domain=args.domain,
+            progress=progress,
+            at=args.at,
+            history=args.history,
+            coord_frames=query.coord_frames,
+            project_only=args.only or bool(args.show),
+            show_order=query.show_order,
+        )
+    except search_mod.UnknownStationCode as exc:
+        hints = "; ".join(
+            code + (f" (did you mean {', '.join(sugg)}?)" if sugg else "")
+            for code, sugg in exc.unknown
+        )
+        fail(f"not a {exc.domain} station attribute: {hints}")
+    except SnapshotMiss as exc:
+        fail(str(exc))
+
+
+def _search_main(argv, profile=None):
+    """Handle ``tos search`` — general fleet search by attribute + device.
+
+    ``profile`` (a :class:`search_selectors.Profile`) narrows the command to
+    one discipline: the station subtype is pinned and any selector the
+    profile does not curate is refused. This is what makes ``tosGPS search``
+    a different tool from ``tos search`` rather than an alias.
+
+    One bulk fetch of every geophysical station (the TOS web UI search
+    endpoint, bodyless GET), then client-side filtering:
+
+      - attribute predicates (positional expressions + ``--epos`` sugar)
+        match the station's **currently-open** attribute period — exactly
+        the Eigindi stöðvar panel in the UI;
+      - device specs (``--receiver`` / ``--device`` / negations) match the
+        station's **currently-joined** devices — the Tæki tengd stöð panel —
+        via a per-station history walk that only touches stations surviving
+        the attribute stage.
+
+    Exit codes: 0 success (0 hits is still a valid answer), 1 fetch/walk
+    error or empty fleet, 2 usage error (bad expression / spec).
+    """
+    import json as _json
+
+    from rich.console import Console
+    from rich.table import Table
+
+    from . import search as search_mod
+    from .api.tos_client import TOSClient
+
+    # Diagnostics must name the command the user actually typed — a
+    # 'tos search:' prefix under tosGPS sends them to the wrong --help.
+    _prog = f"tos{profile.name}" if profile else "tos"
+
+    p = _search_parser(_prog)
     args = p.parse_args(argv)
 
     # ---- Selector discovery (catalog-driven; no fetch unless --observed) --
@@ -15807,193 +16101,25 @@ def _search_main(argv, profile=None):
             print(f"    {value!r:24s} {n:>4d} station(s)")
         return 0
 
-    # ---- Build predicates ----------------------------------------------
-    predicates = []
-    show_codes = []
-    coord_frames = []
-    show_order = []
     try:
-        for expr in args.expressions:
-            for part in search_mod.split_expression_list(expr):
-                predicates.append(search_mod.parse_expression(part))
-        # --show takes the same selector grammar as an expression's LHS.
-        # Validate here so an unknown namespace is a usage error rather
-        # than an empty column. The 'coord.' namespace is projection-only
-        # and expands to a frame's three axes, so it is intercepted here
-        # rather than handed to parse_selector (which would reject it).
-        for entry in args.show or []:
-            # Attribute codes never contain a comma, so splitting is safe
-            # and lets --show take a list the way the sketch wanted.
-            for raw in entry.split(","):
-                raw = raw.strip()
-                if not raw:
-                    continue
-                frame = search_mod.parse_coord_selector(raw)
-                if frame is not None:
-                    if not frame:
-                        raise ValueError(
-                            f"selector {raw!r} has no frame after 'coords.'"
-                        )
-                    search_mod.coord_frame(frame)  # validates; raises KeyError
-                    if frame not in coord_frames:
-                        coord_frames.append(frame)
-                    show_order.append(("coord", frame))
-                    continue
-                namespace, code = search_mod.parse_selector(raw)
-                show_codes.append(f"{namespace}.{code}" if namespace else code)
-                if namespace is None:
-                    if code in ("marker", "name"):
-                        show_order.append((code,))
-                    else:
-                        show_order.append(("attr", code))
-                elif namespace == search_mod.VISIT_NAMESPACE:
-                    show_order.append(("visit", code))
-                elif namespace == search_mod.CONTACT_NAMESPACE:
-                    show_order.append(("contact", code))
-                else:
-                    show_order.append(("device", namespace, code))
-    except ValueError as exc:
-        print(f"{_prog} search: {exc}", file=sys.stderr)
+        query = _search_query(args, profile, _prog)
+    except SearchUsage as exc:
+        print(str(exc), file=sys.stderr)
         return 2
-    except KeyError as exc:
-        print(f"{_prog} search: {exc}", file=sys.stderr)
-        return 2
-    except ImportError as exc:
-        print(
-            f"{_prog} search: --show coord.* needs the geofunc package "
-            f"({exc}); it is not installed",
-            file=sys.stderr,
-        )
-        return 2
-
-    # ---- Profile gate -----------------------------------------------------
-    # Refuse anything the discipline does not curate, rather than silently
-    # answering a question about a field nobody maintains for it.
-    if profile is not None:
-        offenders = [
-            (p.namespace, p.code, p.selector)
-            for p in predicates
-            if p.namespace
-            not in (search_mod.VISIT_NAMESPACE, search_mod.CONTACT_NAMESPACE)
-            and not profile.allows(p.namespace, p.code)
-        ] + [
-            (ns, code, raw)
-            for raw in show_codes
-            for ns, code in [search_mod.parse_selector(raw)]
-            if ns not in (search_mod.VISIT_NAMESPACE, search_mod.CONTACT_NAMESPACE)
-            and not profile.allows(ns, code)
-        ]
-        if offenders:
-            for ns, code, raw in offenders:
-                print(
-                    f"{_prog} search: {_profile_reject(profile, ns, code, raw)}",
-                    file=sys.stderr,
-                )
-            return 2
-
-    predicates.extend(search_mod.sugar_predicates(args))
-    for org in args.owner or []:
-        predicates.append(
-            search_mod.Predicate(
-                "owner", "~", org, namespace=search_mod.CONTACT_NAMESPACE
-            )
-        )
-    for org in args.no_owner or []:
-        predicates.append(
-            search_mod.Predicate(
-                "owner", "!~", org, namespace=search_mod.CONTACT_NAMESPACE
-            )
-        )
-
-    # Scope: ONLY a profile pins a subtype. Plain `tos search` is the entity
-    # layer and is deliberately unconstrained — it predates `tosGPS search`,
-    # which now owns the GPS pin, and keeping a silent 'subtype = GPS stöð'
-    # here made the layer split untrue: the doc called this the general fleet
-    # query while it answered only about 217 of 443 geophysical entities.
-    if profile is not None:
-        # A profile PINS the subtype: 'tosGPS search' answering about SIL
-        # stations would make the tool's name a lie. An explicit subtype
-        # expression is refused rather than quietly overridden.
-        explicit = [p for p in predicates if p.code == "subtype"]
-        conflicting = [
-            p
-            for p in explicit
-            if search_mod.norm_value(p.value) != search_mod.norm_value(profile.subtype)
-            or p.op != "="
-        ]
-        if conflicting:
-            print(
-                f"{_prog} search: tos{profile.name} is pinned to "
-                f"'subtype = {profile.subtype}' — drop "
-                f"{conflicting[0].describe()!r}, or use plain 'tos search' "
-                "to query other station types.",
-                file=sys.stderr,
-            )
-            return 2
-        if not explicit:
-            predicates.insert(0, search_mod.Predicate("subtype", "=", profile.subtype))
-
-    # ---- Build device specs ---------------------------------------------
-    device_must, device_must_not = [], []
-    try:
-        if args.receiver is not None:
-            device_must.append(
-                search_mod.parse_device_spec(f"receiver:{args.receiver}", negate=False)
-            )
-        if args.no_receiver:
-            device_must_not.append(
-                search_mod.parse_device_spec("receiver:any", negate=True)
-            )
-        for raw in args.device or []:
-            device_must.append(search_mod.parse_device_spec(raw))
-        for raw in args.no_device or []:
-            device_must_not.append(search_mod.parse_device_spec(raw, negate=True))
-    except ValueError as exc:
-        print(f"{_prog} search: {exc}", file=sys.stderr)
-        return 2
-
-    # ---- Time mode -------------------------------------------------------
-    if args.at and args.history:
-        print(
-            f"{_prog} search: --at and --history are mutually exclusive (--at picks "
-            "ONE instant, --history spans them all)",
-            file=sys.stderr,
-        )
-        return 2
-    if args.at and not _is_iso_day(args.at):
-        print(
-            f"{_prog} search: --at {args.at!r} is not a valid YYYY-MM-DD date",
-            file=sys.stderr,
-        )
-        return 2
+    predicates, show_codes = query.predicates, query.show_codes
+    coord_frames, show_order = query.coord_frames, query.show_order
+    device_must, device_must_not = query.device_must, query.device_must_not
 
     # ---- Run pipeline ----------------------------------------------------
-    from .api.client_cache import CachingClient, SnapshotClient, SnapshotMiss
+    from .api.client_cache import SnapshotMiss
 
-    scheme = "https" if args.port == 443 else "http"
-    base_url = f"{scheme}://{args.server}:{args.port}/tos/internal"
-
-    # --from-snapshot replays a recording; nothing else may reach the wire.
-    replay = None
-    cached = None
-    if args.from_snapshot:
-        try:
-            replay = SnapshotClient.load(args.from_snapshot)
-        except (OSError, ValueError) as exc:
-            print(f"{_prog} search: {exc}", file=sys.stderr)
-            return 2
-        client = replay
-    else:
-        cached = CachingClient(
-            TOSClient(base_url=base_url),
-            ttl=args.cache_ttl,
-            enabled=not args.no_cache,
-            refresh=args.refresh,
-            # Entity ids are unique only within one TOS instance — a shared
-            # cache dir would serve production rows to a test server.
-            server=f"{args.server}:{args.port}",
+    try:
+        client, cached, replay = _search_client(args)
+    except SearchUsage as exc:
+        print(
+            f"{_prog} search: {str(exc).removeprefix('tos search: ')}", file=sys.stderr
         )
-        client = cached
+        return 2
 
     progress = search_mod.stderr_progress(args.no_progress, args.json)
     try:
