@@ -7,6 +7,7 @@ was removed in v0.7. XML / SC3 / FDSN export has been retired.
 import argparse
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -12024,6 +12025,41 @@ def _dispatch_fill_gap(writer, action: ParsedAction) -> ActionResult:
     )
 
 
+def _parse_attribute_period_time(raw: str) -> datetime:
+    """Parse audit-apply boundaries without losing precision or timezone meaning.
+
+    TOS stores naive whole seconds. Bare dates mean midnight for writes and
+    equality, but remain day-wide PATCH selectors. Accept the native space
+    separator too; callers canonicalise it to ``T`` in outgoing timestamps.
+    Offsets, Z, fractional/truncated times and invalid calendars are refused,
+    rather than relying on the low-level writer's permissive normalisation.
+    """
+    import re
+
+    if not isinstance(raw, str) or not re.fullmatch(
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[T ][0-9]{2}:[0-9]{2}:[0-9]{2})?", raw
+    ):
+        raise ValueError(
+            f"expected YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS "
+            f"without timezone or fractional seconds (got {raw!r})"
+        )
+    return datetime.fromisoformat(raw)
+
+
+def _match_attribute_periods(attrs, anchor: str):
+    """Select an exact instant, or all same-day rows for a bare-date anchor."""
+    instant = _parse_attribute_period_time(anchor)
+    matches = []
+    for attr in attrs:
+        raw = attr.get("date_from")
+        if not raw:
+            continue
+        start = _parse_attribute_period_time(raw)
+        if start == instant or (len(anchor) == 10 and start.date() == instant.date()):
+            matches.append(attr)
+    return matches
+
+
 def _dispatch_patch_attribute_date(writer, action: ParsedAction) -> ActionResult:
     """Re-date an existing TOS attribute period in-place.
 
@@ -12034,11 +12070,9 @@ def _dispatch_patch_attribute_date(writer, action: ParsedAction) -> ActionResult
 
     Match rule
     ----------
-    A period matches when its ``date_from`` *date-only* prefix
-    (``YYYY-MM-DD``) equals ``old_date_from``. The same normalisation
-    applied at audit / suppression time — without it, ``"2014-10-17"
-    != "2014-10-17 00:00:00"`` lexically and the dispatcher would
-    silently no-op against live TOS.
+    A bare-date anchor selects all rows on that calendar day; a full
+    second-precision timestamp selects only that instant (T/space equivalent).
+    Ambiguous anchors refuse rather than picking an arbitrary row.
 
     Failure modes
     -------------
@@ -12068,20 +12102,15 @@ def _dispatch_patch_attribute_date(writer, action: ParsedAction) -> ActionResult
         )
     new_date_raw = resolved_new or new_date_raw
 
-    # Normalise both date arguments to YYYY-MM-DD up front. Matches the
-    # audit-time _date_only() contract and keeps the comparison robust
-    # to operator-pasted datetimes.
-    old_date = old_date_raw[:10]
-    new_date = new_date_raw[:10]
-    if len(new_date) != 10 or new_date[4] != "-" or new_date[7] != "-":
+    try:
+        _parse_attribute_period_time(old_date_raw)
+        new_instant = _parse_attribute_period_time(new_date_raw)
+    except ValueError as exc:
         return ActionResult(
-            action=action,
-            status="failed",
-            detail=(
-                f"patch-attribute-date: new_date_from must be YYYY-MM-DD "
-                f"(got {new_date_raw!r})"
-            ),
+            action=action, status="failed", detail=f"patch-attribute-date: {exc}"
         )
+    old_date = old_date_raw.replace(" ", "T")
+    new_date = new_date_raw.replace(" ", "T")
 
     try:
         attrs = writer.get_attribute_values(action.id_entity, code)
@@ -12092,13 +12121,14 @@ def _dispatch_patch_attribute_date(writer, action: ParsedAction) -> ActionResult
             detail=f"get_attribute_values raised: {exc}",
         )
 
-    matches: List[Dict[str, Any]] = []
-    for a in attrs:
-        df = a.get("date_from")
-        if not df:
-            continue
-        if str(df)[:10] == old_date:
-            matches.append(a)
+    try:
+        matches = _match_attribute_periods(attrs, old_date)
+    except ValueError as exc:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch-attribute-date: invalid existing period: {exc}",
+        )
 
     if not matches:
         return ActionResult(
@@ -12124,6 +12154,26 @@ def _dispatch_patch_attribute_date(writer, action: ParsedAction) -> ActionResult
         )
 
     target = matches[0]
+    try:
+        end = target.get("date_to")
+        if end is not None and new_instant >= _parse_attribute_period_time(end):
+            return ActionResult(
+                action=action,
+                status="failed",
+                detail="patch-attribute-date: new date_from must be before date_to",
+            )
+        if new_instant == _parse_attribute_period_time(target["date_from"]):
+            return ActionResult(
+                action=action,
+                status="ok",
+                detail="already present: date_from unchanged (no-op)",
+            )
+    except ValueError as exc:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch-attribute-date: invalid existing period: {exc}",
+        )
     id_av_raw = target.get("id_attribute_value")
     if id_av_raw is None:
         return ActionResult(
@@ -12172,7 +12222,8 @@ def _dispatch_patch_attribute_date_to(writer, action: ParsedAction) -> ActionRes
 
     Action shape: ``ACTION <id_entity> patch-attribute-date-to <code>
     <date_from_match> <new_date_to>``. Matches the period by ``code`` +
-    ``date_from`` date-only prefix (same rule + 0/>1-match refusal as
+    ``date_from`` (day-wide for bare dates, instant-exact for timestamps;
+    same 0/>1-match refusal as
     :func:`_dispatch_patch_attribute_date`), then PATCHes ``date_to``.
 
     ``open`` is REFUSED: the TOS backend ignores a null ``date_to`` on PATCH, so
@@ -12180,7 +12231,7 @@ def _dispatch_patch_attribute_date_to(writer, action: ParsedAction) -> ActionRes
     returns 2xx but the date is unchanged). Re-open by DELETE + re-add instead.
     """
     code = action.args[0]
-    match_date = action.args[1][:10]
+    match_date = action.args[1]
     new_to_raw = action.args[2]
 
     if new_to_raw.strip().lower() == "open":
@@ -12201,15 +12252,13 @@ def _dispatch_patch_attribute_date_to(writer, action: ParsedAction) -> ActionRes
         return ActionResult(
             action=action, status="failed", detail=f"patch-attribute-date-to: {err}"
         )
-    new_to = (resolved or new_to_raw)[:10]
-    if len(new_to) != 10 or new_to[4] != "-" or new_to[7] != "-":
+    new_to = (resolved or new_to_raw).replace(" ", "T")
+    try:
+        _parse_attribute_period_time(match_date)
+        new_instant = _parse_attribute_period_time(new_to)
+    except ValueError as exc:
         return ActionResult(
-            action=action,
-            status="failed",
-            detail=(
-                "patch-attribute-date-to: new_date_to must be YYYY-MM-DD "
-                f"(got {new_to_raw!r}); to re-open use delete + re-add"
-            ),
+            action=action, status="failed", detail=f"patch-attribute-date-to: {exc}"
         )
 
     try:
@@ -12219,11 +12268,14 @@ def _dispatch_patch_attribute_date_to(writer, action: ParsedAction) -> ActionRes
             action=action, status="failed", detail=f"get_attribute_values raised: {exc}"
         )
 
-    matches = [
-        a
-        for a in attrs
-        if a.get("date_from") and str(a["date_from"])[:10] == match_date
-    ]
+    try:
+        matches = _match_attribute_periods(attrs, match_date)
+    except ValueError as exc:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch-attribute-date-to: invalid existing period: {exc}",
+        )
     if not matches:
         return ActionResult(
             action=action,
@@ -12247,7 +12299,8 @@ def _dispatch_patch_attribute_date_to(writer, action: ParsedAction) -> ActionRes
         )
 
     target = matches[0]
-    if new_to <= match_date:
+    start = _parse_attribute_period_time(target["date_from"])
+    if new_instant <= start:
         # A period cannot end at or before it began. Reached when a triage
         # proposes closing a value at the very date it was opened — the
         # same-day-move shape, where the NEXT installation's attributes start
@@ -12259,10 +12312,24 @@ def _dispatch_patch_attribute_date_to(writer, action: ParsedAction) -> ActionRes
             status="failed",
             detail=(
                 f"patch-attribute-date-to: new date_to {new_to} is not after "
-                f"date_from {match_date} for code={code!r} — a period cannot "
+                f"date_from {target['date_from']} for code={code!r} — a period cannot "
                 "end at or before it began (same-day move? the open period "
                 "likely belongs to the NEXT installation)"
             ),
+        )
+    try:
+        end = target.get("date_to")
+        if end is not None and new_instant == _parse_attribute_period_time(end):
+            return ActionResult(
+                action=action,
+                status="ok",
+                detail="already present: date_to unchanged (no-op)",
+            )
+    except ValueError as exc:
+        return ActionResult(
+            action=action,
+            status="failed",
+            detail=f"patch-attribute-date-to: invalid existing period: {exc}",
         )
     id_av_raw = target.get("id_attribute_value")
     if id_av_raw is None:
@@ -12283,7 +12350,7 @@ def _dispatch_patch_attribute_date_to(writer, action: ParsedAction) -> ActionRes
             detail=f"patch-attribute-date-to: id_attribute_value={id_av_raw!r} not int",
         )
 
-    old_to = str(target.get("date_to"))[:10] if target.get("date_to") else "open"
+    old_to = target.get("date_to") or "open"
     try:
         response = writer.patch_attribute_value(id_av, date_to=new_to)
     except Exception as exc:  # noqa: BLE001
@@ -12450,7 +12517,8 @@ def _dispatch_add_attribute_period(writer, action: ParsedAction) -> ActionResult
 
     Action shape: ``ACTION <id_entity> add-attribute-period <code> <value>
     <date_from> <date_to>`` where ``date_to`` is ``open`` (→ None, open period)
-    or a ``YYYY-MM-DD`` date (→ closed period). Unlike ``add-attribute`` this does
+    or a bare date / naive second-precision ISO timestamp (→ closed period).
+    Unlike ``add-attribute`` this does
     NOT refuse when an open period already exists: it is the deliberate primitive
     for rebuilding a full firmware/attribute timeline (delete the stale single
     value first, then add each mined period — middles closed, the last one open).
@@ -12481,40 +12549,26 @@ def _dispatch_add_attribute_period(writer, action: ParsedAction) -> ActionResult
         return ActionResult(
             action=action, status="failed", detail=f"add-attribute-period: {err}"
         )
-    date_from_raw = resolved or date_from_raw
-    date_from = date_from_raw[:10]
-    if len(date_from) != 10 or date_from[4] != "-" or date_from[7] != "-":
+    date_from = (resolved or date_from_raw).replace(" ", "T")
+    date_to = None if date_to_raw.lower() == "open" else date_to_raw.replace(" ", "T")
+    try:
+        from_instant = _parse_attribute_period_time(date_from)
+        to_instant = (
+            _parse_attribute_period_time(date_to) if date_to is not None else None
+        )
+    except ValueError as exc:
+        return ActionResult(
+            action=action, status="failed", detail=f"add-attribute-period: {exc}"
+        )
+    if to_instant is not None and to_instant <= from_instant:
         return ActionResult(
             action=action,
             status="failed",
             detail=(
-                f"add-attribute-period: date_from must be YYYY-MM-DD "
-                f"(got {date_from_raw!r})"
+                f"add-attribute-period: date_to {date_to} must be after "
+                f"date_from {date_from}"
             ),
         )
-
-    if date_to_raw.lower() == "open":
-        date_to: Optional[str] = None
-    else:
-        date_to = date_to_raw[:10]
-        if len(date_to) != 10 or date_to[4] != "-" or date_to[7] != "-":
-            return ActionResult(
-                action=action,
-                status="failed",
-                detail=(
-                    f"add-attribute-period: date_to must be YYYY-MM-DD or "
-                    f"'open' (got {date_to_raw!r})"
-                ),
-            )
-        if date_to <= date_from:
-            return ActionResult(
-                action=action,
-                status="failed",
-                detail=(
-                    f"add-attribute-period: date_to {date_to} must be after "
-                    f"date_from {date_from}"
-                ),
-            )
 
     # Idempotency: an identical (value, date_from, date_to) period is a no-op.
     try:
@@ -12526,10 +12580,19 @@ def _dispatch_add_attribute_period(writer, action: ParsedAction) -> ActionResult
             detail=f"get_attribute_values raised: {exc}",
         )
     for a in existing:
-        a_from = (a.get("date_from") or "")[:10]
-        raw_to = a.get("date_to")
-        a_to = (raw_to or "")[:10] if raw_to else None
-        if str(a.get("value")) == value and a_from == date_from and a_to == date_to:
+        if str(a.get("value")) != value:
+            continue
+        try:
+            a_from = _parse_attribute_period_time(a.get("date_from"))
+            raw_to = a.get("date_to")
+            a_to = _parse_attribute_period_time(raw_to) if raw_to is not None else None
+        except ValueError as exc:
+            return ActionResult(
+                action=action,
+                status="failed",
+                detail=f"add-attribute-period: invalid existing period: {exc}",
+            )
+        if a_from == from_instant and a_to == to_instant:
             return ActionResult(
                 action=action,
                 status="ok",
@@ -13811,12 +13874,23 @@ def _apply_main(args) -> int:
     #  * apply  → post-apply RE-READ (catches a close that failed at runtime).
     post_violations: List[str] = []
     preflight_warnings: List[str] = []
-    if dry_run:
-        preflight_warnings = _preflight_open_singular_conflicts(client, actions)
-    else:
-        post_violations = _verify_no_duplicate_open_singular(client, actions)
+    try:
+        if dry_run:
+            preflight_warnings = _preflight_open_singular_conflicts(client, actions)
+        else:
+            post_violations = _verify_no_duplicate_open_singular(client, actions)
+    except Exception as exc:  # noqa: BLE001 — preserve results of writes already sent
+        message = f"{'pre-flight' if dry_run else 'post-apply'} guard failed: {exc}"
+        if dry_run:
+            preflight_warnings = [message]
+        else:
+            post_violations = [
+                message + " (writes may already be committed; re-verify)"
+            ]
 
     if args.json:
+        for diagnostic in preflight_warnings + post_violations:
+            print(diagnostic, file=sys.stderr)
         payload = {
             "file": str(path),
             "dry_run": dry_run,

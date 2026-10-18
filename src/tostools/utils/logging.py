@@ -197,7 +197,7 @@ def configure_logging(
                     "class": "logging.StreamHandler",
                     "level": config.console_level,
                     "formatter": "human_console",
-                    "stream": "ext://sys.stdout",
+                    "stream": "ext://sys.stderr",
                 },
             },
             "root": {
