@@ -535,7 +535,7 @@ def _get_corrections_from_tos(
                 except ValueError:
                     time_to = None
 
-            # Check if observation date falls within session
+            # TOS sessions are half-open: time_from <= observation_date < time_to.
             if observation_date:
                 obs_date = (
                     observation_date.replace(tzinfo=None)
@@ -556,7 +556,7 @@ def _get_corrections_from_tos(
                         if hasattr(time_to, "tzinfo") and time_to.tzinfo
                         else time_to
                     )
-                    if obs_date > tt:
+                    if obs_date >= tt:
                         continue
             session = s
             break
