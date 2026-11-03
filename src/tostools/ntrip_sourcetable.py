@@ -91,19 +91,55 @@ def iter_rtcm3_frames(buf: bytes) -> Iterator[Tuple[int, int, int]]:
 SBF_SYNC = b"$@"
 
 
+def crc16_ccitt(data: bytes) -> int:
+    """CRC-16-CCITT (poly 0x1021, init 0) as used by Septentrio SBF."""
+    crc = 0
+    for byte in data:
+        crc ^= byte << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) if crc & 0x8000 else crc << 1
+        crc &= 0xFFFF
+    return crc
+
+
+def count_sbf_blocks(buf: bytes, *, limit: int = 0) -> int:
+    """Count CRC-valid SBF blocks (stop early once ``limit`` is reached).
+
+    Block: ``$@`` sync, CRC (u2 LE), ID (u2), Length (u2 LE, whole block,
+    multiple of 4); the CRC covers ID through the end of the block. A bare
+    ``$@`` count is not enough — the pair turns up by chance in Trimble
+    RT17 binary (SELF1 was misread as SBF that way).
+    """
+    count = 0
+    i = buf.find(SBF_SYNC)
+    while i != -1 and i + 8 <= len(buf):
+        length = int.from_bytes(buf[i + 6 : i + 8], "little")
+        end = i + length
+        if length >= 8 and length % 4 == 0 and end <= len(buf):
+            crc = int.from_bytes(buf[i + 2 : i + 4], "little")
+            if crc16_ccitt(buf[i + 4 : end]) == crc:
+                count += 1
+                if limit and count >= limit:
+                    break
+                i = buf.find(SBF_SYNC, end)
+                continue
+        i = buf.find(SBF_SYNC, i + 1)
+    return count
+
+
 def detect_format(buf: bytes, *, min_frames: int = 3) -> str:
     """Classify a stream sample as ``"RTCM3"``, ``"SBF"`` or ``"UNKNOWN"``.
 
-    RTCM 3 needs ``min_frames`` CRC-valid frames. SBF is recognised by its
-    ``$@`` block sync recurring — HRIC1 / GEVK1 push raw SBF, and must get an
-    ``SBF`` line rather than an empty RTCM one.
+    Both need ``min_frames`` CRC-valid frames/blocks. HRIC1 / GEVK1 push raw
+    SBF and must get an ``SBF`` line rather than an empty RTCM one; Trimble
+    RT17/RT27 raw streams come out ``UNKNOWN`` (their previous line is kept).
     """
     frames = 0
     for _ in iter_rtcm3_frames(buf):
         frames += 1
         if frames >= min_frames:
             return "RTCM3"
-    if buf.count(SBF_SYNC) >= min_frames:
+    if count_sbf_blocks(buf, limit=min_frames) >= min_frames:
         return "SBF"
     return "UNKNOWN"
 

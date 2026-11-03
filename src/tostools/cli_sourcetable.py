@@ -192,6 +192,11 @@ def _report(current, new, probes, stations, outcomes, excluded, args) -> str:
     by_status: Dict[str, List[str]] = defaultdict(list)
     for mount, result in probes.items():
         by_status[result.status].append(mount)
+    unrecognised = [
+        m
+        for m, r in probes.items()
+        if r.summary is not None and r.summary.stream_format == "UNKNOWN"
+    ]
     no_tos = sorted(m for m in probes if stations.get(m[:4].upper()) is None)
 
     def line(label: str, items) -> str:
@@ -221,6 +226,10 @@ def _report(current, new, probes, stations, outcomes, excluded, args) -> str:
         line(
             "LIVE WITHOUT OBSERVATIONS — receiver fault, previous line kept",
             outcomes["no_obs"],
+        ),
+        line(
+            "live, unrecognised format (e.g. Trimble RT17/RT27) — previous line kept",
+            unrecognised,
         ),
         line("kept unmeasured (previous line, TOS fields refreshed)", outcomes["kept"]),
         line(

@@ -43,7 +43,9 @@ def test_false_preamble_in_garbage_resyncs():
 
 def test_detect_format():
     assert nst.detect_format(frame(1004) * 3) == "RTCM3"
-    assert nst.detect_format(b"$@\x00\x01" * 10) == "SBF"
+    assert (
+        nst.detect_format(b"$@\x00\x01" * 10) == "UNKNOWN"
+    )  # bare sync bytes are not SBF
     assert nst.detect_format(b"\x00" * 100) == "UNKNOWN"
 
 
@@ -222,3 +224,18 @@ def test_new_sbf_mount_is_added_as_sbf():
     f = fields(rec)
     assert outcome == "measured"
     assert (f["format"], f["format_details"], f["bitrate"]) == ("SBF", "", "2000")
+
+
+def sbf_block(block_id: int = 4027, body: bytes = b"\x00" * 12) -> bytes:
+    length = 8 + len(body)
+    tail = block_id.to_bytes(2, "little") + length.to_bytes(2, "little") + body
+    return b"$@" + nst.crc16_ccitt(tail).to_bytes(2, "little") + tail
+
+
+def test_sbf_needs_crc_valid_blocks_not_just_sync_bytes():
+    assert nst.detect_format(sbf_block() * 3) == "SBF"
+    # "$@" by chance in other binary (the SELF1 RT17 false positive)
+    assert nst.detect_format(b"\x02\x57$@\x10\x00\x00\x00\x03" * 10) == "UNKNOWN"
+    corrupt = bytearray(sbf_block())
+    corrupt[-1] ^= 1
+    assert nst.count_sbf_blocks(bytes(corrupt) * 3) == 0
