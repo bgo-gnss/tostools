@@ -12,6 +12,7 @@ from pathlib import Path
 import yaml
 from argparse_logging import add_log_level_argument
 
+from . import cli_sourcetable
 from . import gps_metadata_qc as gpsqc
 
 # Import new modular components
@@ -68,7 +69,9 @@ def _resolve_config_data_repo(repo_path=None):
     import os
     from pathlib import Path
 
-    raw = repo_path or os.environ.get("GPS_CONFIG_DATA_REPO") or DEFAULT_CONFIG_DATA_REPO
+    raw = (
+        repo_path or os.environ.get("GPS_CONFIG_DATA_REPO") or DEFAULT_CONFIG_DATA_REPO
+    )
     return Path(os.path.expanduser(raw))
 
 
@@ -920,6 +923,9 @@ Examples:
         help="Save human-readable data quality report to file (e.g., tos_quality_report.txt)",
     )
 
+    # NTRIP caster sourcetable (generate + diff only)
+    cli_sourcetable.add_parser(subparsers)
+
     # Unified metadata synchronization subcommand
     sync_parser = subparsers.add_parser(
         "syncMeta",
@@ -1170,6 +1176,8 @@ Examples:
         _handle_rinex_subcommand(args, stations, url, log_level)
     elif args.subcommand == "sitelog":
         _handle_sitelog_subcommand(args, stations, url, log_level)
+    elif args.subcommand == "sourcetable":
+        sys.exit(cli_sourcetable.run(args, url))
     elif args.subcommand == "syncMeta":
         # For dry-run comparison mode, suppress logging like compare-reference did
         if not args.update and (
