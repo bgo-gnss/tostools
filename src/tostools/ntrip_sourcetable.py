@@ -559,6 +559,9 @@ def build_record(
         rec["longitude"] = f"{station.lon:.2f}"
         if station.receiver_model:
             rec["generator"] = station.receiver_model
+    # Kept lines carry the 2021 file's Latin-1 names (Grímsvötn) when the
+    # marker is not in TOS; the installer on the caster refuses non-ASCII.
+    rec["identifier"] = ascii_identifier(rec.get("identifier", ""))
     rec["authentication"] = auth
 
     if usable and summary is not None and summary.stream_format == "RTCM3":

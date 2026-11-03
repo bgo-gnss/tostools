@@ -200,7 +200,7 @@ def test_unmeasurable_existing_line_is_kept():
     rec, outcome = nst.build_record(
         "AAAA0", previous=prev, probe=probe, station=None, auth="B"
     )
-    assert outcome == "kept" and rec == prev
+    assert outcome == "kept" and rec == prev  # already-ASCII line: verbatim
 
 
 @pytest.mark.parametrize(
@@ -239,3 +239,16 @@ def test_sbf_needs_crc_valid_blocks_not_just_sync_bytes():
     corrupt = bytearray(sbf_block())
     corrupt[-1] ^= 1
     assert nst.count_sbf_blocks(bytes(corrupt) * 3) == 0
+
+
+def test_kept_line_without_tos_station_is_made_ascii():
+    prev = "STR;GRVC0;Gr\xedmsv\xf6tn;RTCM 3.1;1004(197);2;GPS;ISGPS;ISL;64.4;-17.3;0;0;X;none;B;N;2000"
+    rec, outcome = nst.build_record(
+        "GRVC0",
+        previous=prev.split(";"),
+        probe=nst.ProbeResult("GRVC0", nst.NOT_FED),
+        station=None,
+        auth="B",
+    )
+    assert outcome == "kept"
+    assert fields(rec)["identifier"] == "Grimsvotn"
