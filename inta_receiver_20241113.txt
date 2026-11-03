@@ -4,6 +4,10 @@
 #   * Vitjun 4738 (bhb@vedur.is) 2024-11-13 18:10-19:10: "gamla NetRS tækið var
 #     bilað og sett nýtt Septentrio í staðinn".
 #   * RINEX INTA3180.24D: SEPT POLARX5 #4101796, TIME OF FIRST OBS 2024-11-13 21:28.
+#   * Raw archive: INTA202411130000a.sbf.gz (1.3 MB, archived 2024-11-15 10:36
+#     with the 11-14 file) holds 606 epochs 2024-11-13 21:28:30-23:59:45 GPS;
+#     no observation before 21:28. The join keeps the install time (visit
+#     start 18:10), not the first data - BGÓ 2026-11-03.
 #   * TOS had the PolaRx5 joined from 2024-11-14 00:00 and the NetRS closed
 #     2024-11-14 10:00, so the 11-13 evening data was processed as a NetRS.
 # Requested by BGÓ 2026-11-03 (with the INTA E +11 mm equipment step in
