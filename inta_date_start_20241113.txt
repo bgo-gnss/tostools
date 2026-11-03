@@ -1,0 +1,13 @@
+# INTA (id 4342) — PolaRx5 date_start value to the install time
+#
+# Follows inta_receiver_20241113.txt (applied 2026-11-03): the PolaRx5's
+# attribute periods and joins start 2024-11-13T18:10 (vitjun 4738), but its
+# date_start VALUE still read 2024-11-14T00:00:00. BGÓ 2026-11-03: change it.
+#
+# Known ids:
+#   20694 PolaRx5 4101796, date_start id_attribute_value 145692
+#         (date_from 2024-11-13T18:10:00, value 2024-11-14T00:00:00)
+
+ACTION 20694 patch-attribute-value date_start 2024-11-13 2024-11-13T18:10:00
+
+# Verification: tos device show --id 20694 (date_start = 2024-11-13T18:10:00)
