@@ -1,0 +1,34 @@
+# INTA (id 4342) — receiver swap re-dated to the visit, 2024-11-13 18:10
+#
+# Evidence:
+#   * Vitjun 4738 (bhb@vedur.is) 2024-11-13 18:10-19:10: "gamla NetRS tækið var
+#     bilað og sett nýtt Septentrio í staðinn".
+#   * RINEX INTA3180.24D: SEPT POLARX5 #4101796, TIME OF FIRST OBS 2024-11-13 21:28.
+#   * TOS had the PolaRx5 joined from 2024-11-14 00:00 and the NetRS closed
+#     2024-11-14 10:00, so the 11-13 evening data was processed as a NetRS.
+# Requested by BGÓ 2026-11-03 (with the INTA E +11 mm equipment step in
+# gps-config-data steps.yaml).
+#
+# Known ids:
+#   4946  NetRS 4705127762   joins 6085 (INTA, ->2024-11-14T10:00), 26329 (B9 store, 2024-11-14T10:00->)
+#   20694 PolaRx5 4101796    joins 26328 (B9 store, 2024-11-14T00:00->2024-11-14T00:00), 26330 (INTA, 2024-11-14T00:00->)
+
+# STEP 1 — NetRS leaves INTA at the visit, into the store
+ACTION 4946 patch-join-date 6085 time_to 2024-11-13T18:10:00
+ACTION 4946 patch-join-date 26329 time_from 2024-11-13T18:10:00
+
+# STEP 2 — PolaRx5 out of the store and onto INTA at the visit
+ACTION 20694 patch-join-date 26328 time_from 2024-11-13T18:10:00
+ACTION 20694 patch-join-date 26328 time_to 2024-11-13T18:10:00
+ACTION 20694 patch-join-date 26330 time_from 2024-11-13T18:10:00
+
+# STEP 3 — the PolaRx5's own attribute periods start at the visit too
+ACTION 20694 patch-attribute-date serial_number 2024-11-14 2024-11-13T18:10:00
+ACTION 20694 patch-attribute-date firmware_version 2024-11-14 2024-11-13T18:10:00
+ACTION 20694 patch-attribute-date software_version 2024-11-14 2024-11-13T18:10:00
+ACTION 20694 patch-attribute-date model 2024-11-14 2024-11-13T18:10:00
+ACTION 20694 patch-attribute-date status 2024-11-14 2024-11-13T18:10:00
+ACTION 20694 patch-attribute-date owner 2024-11-14 2024-11-13T18:10:00
+ACTION 20694 patch-attribute-date date_start 2024-11-14 2024-11-13T18:10:00
+
+# Verification: tos station verify INTA; tosGPS PrintTOS INTA (PolaRx5 from 2024 318 18:10)
