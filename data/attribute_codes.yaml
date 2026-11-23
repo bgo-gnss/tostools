@@ -1899,6 +1899,18 @@ stations:
     walked: false
     why: "Used by tosGPS to mark EPOS network membership"
 
+  monitoring_purpose:
+    icelandic_label: Tilgangur vöktunar
+    description: Ordered hazard/process list, primary first, semicolon-separated — avalanche;landslide;rockfall;volcanic;tectonic;other
+    classification: mutable # a station's monitoring purpose can change over its lifetime
+    tos_required_for: []
+    gps_required_for: [] # optional classification, never a station-intake requirement
+    default_value: ~
+    applies_to: [geophysical]
+    gps_relevance: "yes"
+    walked: false
+    why: "Added 2026-11-23 with TOS attribute id 191 after operator approval. Lets tosGPS search filter hazard-monitoring stations from TOS without station_areas.yaml. Absence means unclassified, NOT 'monitors no hazard'; use 'monitoring_purpose = null' to find unclassified stations."
+
   continuity:
     icelandic_label: Samfella
     description: GNSS measurement continuity — continuous | campaign
