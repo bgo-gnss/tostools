@@ -7247,6 +7247,8 @@ def _visit_remove_main(args, client, base_url: str) -> int:
     """
     import json as _json
 
+    import requests
+
     from .api.tos_writer import TOSWriter
 
     dry_run = not args.no_dry_run
@@ -7287,8 +7289,14 @@ def _visit_remove_main(args, client, base_url: str) -> int:
         writer = TOSWriter(base_url=base_url, dry_run=False)
         try:
             result = writer.delete_maintenance(args.id_maintenance)
-        except ValueError as exc:
-            print(f"remove failed: {exc}", file=sys.stderr)
+        except (ValueError, requests.RequestException) as exc:
+            # a timeout at login or at the DELETE: say so in one line; the
+            # visit may or may not be gone, so point at the check
+            print(
+                f"remove failed: {exc}\n"
+                f"check with: tos visit show {args.id_maintenance}",
+                file=sys.stderr,
+            )
             return 1
 
     if args.json:
