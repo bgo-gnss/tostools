@@ -6610,6 +6610,11 @@ def _visit_main(argv, profile=None):
               [--no-completed] [--no-dry-run]``
                             Create a new vitjun. Dry-run by default;
                             ``--no-dry-run`` commits.
+      ``remove <id_maintenance> [--no-dry-run] [--commit]``
+                            Permanently delete a vitjun created by
+                            mistake. Shows the record first; dry-run by
+                            default; ``--commit`` records the deleted row
+                            in gps-tos-corrections ``deletions/``.
 
     Exit codes: 0 success, 1 lookup miss / no records / writer error,
     2 usage error.
@@ -6632,6 +6637,7 @@ def _visit_main(argv, profile=None):
             "  list --entity <id>      Escape hatch — any entity by id_entity.\n"
             "  show <id_maintenance>   One vitjun's full detail.\n"
             "  add ...                 Create a new vitjun (dry-run by default).\n"
+            "  remove <id_maintenance> Delete a vitjun made by mistake (dry-run by default).\n"
             "  search --work TEXT      Fleet-wide free-text search.\n\n"
             "List accepts the standard visit-filter set: --type, "
             "--reason (repeatable), --since DATE, --participants SUBSTR, "
@@ -6850,6 +6856,52 @@ def _visit_main(argv, profile=None):
         help="TOS API host (default: vi-api.vedur.is).",
     )
     p_add.add_argument("--port", type=int, default=443)
+
+    p_remove = sub.add_parser(
+        "remove",
+        help="Permanently delete a vitjun created by mistake (dry-run by default).",
+        description=(
+            "Delete one vitjun by id_maintenance (DELETE "
+            "/admin_maintenance_row/{id}, admin access). The record is read "
+            "and shown first; an unknown id exits 1 without a write.\n\n"
+            "Deletion erases the history. For a visit that really happened, "
+            "correct it instead of deleting it.\n\n"
+            "Dry-run by default; --no-dry-run deletes. --commit (with "
+            "--no-dry-run) appends the deleted record to "
+            "deletions/visit_deletions.jsonl in gps-tos-corrections and "
+            "git-commits it."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_remove.add_argument(
+        "id_maintenance",
+        type=int,
+        help="The vitjun's id_maintenance (column 'id' in `tos visit list`).",
+    )
+    p_remove.add_argument(
+        "--no-dry-run",
+        dest="no_dry_run",
+        action="store_true",
+        help="Actually delete. Without this flag nothing is sent (dry-run).",
+    )
+    p_remove.add_argument(
+        "--commit",
+        action="store_true",
+        help=(
+            "After a live delete, record the deleted vitjun in the "
+            "gps-tos-corrections repo (deletions/visit_deletions.jsonl) and "
+            "git-commit it. Best-effort; never fails the delete."
+        ),
+    )
+    p_remove.add_argument(
+        "--json", action="store_true", help="Emit structured JSON summary."
+    )
+    p_remove.add_argument(
+        "--server",
+        default="vi-api.vedur.is",
+        help="TOS API host (default: vi-api.vedur.is).",
+    )
+    p_remove.add_argument("--port", type=int, default=443)
 
     p_search = sub.add_parser(
         "search",
@@ -7175,10 +7227,99 @@ def _visit_main(argv, profile=None):
             print(f"Drill: tos visit show {new_id}")
         return 0
 
+    if args.verb == "remove":
+        return _visit_remove_main(args, client, base_url)
+
     if args.verb == "search":
         return _visit_search_main(args, profile)
 
     return 2
+
+
+def _visit_remove_main(args, client, base_url: str) -> int:
+    """``tos visit remove <id>``: delete one vitjun, showing it first.
+
+    The record is read before anything else, so an unknown id (a typo)
+    exits 1 with no write, and the operator sees what the id points at
+    before confirming with ``--no-dry-run``. The same pre-read is what
+    ``--commit`` records: the delete erases the row, so a bare id would
+    be an opaque audit trail.
+    """
+    import json as _json
+
+    from .api.tos_writer import TOSWriter
+
+    dry_run = not args.no_dry_run
+    if dry_run and args.commit:
+        print(
+            "note: --commit has no effect without --no-dry-run (dry-run makes no "
+            "TOS change to record)",
+            file=sys.stderr,
+        )
+
+    visit = client.get_maintenance_visit(args.id_maintenance)
+    if not visit:
+        print(
+            f"No vitjun found for id_maintenance={args.id_maintenance}; "
+            "nothing removed",
+            file=sys.stderr,
+        )
+        return 1
+
+    # work and the owning entity live on the attribute-value rows, as in
+    # _render_visit_detail; the visit itself carries neither
+    av_rows = visit.get("maintenance_attribute_values") or []
+    work = next(
+        (str(a.get("value") or "") for a in av_rows if a.get("code") == "work"), ""
+    )
+    entity = next((a.get("id_entity") for a in av_rows if a.get("id_entity")), "?")
+    summary = (
+        f"id={args.id_maintenance} entity={entity} "
+        f"start={(visit.get('start_time') or '?')[:10]} "
+        f"type={visit.get('maintenance_type') or '-'} "
+        f"work={(work or '-')[:60]!r}"
+    )
+
+    # A dry-run needs no writer: the record is already read (no login), and
+    # TOSWriter logs in even when it only logs the request.
+    result: Any = "dry-run: nothing sent"
+    if not dry_run:
+        writer = TOSWriter(base_url=base_url, dry_run=False)
+        try:
+            result = writer.delete_maintenance(args.id_maintenance)
+        except ValueError as exc:
+            print(f"remove failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.json:
+        print(
+            _json.dumps(
+                {
+                    "verb": "remove",
+                    "id_maintenance": args.id_maintenance,
+                    "dry_run": dry_run,
+                    "visit": visit,
+                    "result": str(result),
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            )
+        )
+    elif dry_run:
+        print(f"Would remove vitjun {summary} (dry-run; --no-dry-run deletes)")
+    else:
+        print(f"Removed vitjun {summary}")
+
+    if not dry_run and args.commit:
+        _audit_log_contact_change(
+            action="visit_delete",
+            subdir="deletions",
+            filename="visit_deletions.jsonl",
+            record={"id_maintenance": args.id_maintenance, "deleted": visit},
+            commit_msg=f"deletions: remove vitjun {args.id_maintenance}",
+        )
+    return 0
 
 
 def _visit_search_main(args, profile=None) -> int:
