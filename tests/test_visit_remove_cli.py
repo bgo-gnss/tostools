@@ -102,3 +102,22 @@ def test_json_output(capsys):
     assert doc["verb"] == "remove"
     assert doc["dry_run"] is True
     assert doc["visit"] == VISIT
+
+
+def test_network_timeout_is_one_line_and_records_nothing(capsys):
+    import requests
+
+    client = MagicMock()
+    client.get_maintenance_visit.return_value = VISIT
+    writer = MagicMock()
+    writer.delete_maintenance.side_effect = requests.ReadTimeout("Read timed out")
+    with (
+        patch("tostools.api.tos_client.TOSClient", return_value=client),
+        patch("tostools.api.tos_writer.TOSWriter", return_value=writer),
+        patch("tostools.tos._audit_log_contact_change") as audit,
+    ):
+        rc = _visit_main(["remove", "5147", "--no-dry-run", "--commit"])
+    assert rc == 1
+    audit.assert_not_called()
+    err = capsys.readouterr().err
+    assert "Read timed out" in err and "tos visit show 5147" in err
